@@ -1,0 +1,241 @@
+/**
+ * SQLite schema for Maß — single-device, single-user.
+ *
+ * Conventions
+ * ─────────────
+ * • Timestamps are stored as integer ms ('timestamp_ms') so Drizzle hands us
+ *   real `Date` objects in TS.
+ * • Booleans are 0/1 integers — we type them with `mode: 'boolean'`.
+ * • Source-of-truth split (from the architecture decision):
+ *     – HealthKit owns: steps, HR, active energy.
+ *     – HealthKit + local mirror: weight_entries, workout_entries.
+ *       `healthkit_uuid` is the dedupe key on re-pulls.
+ *     – Local-only: everything else.
+ * • Foreign keys use ON DELETE CASCADE where the child has no meaning
+ *   without its parent (e.g. meal_items without a meal).
+ */
+
+import { sql } from 'drizzle-orm';
+import { integer, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
+
+const id = () => integer('id').primaryKey({ autoIncrement: true });
+const createdAt = () =>
+  integer('created_at', { mode: 'timestamp_ms' })
+    .notNull()
+    .default(sql`(unixepoch() * 1000)`);
+
+// ─── Fasting ──────────────────────────────────────────────────────────────────
+export const fastingSessions = sqliteTable('fasting_sessions', {
+  id: id(),
+  startedAt: integer('started_at', { mode: 'timestamp_ms' }).notNull(),
+  /** Null while the session is active. */
+  endedAt: integer('ended_at', { mode: 'timestamp_ms' }),
+  /** Target duration when the session began (e.g. 16 for a 16:8 fast). */
+  targetHours: integer('target_hours').notNull(),
+  notes: text('notes'),
+  createdAt: createdAt(),
+});
+
+// ─── Hydration ────────────────────────────────────────────────────────────────
+export const waterLogs = sqliteTable('water_logs', {
+  id: id(),
+  at: integer('at', { mode: 'timestamp_ms' }).notNull(),
+  ml: integer('ml').notNull(),
+  source: text('source', { enum: ['manual', 'voice', 'healthkit'] })
+    .notNull()
+    .default('manual'),
+  createdAt: createdAt(),
+});
+
+// ─── Pantry (food library) ────────────────────────────────────────────────────
+export const pantryItems = sqliteTable('pantry_items', {
+  id: id(),
+  name: text('name').notNull(),
+  brand: text('brand'),
+  defaultServingQty: real('default_serving_qty').notNull().default(1),
+  /** Free-form for now: 'g', 'oz', 'serving', etc. */
+  defaultServingUnit: text('default_serving_unit').notNull().default('serving'),
+  kcalPerServing: real('kcal_per_serving').notNull(),
+  proteinG: real('protein_g').notNull().default(0),
+  carbsG: real('carbs_g').notNull().default(0),
+  fatG: real('fat_g').notNull().default(0),
+  lastUsedAt: integer('last_used_at', { mode: 'timestamp_ms' }),
+  createdAt: createdAt(),
+});
+
+// ─── Meals ────────────────────────────────────────────────────────────────────
+export const meals = sqliteTable('meals', {
+  id: id(),
+  eatenAt: integer('eaten_at', { mode: 'timestamp_ms' }).notNull(),
+  /** Free-form label like "Breakfast" or "Leftover thai". */
+  name: text('name'),
+  /** Roll-ups — kept here so trend queries don't have to sum line items. */
+  kcal: real('kcal'),
+  proteinG: real('protein_g'),
+  carbsG: real('carbs_g'),
+  fatG: real('fat_g'),
+  notes: text('notes'),
+  createdAt: createdAt(),
+});
+
+export const mealItems = sqliteTable('meal_items', {
+  id: id(),
+  mealId: integer('meal_id')
+    .notNull()
+    .references(() => meals.id, { onDelete: 'cascade' }),
+  /** Optional link into the pantry; null means a one-off entry. */
+  pantryItemId: integer('pantry_item_id').references(() => pantryItems.id, {
+    onDelete: 'set null',
+  }),
+  /** Used when there's no pantry link — e.g. "16oz water", "leftover thai". */
+  freeText: text('free_text'),
+  quantity: real('quantity').notNull().default(1),
+  unit: text('unit').notNull().default('serving'),
+  /** Per-item nutrition copy at the moment of logging (decouples from pantry changes). */
+  kcal: real('kcal'),
+  proteinG: real('protein_g'),
+  carbsG: real('carbs_g'),
+  fatG: real('fat_g'),
+  createdAt: createdAt(),
+});
+
+// ─── Body — weight (HealthKit mirror) ─────────────────────────────────────────
+export const weightEntries = sqliteTable(
+  'weight_entries',
+  {
+    id: id(),
+    at: integer('at', { mode: 'timestamp_ms' }).notNull(),
+    kg: real('kg').notNull(),
+    source: text('source', { enum: ['healthkit', 'manual', 'scale'] })
+      .notNull()
+      .default('manual'),
+    /** HealthKit sample UUID — set when source='healthkit', null otherwise. */
+    healthkitUuid: text('healthkit_uuid'),
+    createdAt: createdAt(),
+  },
+  (t) => ({
+    /** Dedupe re-pulled HK samples; multiple manual entries at the same UUID-null are fine. */
+    uniqHkUuid: uniqueIndex('weight_entries_hk_uuid_unique').on(t.healthkitUuid),
+  }),
+);
+
+// ─── Workouts (HealthKit mirror) ──────────────────────────────────────────────
+export const workoutEntries = sqliteTable(
+  'workout_entries',
+  {
+    id: id(),
+    startedAt: integer('started_at', { mode: 'timestamp_ms' }).notNull(),
+    endedAt: integer('ended_at', { mode: 'timestamp_ms' }).notNull(),
+    /** Mirrors HKWorkoutActivityType keys: 'functionalStrengthTraining', 'cycling'... */
+    type: text('type').notNull(),
+    kcal: real('kcal'),
+    distanceM: real('distance_m'),
+    notes: text('notes'),
+    source: text('source', { enum: ['healthkit', 'manual'] })
+      .notNull()
+      .default('manual'),
+    healthkitUuid: text('healthkit_uuid'),
+    createdAt: createdAt(),
+  },
+  (t) => ({
+    uniqHkUuid: uniqueIndex('workout_entries_hk_uuid_unique').on(t.healthkitUuid),
+  }),
+);
+
+// ─── Goals (programs / phases like "cut-04 · day 14/28") ──────────────────────
+export const goals = sqliteTable('goals', {
+  id: id(),
+  kind: text('kind', { enum: ['cut', 'maintain', 'bulk'] }).notNull(),
+  targetKg: real('target_kg'),
+  startedAt: integer('started_at', { mode: 'timestamp_ms' }).notNull(),
+  /** Null for open-ended programs. */
+  endsAt: integer('ends_at', { mode: 'timestamp_ms' }),
+  isActive: integer('is_active', { mode: 'boolean' }).notNull().default(false),
+  notes: text('notes'),
+  createdAt: createdAt(),
+});
+
+// ─── Daily targets (per-day kcal / h2o / move / deficit) ──────────────────────
+export const dailyTargets = sqliteTable('daily_targets', {
+  /** App-local calendar date — 'YYYY-MM-DD'. PK so there's at most one row per day. */
+  date: text('date').primaryKey(),
+  kcal: integer('kcal').notNull(),
+  h2oMl: integer('h2o_ml').notNull(),
+  moveMin: integer('move_min').notNull(),
+  /** Negative for a cut, 0 for maintenance, positive for a surplus. */
+  deficit: integer('deficit').notNull().default(0),
+  createdAt: createdAt(),
+});
+
+// ─── Fasting preferences (singleton, always id=1) ─────────────────────────────
+export const fastingPreferences = sqliteTable('fasting_preferences', {
+  /** Always 1. Enforced via INSERT OR IGNORE / upsert at app startup. */
+  id: integer('id').primaryKey(),
+  protocol: text('protocol', { enum: ['16:8', '18:6', '20:4', 'OMAD', 'custom'] })
+    .notNull()
+    .default('16:8'),
+  /** Default target when starting a new session — derived from protocol on chip tap. */
+  defaultTargetHours: integer('default_target_hours').notNull().default(16),
+  /** Eating window — minutes since midnight (e.g. 690 = 11:30). */
+  eatingWindowStartMin: integer('eating_window_start_min').notNull().default(690),
+  eatingWindowEndMin: integer('eating_window_end_min').notNull().default(1170),
+  /** Weekday bitmask. Bit 0 = Monday, bit 6 = Sunday. 31 = Mon-Fri. */
+  weekdayBitmask: integer('weekday_bitmask').notNull().default(31),
+  reminderBeforeFastStart: integer('reminder_before_fast_start', { mode: 'boolean' })
+    .notNull()
+    .default(true),
+  reminderEatingWindowOpens: integer('reminder_eating_window_opens', { mode: 'boolean' })
+    .notNull()
+    .default(true),
+  reminderWeeklySummary: integer('reminder_weekly_summary', { mode: 'boolean' })
+    .notNull()
+    .default(false),
+  reminderStreakCheckIn: integer('reminder_streak_check_in', { mode: 'boolean' })
+    .notNull()
+    .default(true),
+  streakTarget: integer('streak_target').notNull().default(30),
+  weeklyAdherenceTarget: integer('weekly_adherence_target').notNull().default(5),
+});
+
+// ─── HealthKit sync state — one row per HK type we mirror ─────────────────────
+export const hkSyncCursor = sqliteTable('hk_sync_cursor', {
+  /** HKQuantityTypeIdentifier / 'workouts' / etc. */
+  type: text('type').primaryKey(),
+  /** Opaque anchor string from queryQuantitySamplesWithAnchor; null on first pull. */
+  lastAnchor: text('last_anchor'),
+  lastSyncedAt: integer('last_synced_at', { mode: 'timestamp_ms' }).notNull(),
+});
+
+// ─── Inferred types — use these everywhere in the app ─────────────────────────
+export type FastingSession = typeof fastingSessions.$inferSelect;
+export type NewFastingSession = typeof fastingSessions.$inferInsert;
+
+export type WaterLog = typeof waterLogs.$inferSelect;
+export type NewWaterLog = typeof waterLogs.$inferInsert;
+
+export type PantryItem = typeof pantryItems.$inferSelect;
+export type NewPantryItem = typeof pantryItems.$inferInsert;
+
+export type Meal = typeof meals.$inferSelect;
+export type NewMeal = typeof meals.$inferInsert;
+
+export type MealItem = typeof mealItems.$inferSelect;
+export type NewMealItem = typeof mealItems.$inferInsert;
+
+export type WeightEntry = typeof weightEntries.$inferSelect;
+export type NewWeightEntry = typeof weightEntries.$inferInsert;
+
+export type WorkoutEntry = typeof workoutEntries.$inferSelect;
+export type NewWorkoutEntry = typeof workoutEntries.$inferInsert;
+
+export type Goal = typeof goals.$inferSelect;
+export type NewGoal = typeof goals.$inferInsert;
+
+export type DailyTarget = typeof dailyTargets.$inferSelect;
+export type NewDailyTarget = typeof dailyTargets.$inferInsert;
+
+export type HkSyncCursor = typeof hkSyncCursor.$inferSelect;
+export type NewHkSyncCursor = typeof hkSyncCursor.$inferInsert;
+
+export type FastingPreferences = typeof fastingPreferences.$inferSelect;
+export type NewFastingPreferences = typeof fastingPreferences.$inferInsert;
