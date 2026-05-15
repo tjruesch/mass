@@ -169,11 +169,7 @@ function ActiveView({
         <LogPastFastLink onPress={onLogPast} />
       </View>
 
-      {/* `key` forces remount each open — iOS spinner caches its mount-time
-          value and ignores prop updates, so without this the wheels can show
-          a stale time the next time you tap. */}
       <DateTimePickerSheet
-        key={editingStart ? 'open' : 'closed'}
         open={editingStart}
         value={startedAt}
         mode="datetime"

@@ -64,11 +64,7 @@ export function DateTimeField({
         </Text>
       </Pressable>
 
-      {/* Force a remount per open so the iOS spinner re-seeds from the
-          current value — otherwise the spinner caches its mount-time value
-          and ignores subsequent prop updates. */}
       <DateTimePickerSheet
-        key={open ? 'open' : 'closed'}
         open={open}
         value={value}
         mode={mode}
