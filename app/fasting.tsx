@@ -141,12 +141,12 @@ function FastingBody({
           ? {
               elapsedHours: active.elapsedHours,
               elapsedMs: active.elapsedMs,
-              phaseLabel: active.currentPhase.short,
             }
           : undefined
       }
       onStartFast={handleStart}
       startDisabled={!prefs}
+      onEndFast={handleEndFast}
     />
   );
 
@@ -231,7 +231,6 @@ function FastingBody({
       <StreakSection />
 
       <View style={styles.actionWrap}>
-        {active && <PrimaryButton label="end fast" onPress={handleEndFast} />}
         <LogPastFastLink onPress={onLogPast} />
       </View>
 
@@ -445,8 +444,8 @@ function StreakSection() {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HeroRing — 236px radial, 24 hour ticks, target + elapsed arcs, head dot.
-// In idle mode (no `active` prop), the elapsed arc + head dot disappear and
-// the center is replaced with a START FAST pill that calls `onStartFast`.
+// Center content mirrors between states: idle = READY + START FAST pill +
+// target hint; active = ELAPSED + HH:MM:SS counter + END FAST pill.
 // ─────────────────────────────────────────────────────────────────────────────
 type HeroRingProps = {
   size: number;
@@ -454,15 +453,16 @@ type HeroRingProps = {
   active?: {
     elapsedHours: number;
     elapsedMs: number;
-    phaseLabel: string;
   };
   /** Tap handler for the START pill rendered when there's no active session. */
   onStartFast?: () => void;
   /** Disables the START pill (e.g. while preferences are still loading). */
   startDisabled?: boolean;
+  /** Tap handler for the END pill rendered when a session is active. */
+  onEndFast?: () => void;
 };
 
-function HeroRing({ size, targetHours, active, onStartFast, startDisabled }: HeroRingProps) {
+function HeroRing({ size, targetHours, active, onStartFast, startDisabled, onEndFast }: HeroRingProps) {
   const sw = 9;
   const r = (size - sw) / 2 - 6;
   const c = 2 * Math.PI * r;
@@ -584,8 +584,10 @@ function HeroRing({ size, targetHours, active, onStartFast, startDisabled }: Her
         style={StyleSheet.absoluteFill}
         // Idle: allow taps to reach the START pill. Active: let pressables on
         // the wrapping Pressable handle "edit start time" — children are
-        // either text (no handler) or the phase chip view, so box-none is
-        // safe in both cases.
+        // Active: the END FAST pill is the only Pressable inside. Taps in
+        // any other inner area fall through to the outer ring Pressable
+        // (which handles "edit start time").
+        // Idle: the START FAST pill is the only interactive element.
         pointerEvents="box-none">
         <View style={styles.heroCenter}>
           {active ? (
@@ -595,10 +597,16 @@ function HeroRing({ size, targetHours, active, onStartFast, startDisabled }: Her
                 {main}
                 <Text style={styles.heroElapsedSeconds}>{tail}</Text>
               </Text>
-              <View style={styles.heroPhaseChip}>
-                <View style={styles.heroPhaseDot} />
-                <Text style={[styles.heroPhaseText, textStyles.cap]}>{active.phaseLabel}</Text>
-              </View>
+              <Pressable
+                onPress={onEndFast}
+                accessibilityRole="button"
+                accessibilityLabel="End fast"
+                style={({ pressed }) => [
+                  styles.heroPrimaryPill,
+                  pressed && { opacity: 0.85 },
+                ]}>
+                <Text style={styles.heroPrimaryPillText}>end fast</Text>
+              </Pressable>
             </>
           ) : (
             <>
@@ -609,11 +617,11 @@ function HeroRing({ size, targetHours, active, onStartFast, startDisabled }: Her
                 accessibilityRole="button"
                 accessibilityLabel="Start fast"
                 style={({ pressed }) => [
-                  styles.heroStartPill,
+                  styles.heroPrimaryPill,
                   startDisabled && { opacity: 0.35 },
                   pressed && !startDisabled && { opacity: 0.85 },
                 ]}>
-                <Text style={styles.heroStartPillText}>start fast</Text>
+                <Text style={styles.heroPrimaryPillText}>start fast</Text>
               </Pressable>
               <Text style={styles.heroIdleTarget}>
                 target {targetHours}h
@@ -872,43 +880,16 @@ const styles = StyleSheet.create({
     color: tokens.ink4,
     fontFamily: fonts.mono,
   },
-  heroPhaseChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginTop: 12,
-    paddingVertical: 4,
-    paddingHorizontal: 10,
-    backgroundColor: tokens.bg2,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: tokens.line,
-  },
-  heroPhaseDot: {
-    width: 5,
-    height: 5,
-    borderRadius: 999,
-    backgroundColor: tokens.accentInk,
-    shadowColor: tokens.accent,
-    shadowOffset: { width: 0, height: 0 },
-    shadowRadius: 6,
-    shadowOpacity: 1,
-  },
-  heroPhaseText: {
-    fontFamily: fonts.mono,
-    fontSize: 9,
-    color: tokens.ink2,
-    letterSpacing: 1.62,
-  },
-
-  // Hero — idle state center
+  // Hero center — labels + the shared START/END pill
   heroIdleLabel: {
     fontFamily: fonts.mono,
     fontSize: 9,
     color: tokens.ink4,
     letterSpacing: 1.98,
   },
-  heroStartPill: {
+  // Shared by START FAST (idle) and END FAST (active) — same visual weight,
+  // since they're symmetric primary actions in their respective states.
+  heroPrimaryPill: {
     marginTop: 14,
     paddingVertical: 10,
     paddingHorizontal: 22,
@@ -919,7 +900,7 @@ const styles = StyleSheet.create({
     shadowRadius: 16,
     shadowOpacity: 0.18,
   },
-  heroStartPillText: {
+  heroPrimaryPillText: {
     fontFamily: fonts.monoSemibold,
     fontSize: 11,
     color: tokens.bg,
