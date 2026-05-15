@@ -2,7 +2,7 @@ import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { DateTimePickerSheet, Glyph, SubHeader, TabBar, WindowStrip } from '@/components/design';
+import { DateTimePickerSheet, SubHeader, TabBar, WindowStrip } from '@/components/design';
 import { updatePreferences } from '@/src/db/queries/fasting-preferences';
 import type { FastingPreferences } from '@/src/db/schema';
 import { useFastingPreferences } from '@/src/hooks/use-fasting-preferences';
@@ -227,15 +227,6 @@ export default function FastingSettingsScreen() {
             notifications aren't scheduled yet — toggles only save the preference for now.
           </Text>
         </Section>
-
-        {/* GOALS — render-only for now (depend on more history / meals data) */}
-        <Section label="goals">
-          <View style={[styles.cardList, { padding: 14 }]}>
-            <GoalRow name="weekly adherence" value={`${prefs.weeklyAdherenceTarget} / 7 days`} sub="min target" />
-            <GoalRow name="streak target" value={`${prefs.streakTarget} days`} sub="next goal: 100" />
-            <GoalRow name="auto-detect start" value="from food logs" sub="experimental" last />
-          </View>
-        </Section>
       </ScrollView>
 
       <TabBar active="home" />
@@ -351,25 +342,6 @@ function Switch({ on, onToggle }: { on: boolean; onToggle: () => void }) {
       style={[styles.switch, { backgroundColor: on ? tokens.accentInk : tokens.bg2, borderColor: on ? tokens.accentInk : tokens.line }]}>
       <View style={[styles.switchKnob, { left: on ? 18 : 2 }]} />
     </Pressable>
-  );
-}
-
-function GoalRow({ name, value, sub, last = false }: { name: string; value: string; sub: string; last?: boolean }) {
-  return (
-    <View
-      style={[
-        styles.goalRow,
-        !last && { borderBottomWidth: 1, borderBottomColor: tokens.line },
-      ]}>
-      <View>
-        <Text style={styles.goalName}>{name}</Text>
-        <Text style={styles.goalSub}>{sub}</Text>
-      </View>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-        <Text style={[styles.goalValue, textStyles.tnum]}>{value}</Text>
-        <Glyph name="chev" color={tokens.ink4} />
-      </View>
-    </View>
   );
 }
 
@@ -585,29 +557,4 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.18,
   },
 
-  // Goals
-  goalRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 10,
-  },
-  goalName: {
-    fontFamily: fonts.sansMedium,
-    fontSize: 12.5,
-    color: tokens.ink,
-  },
-  goalSub: {
-    fontFamily: fonts.mono,
-    fontSize: 9,
-    color: tokens.ink4,
-    marginTop: 2,
-    fontStyle: 'italic',
-    letterSpacing: 0.36,
-  },
-  goalValue: {
-    fontFamily: fonts.monoMedium,
-    fontSize: 11,
-    color: tokens.ink,
-  },
 });
