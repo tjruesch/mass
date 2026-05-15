@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View, type LayoutChangeEvent } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View, type LayoutChangeEvent } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 
 import { Glyph, SubHeader, TabBar } from '@/components/design';
@@ -49,62 +49,83 @@ const REMINDERS: {
 export default function FastingSettingsScreen() {
   const router = useRouter();
   const prefs = useFastingPreferences();
-  const [draft, setDraft] = useState<FastingPreferences | null>(null);
 
-  // Seed draft when prefs first loads.
+  // Local buffer for the in-flight eating-window drag. Kept set after commit
+  // until prefs reflects the new values (cleared by the effect below) so the
+  // strip and stats don't flash through stale values for a frame.
+  const [dragWindow, setDragWindow] = useState<{ start: number; end: number } | null>(null);
+
   useEffect(() => {
-    if (prefs && !draft) setDraft(prefs);
-  }, [prefs, draft]);
+    if (
+      dragWindow &&
+      prefs &&
+      prefs.eatingWindowStartMin === dragWindow.start &&
+      prefs.eatingWindowEndMin === dragWindow.end
+    ) {
+      setDragWindow(null);
+    }
+  }, [prefs, dragWindow]);
 
-  const dirty = useMemo(() => {
-    if (!prefs || !draft) return false;
-    return (Object.keys(draft) as (keyof FastingPreferences)[]).some(
-      (k) => prefs[k] !== draft[k],
-    );
-  }, [prefs, draft]);
+  if (!prefs) return <View style={{ flex: 1, backgroundColor: tokens.bg }} />;
 
-  if (!draft) return <View style={{ flex: 1, backgroundColor: tokens.bg }} />;
+  const windowStart = dragWindow?.start ?? prefs.eatingWindowStartMin;
+  const windowEnd = dragWindow?.end ?? prefs.eatingWindowEndMin;
 
-  const set = <K extends keyof FastingPreferences>(key: K, value: FastingPreferences[K]) => {
-    setDraft((d) => (d ? { ...d, [key]: value } : d));
-  };
+  const writeFail = (err: unknown) =>
+    console.warn('Failed to update fasting preferences:', err);
 
+  // Every interaction auto-commits — no save button, no dirty check.
   const onSelectProtocol = (proto: typeof PROTOCOL_OPTIONS[number]) => {
-    set('protocol', proto.id);
-    if (proto.defaultTarget !== null) set('defaultTargetHours', proto.defaultTarget);
+    const patch: Partial<FastingPreferences> = { protocol: proto.id };
+    if (proto.defaultTarget !== null) patch.defaultTargetHours = proto.defaultTarget;
     if (proto.windowLengthMin !== null) {
       // Keep window start fixed; move end to start + length.
-      const start = draft.eatingWindowStartMin;
-      set('eatingWindowEndMin', (start + proto.windowLengthMin) % (24 * 60));
+      patch.eatingWindowEndMin = (prefs.eatingWindowStartMin + proto.windowLengthMin) % (24 * 60);
     }
+    updatePreferences(patch).catch(writeFail);
   };
 
   const onToggleWeekday = (bit: number) => {
-    set('weekdayBitmask', draft.weekdayBitmask ^ (1 << bit));
+    updatePreferences({ weekdayBitmask: prefs.weekdayBitmask ^ (1 << bit) }).catch(writeFail);
   };
 
-  const onSave = async () => {
-    try {
-      await updatePreferences(draft);
-      router.back();
-    } catch (err) {
-      Alert.alert('Save failed', err instanceof Error ? err.message : String(err));
-    }
+  const onToggleReminder = (key: typeof REMINDERS[number]['key']) => {
+    updatePreferences({ [key]: !prefs[key] }).catch(writeFail);
   };
+
+  // ── Drag handlers ───────────────────────────────────────────────────────
+  // Buffer locally during the drag (so stats + strip update fluidly without
+  // hitting SQLite per snap step); commit a single write on lift.
+  const onShiftStart = () => {
+    setDragWindow({ start: prefs.eatingWindowStartMin, end: prefs.eatingWindowEndMin });
+  };
+  const onShift = (deltaMin: number) => {
+    setDragWindow((prev) => {
+      if (!prev) return prev;
+      const length = windowLengthMin(prev.start, prev.end);
+      const newStart = wrapMin(prev.start + deltaMin);
+      return { start: newStart, end: wrapMin(newStart + length) };
+    });
+  };
+  const onShiftCommit = () => {
+    setDragWindow((prev) => {
+      if (prev) {
+        updatePreferences({
+          eatingWindowStartMin: prev.start,
+          eatingWindowEndMin: prev.end,
+        }).catch(writeFail);
+      }
+      // Keep until prefs catches up — useEffect above clears the buffer
+      // once they match, avoiding a one-frame flash through old values.
+      return prev;
+    });
+  };
+  const onShiftAbort = () => setDragWindow(null);
 
   return (
     <View style={{ flex: 1, backgroundColor: tokens.bg }}>
       <ScrollView contentContainerStyle={styles.scroll}>
-        <SubHeader
-          title="Fasting · settings"
-          back="Fasting"
-          onBack={() => router.back()}
-          trailing={
-            <Pressable onPress={onSave} hitSlop={8} disabled={!dirty}>
-              <Text style={[styles.saveText, !dirty && { opacity: 0.35 }]}>save</Text>
-            </Pressable>
-          }
-        />
+        <SubHeader title="Fasting · settings" back="Fasting" onBack={() => router.back()} />
 
         {/* PROTOCOL */}
         <Section label="protocol" sub="select your fasting ratio">
@@ -114,7 +135,7 @@ export default function FastingSettingsScreen() {
                 key={p.id}
                 label={p.id}
                 sub={p.sub}
-                active={draft.protocol === p.id}
+                active={prefs.protocol === p.id}
                 onPress={() => onSelectProtocol(p)}
               />
             ))}
@@ -124,26 +145,20 @@ export default function FastingSettingsScreen() {
         {/* EATING WINDOW */}
         <Section
           label="eating window"
-          sub={`${formatWindowLength(draft.eatingWindowStartMin, draft.eatingWindowEndMin)} · ${formatMinutes(draft.eatingWindowStartMin)} → ${formatMinutes(draft.eatingWindowEndMin)}`}>
+          sub={`${formatWindowLength(windowStart, windowEnd)} · ${formatMinutes(windowStart)} → ${formatMinutes(windowEnd)}`}>
           <View style={styles.windowCard}>
             <View style={styles.windowStatsRow}>
-              <WindowStat label="start" value={formatMinutes(draft.eatingWindowStartMin)} withDivider={false} />
-              <WindowStat label="end" value={formatMinutes(draft.eatingWindowEndMin)} />
-              <WindowStat
-                label="length"
-                value={formatWindowLength(draft.eatingWindowStartMin, draft.eatingWindowEndMin)}
-              />
+              <WindowStat label="start" value={formatMinutes(windowStart)} withDivider={false} />
+              <WindowStat label="end" value={formatMinutes(windowEnd)} />
+              <WindowStat label="length" value={formatWindowLength(windowStart, windowEnd)} />
             </View>
             <WindowStrip
-              startMin={draft.eatingWindowStartMin}
-              endMin={draft.eatingWindowEndMin}
-              onShift={(deltaMin) => {
-                const length = windowLengthMin(draft.eatingWindowStartMin, draft.eatingWindowEndMin);
-                const newStart = wrapMin(draft.eatingWindowStartMin + deltaMin);
-                setDraft((d) =>
-                  d ? { ...d, eatingWindowStartMin: newStart, eatingWindowEndMin: wrapMin(newStart + length) } : d,
-                );
-              }}
+              startMin={windowStart}
+              endMin={windowEnd}
+              onShiftStart={onShiftStart}
+              onShift={onShift}
+              onShiftCommit={onShiftCommit}
+              onShiftAbort={onShiftAbort}
             />
           </View>
         </Section>
@@ -152,7 +167,7 @@ export default function FastingSettingsScreen() {
         <Section label="weekly schedule" sub="apply on these days">
           <View style={{ flexDirection: 'row', gap: 5 }}>
             {WEEKDAYS.map((d, i) => {
-              const on = (draft.weekdayBitmask & (1 << d.bit)) !== 0;
+              const on = (prefs.weekdayBitmask & (1 << d.bit)) !== 0;
               return (
                 <Pressable
                   key={i}
@@ -163,7 +178,7 @@ export default function FastingSettingsScreen() {
               );
             })}
           </View>
-          <Text style={styles.weeklySummary}>{summarizeWeekdays(draft.weekdayBitmask)}</Text>
+          <Text style={styles.weeklySummary}>{summarizeWeekdays(prefs.weekdayBitmask)}</Text>
         </Section>
 
         {/* REMINDERS */}
@@ -172,12 +187,15 @@ export default function FastingSettingsScreen() {
             {REMINDERS.map((r, i) => (
               <View
                 key={r.key}
-                style={[styles.cardRow, i < REMINDERS.length - 1 && { borderBottomWidth: 1, borderBottomColor: tokens.line }]}>
+                style={[
+                  styles.cardRow,
+                  i < REMINDERS.length - 1 && { borderBottomWidth: 1, borderBottomColor: tokens.line },
+                ]}>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.cardRowName}>{r.name}</Text>
                   <Text style={styles.cardRowSub}>{r.sub}</Text>
                 </View>
-                <Switch on={draft[r.key]} onToggle={() => set(r.key, !draft[r.key])} />
+                <Switch on={prefs[r.key]} onToggle={() => onToggleReminder(r.key)} />
               </View>
             ))}
           </View>
@@ -189,8 +207,8 @@ export default function FastingSettingsScreen() {
         {/* GOALS — render-only for now (depend on more history / meals data) */}
         <Section label="goals">
           <View style={[styles.cardList, { padding: 14 }]}>
-            <GoalRow name="weekly adherence" value={`${draft.weeklyAdherenceTarget} / 7 days`} sub="min target" />
-            <GoalRow name="streak target" value={`${draft.streakTarget} days`} sub="next goal: 100" />
+            <GoalRow name="weekly adherence" value={`${prefs.weeklyAdherenceTarget} / 7 days`} sub="min target" />
+            <GoalRow name="streak target" value={`${prefs.streakTarget} days`} sub="next goal: 100" />
             <GoalRow name="auto-detect start" value="from food logs" sub="experimental" last />
           </View>
         </Section>
@@ -254,21 +272,30 @@ function WindowStat({ label, value, withDivider = true }: { label: string; value
  * 24-hour strip showing the eating window and a "now" marker.
  * Wraps midnight gracefully — if endMin < startMin, draws two rectangles.
  *
- * If `onShift` is provided, the strip is draggable: a horizontal pan
- * translates the entire window (preserving length), snapped to 15-minute
- * increments. `onShift(deltaMin)` is the cumulative delta from the start of
- * the gesture, so callers can write back the new start/end directly.
+ * Drag lifecycle (when handlers are provided): a horizontal pan translates
+ * the whole window with 15-min snapping. `onShiftStart` fires when the
+ * gesture is recognized; `onShift(delta)` emits each snap-step's
+ * incremental delta; `onShiftCommit` fires on lift (success);
+ * `onShiftAbort` fires when the gesture is cancelled (e.g. parent scroll
+ * claims it). Parents are expected to buffer state during the drag and
+ * commit a single write at the end.
  */
 const SNAP_MIN = 15;
 
 function WindowStrip({
   startMin,
   endMin,
+  onShiftStart,
   onShift,
+  onShiftCommit,
+  onShiftAbort,
 }: {
   startMin: number;
   endMin: number;
+  onShiftStart?: () => void;
   onShift?: (deltaMin: number) => void;
+  onShiftCommit?: () => void;
+  onShiftAbort?: () => void;
 }) {
   const totalMin = 24 * 60;
   const now = new Date();
@@ -281,7 +308,9 @@ function WindowStrip({
     widthRef.current = e.nativeEvent.layout.width;
   };
 
-  // Build the Pan gesture lazily so callers without `onShift` get a static strip.
+  const interactive = !!(onShiftStart || onShift || onShiftCommit);
+
+  // Build the Pan gesture lazily so non-interactive strips don't pay for it.
   const pan = useMemo(() => {
     return Gesture.Pan()
       // Activate on horizontal motion only — lets the parent ScrollView keep vertical scrolls.
@@ -289,8 +318,9 @@ function WindowStrip({
       .failOffsetY([-12, 12])
       // Don't lose the gesture when the finger moves outside the strip bounds.
       .shouldCancelWhenOutside(false)
-      .onBegin(() => {
+      .onStart(() => {
         lastSnappedDelta.current = 0;
+        onShiftStart?.();
       })
       .onUpdate((e) => {
         if (!onShift || widthRef.current === 0) return;
@@ -302,9 +332,14 @@ function WindowStrip({
           onShift(incremental);
         }
       })
-      // runOnJS so the callback fires on the JS thread where state lives
+      .onEnd(() => onShiftCommit?.())
+      // Fires on success OR cancel — only revert on the latter.
+      .onFinalize((_, success) => {
+        if (!success) onShiftAbort?.();
+      })
+      // runOnJS so callbacks reach the JS thread where state lives.
       .runOnJS(true);
-  }, [onShift, totalMin]);
+  }, [onShiftStart, onShift, onShiftCommit, onShiftAbort, totalMin]);
 
   const segments: { left: number; width: number }[] = [];
   if (endMin > startMin) {
@@ -344,7 +379,7 @@ function WindowStrip({
         />
       ))}
       <View style={[styles.windowNowMarker, { left: `${(nowMin / totalMin) * 100}%` }]} />
-      {onShift && (
+      {interactive && (
         // Grip hint at the window's midpoint so users discover it's draggable.
         <View
           pointerEvents="none"
@@ -359,7 +394,7 @@ function WindowStrip({
 
   return (
     <View>
-      {onShift ? <GestureDetector gesture={pan}>{stripBody}</GestureDetector> : stripBody}
+      {interactive ? <GestureDetector gesture={pan}>{stripBody}</GestureDetector> : stripBody}
       <View style={styles.windowTickRow}>
         {['00', '06', '12', '18', '24'].map((t) => (
           <Text key={t} style={styles.windowTickText}>
@@ -443,14 +478,6 @@ const styles = StyleSheet.create({
   scroll: {
     paddingTop: 54,
     paddingBottom: 130,
-  },
-
-  saveText: {
-    fontFamily: fonts.monoSemibold,
-    fontSize: 10,
-    color: tokens.accentInk,
-    letterSpacing: 1.98,
-    textTransform: 'uppercase',
   },
 
   sectionHeader: {
