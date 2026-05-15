@@ -29,6 +29,18 @@ function formatClockTime(d: Date): string {
   return `${h}:${m}`;
 }
 
+/** Time-of-day greeting bucket. Boundaries match what feels natural for an
+ *  app with a wake/sleep window of ~06:00–22:00. Late-night users (post-21:00
+ *  through pre-05:00) get "Evening" rather than a clinical "Night" because
+ *  the surface is a fitness/health log, not a sleep aid. */
+function greetingFor(d: Date): string {
+  const h = d.getHours();
+  if (h < 5) return 'Evening';
+  if (h < 12) return 'Morning';
+  if (h < 17) return 'Afternoon';
+  return 'Evening';
+}
+
 import { TabBar, WindowStrip } from '@/components/design';
 import { useFasting, type FastingState } from '@/src/hooks/use-fasting';
 import { useFastingPreferences } from '@/src/hooks/use-fasting-preferences';
@@ -416,7 +428,7 @@ export default function HomeScreen() {
             </View>
           </View>
           <Text style={styles.greetingHeading}>
-            Morning, <Text style={styles.greetingHeadingName}>Sam.</Text>
+            {greetingFor(now)}, <Text style={styles.greetingHeadingName}>Tom.</Text>
           </Text>
           <Text style={styles.greetingSub}>
             {fasting.status === 'active' && fasting.msToNextPhase !== null && fasting.msToNextPhase > 0 ? (
