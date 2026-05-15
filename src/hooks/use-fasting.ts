@@ -10,14 +10,16 @@
  * differently from "no session" unless they care.
  */
 
-import { gte, isNull, or } from 'drizzle-orm';
+import { isNull } from 'drizzle-orm';
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import { useMemo } from 'react';
 
 import { db } from '@/src/db';
 import { fastingSessions, type FastingSession } from '@/src/db/schema';
+import { useFastingPreferences } from '@/src/hooks/use-fasting-preferences';
 import { useNow } from '@/src/lib/use-now';
 import {
+  dowMondayFirst,
   elapsedHours,
   elapsedMs,
   findPhase,
@@ -93,75 +95,115 @@ function levelForHours(hours: number): DailyFastLevel {
 }
 
 export type FastingHistory = {
-  /** Per-day level. Last entry = today. Days with no fast are level 0. */
+  /** Per-day level for the heatmap. Last entry = today. Empty days = level 0. */
   readonly cells: ReadonlyArray<{ date: string; level: DailyFastLevel }>;
-  /** Consecutive days back from today with level ≥ 1. */
+  /**
+   * Consecutive days back from today on which a target-hit fast was logged,
+   * **threading through scheduled-off days** (per `weekdayBitmask`). Breaks
+   * on a scheduled-on day that did not hit target.
+   */
   readonly currentStreak: number;
-  /** Longest run in the queried window. */
+  /** Longest such run across all-time history (not bounded to `weeks`). */
   readonly bestStreak: number;
 };
 
 /**
- * Aggregate the last `weeks * 7` days into per-day fast levels.
+ * Aggregate fasting history into heatmap cells and streak counts.
  *
- * Attribution rule: each session contributes to the day it *ended* — or to
- * today if it's still active. That mirrors how the design draws the
- * heatmap (today's cell reflects the in-progress session), and avoids
- * double-counting cross-midnight fasts.
+ * Heatmap cells: windowed to the last `weeks * 7` days. Each cell's color
+ * level reflects the day's *longest* fast, bucketed by absolute thresholds
+ * (12h / 16h / 18h) — see `levelForHours`.
+ *
+ * Streak rules (issue #35):
+ *   • A day extends the streak iff ≥ 1 session attributed to that day hit
+ *     **its own** `targetHours` — not the user's current default.
+ *   • Days flagged as scheduled-off in `fasting_preferences.weekdayBitmask`
+ *     are *neutral*: they neither extend nor break the streak.
+ *   • `bestStreak` is computed across **all** sessions in the DB, not just
+ *     the windowed cells, so a 50-day run from a year ago still surfaces.
+ *
+ * Attribution rule: a session contributes to the calendar day its `endedAt`
+ * falls on (or today, if still active).
  */
 export function useFastingHistory(weeks: number = 14): FastingHistory {
   const today = startOfDay(new Date());
-  const rangeStartMs = today.getTime() - (weeks * 7 - 1) * 86_400_000;
   const now = useNow(60_000);
+  const prefs = useFastingPreferences();
 
-  // Pull sessions that could plausibly contribute to the window:
-  //   ended within range OR active (ended_at is null and probably ongoing).
-  const { data } = useLiveQuery(
-    db
-      .select()
-      .from(fastingSessions)
-      .where(or(gte(fastingSessions.endedAt, new Date(rangeStartMs)), isNull(fastingSessions.endedAt))),
-    [rangeStartMs],
-  );
+  // All-time sessions — needed for the all-time bestStreak (and the windowed
+  // heatmap is a cheap derivation of the same data).
+  const { data } = useLiveQuery(db.select().from(fastingSessions));
 
   return useMemo<FastingHistory>(() => {
+    const sessions = data ?? [];
     const totalDays = weeks * 7;
-    const byDay = new Map<string, number>(); // ymd → max hours
 
-    for (const s of data ?? []) {
+    // Per-day aggregation:
+    //   longestHours  → heatmap color bucket
+    //   targetHit     → true iff ANY session attributed to that day hit its
+    //                   own target. Streak math reads this; heatmap doesn't.
+    const byDay = new Map<string, { longestHours: number; targetHit: boolean }>();
+    for (const s of sessions) {
       const end = s.endedAt ?? now;
       const hours = (end.getTime() - s.startedAt.getTime()) / 3_600_000;
       if (hours <= 0) continue;
       const key = ymd(end);
-      const prev = byDay.get(key) ?? 0;
-      if (hours > prev) byDay.set(key, hours);
+      const prev = byDay.get(key) ?? { longestHours: 0, targetHit: false };
+      byDay.set(key, {
+        longestHours: Math.max(prev.longestHours, hours),
+        targetHit: prev.targetHit || hours >= s.targetHours,
+      });
     }
 
+    // ── Heatmap cells (windowed) ─────────────────────────────────────────
     const cells: { date: string; level: DailyFastLevel }[] = [];
     for (let i = totalDays - 1; i >= 0; i--) {
       const d = new Date(today.getTime() - i * 86_400_000);
       const key = ymd(d);
-      const hours = byDay.get(key) ?? 0;
-      cells.push({ date: key, level: levelForHours(hours) });
+      cells.push({ date: key, level: levelForHours(byDay.get(key)?.longestHours ?? 0) });
     }
 
-    // streaks
+    // ── Streak math ──────────────────────────────────────────────────────
+    // Default all-on while preferences are still loading — better to over-
+    // count slightly for one render than to silently swallow days.
+    const bitmask = prefs?.weekdayBitmask ?? 0b1111111;
+    const isScheduledOn = (d: Date) => (bitmask & (1 << dowMondayFirst(d))) !== 0;
+
+    // Cheap bound for the loops: don't walk further back than the earliest
+    // session in the DB.
+    const earliestSessionMs =
+      sessions.length === 0 ? null : Math.min(...sessions.map((s) => s.startedAt.getTime()));
+    const firstDayMs =
+      earliestSessionMs === null ? null : startOfDay(new Date(earliestSessionMs)).getTime();
+
     let currentStreak = 0;
-    for (let i = cells.length - 1; i >= 0; i--) {
-      if (cells[i].level >= 1) currentStreak++;
-      else break;
+    if (firstDayMs !== null) {
+      for (let cursor = today.getTime(); cursor >= firstDayMs; cursor -= 86_400_000) {
+        const d = new Date(cursor);
+        if (!isScheduledOn(d)) continue; // neutral
+        if (byDay.get(ymd(d))?.targetHit) {
+          currentStreak++;
+        } else {
+          break;
+        }
+      }
     }
+
     let bestStreak = 0;
-    let run = 0;
-    for (const c of cells) {
-      if (c.level >= 1) {
-        run++;
-        if (run > bestStreak) bestStreak = run;
-      } else {
-        run = 0;
+    if (firstDayMs !== null) {
+      let run = 0;
+      for (let cursor = firstDayMs; cursor <= today.getTime(); cursor += 86_400_000) {
+        const d = new Date(cursor);
+        if (!isScheduledOn(d)) continue; // neutral
+        if (byDay.get(ymd(d))?.targetHit) {
+          run++;
+          if (run > bestStreak) bestStreak = run;
+        } else {
+          run = 0;
+        }
       }
     }
 
     return { cells, currentStreak, bestStreak };
-  }, [data, now, today, weeks]);
+  }, [data, prefs, now, today, weeks]);
 }
