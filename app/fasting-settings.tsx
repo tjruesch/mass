@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View, type LayoutChangeEvent } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 
-import { Glyph, SubHeader, TabBar } from '@/components/design';
+import { DateTimePickerSheet, Glyph, SubHeader, TabBar } from '@/components/design';
 import { useFastingPreferences } from '@/src/hooks/use-fasting-preferences';
 import { updatePreferences } from '@/src/db/queries/fasting-preferences';
 import type { FastingPreferences } from '@/src/db/schema';
@@ -122,6 +122,20 @@ export default function FastingSettingsScreen() {
   };
   const onShiftAbort = () => setDragWindow(null);
 
+  // Tap-to-edit start/end times. `null` = closed; the value drives both
+  // the sheet title and the seed value for the time spinner.
+  const [editingField, setEditingField] = useState<'start' | 'end' | null>(null);
+
+  const onPickTime = (next: Date) => {
+    const mins = next.getHours() * 60 + next.getMinutes();
+    if (editingField === 'start') {
+      updatePreferences({ eatingWindowStartMin: mins }).catch(writeFail);
+    } else if (editingField === 'end') {
+      updatePreferences({ eatingWindowEndMin: mins }).catch(writeFail);
+    }
+    setEditingField(null);
+  };
+
   return (
     <View style={{ flex: 1, backgroundColor: tokens.bg }}>
       <ScrollView contentContainerStyle={styles.scroll}>
@@ -148,8 +162,17 @@ export default function FastingSettingsScreen() {
           sub={`${formatWindowLength(windowStart, windowEnd)} · ${formatMinutes(windowStart)} → ${formatMinutes(windowEnd)}`}>
           <View style={styles.windowCard}>
             <View style={styles.windowStatsRow}>
-              <WindowStat label="start" value={formatMinutes(windowStart)} withDivider={false} />
-              <WindowStat label="end" value={formatMinutes(windowEnd)} />
+              <WindowStat
+                label="start"
+                value={formatMinutes(windowStart)}
+                withDivider={false}
+                onPress={() => setEditingField('start')}
+              />
+              <WindowStat
+                label="end"
+                value={formatMinutes(windowEnd)}
+                onPress={() => setEditingField('end')}
+              />
               <WindowStat label="length" value={formatWindowLength(windowStart, windowEnd)} />
             </View>
             <WindowStrip
@@ -215,8 +238,28 @@ export default function FastingSettingsScreen() {
       </ScrollView>
 
       <TabBar active="home" />
+
+      <DateTimePickerSheet
+        open={editingField !== null}
+        mode="time"
+        title={editingField === 'start' ? 'Window start' : 'Window end'}
+        value={
+          editingField === 'end'
+            ? minutesToDate(windowEnd)
+            : minutesToDate(windowStart)
+        }
+        onApply={onPickTime}
+        onCancel={() => setEditingField(null)}
+      />
     </View>
   );
+}
+
+/** Build a Date "today at hh:mm" from minutes-since-midnight so the time picker can seed itself. */
+function minutesToDate(mins: number): Date {
+  const d = new Date();
+  d.setHours(Math.floor(mins / 60), mins % 60, 0, 0);
+  return d;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -255,17 +298,48 @@ function ProtocolChip({
   );
 }
 
-function WindowStat({ label, value, withDivider = true }: { label: string; value: string; withDivider?: boolean }) {
-  return (
-    <View
-      style={[
-        styles.windowStat,
-        withDivider && { borderLeftWidth: 1, borderLeftColor: tokens.line },
-      ]}>
+function WindowStat({
+  label,
+  value,
+  withDivider = true,
+  onPress,
+}: {
+  label: string;
+  value: string;
+  withDivider?: boolean;
+  /** When provided, the cell becomes a tap target for editing. */
+  onPress?: () => void;
+}) {
+  const content = (
+    <>
       <Text style={[styles.windowStatLabel, textStyles.cap]}>{label}</Text>
-      <Text style={[styles.windowStatValue, textStyles.tnum]}>{value}</Text>
-    </View>
+      <Text
+        style={[
+          styles.windowStatValue,
+          textStyles.tnum,
+          // Subtle hint that interactive cells are tappable.
+          onPress && { textDecorationLine: 'underline', textDecorationColor: tokens.line2 },
+        ]}>
+        {value}
+      </Text>
+    </>
   );
+  const cellStyle = [
+    styles.windowStat,
+    withDivider && { borderLeftWidth: 1, borderLeftColor: tokens.line },
+  ];
+  if (onPress) {
+    return (
+      <Pressable
+        onPress={onPress}
+        accessibilityRole="button"
+        accessibilityLabel={`Edit ${label} time`}
+        style={({ pressed }) => [...cellStyle, pressed && { opacity: 0.7 }]}>
+        {content}
+      </Pressable>
+    );
+  }
+  return <View style={cellStyle}>{content}</View>;
 }
 
 /**
