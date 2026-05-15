@@ -14,7 +14,10 @@ export const FASTING_PHASES: readonly FastingPhase[] = [
   { id: 'anabolic', short: 'anabolic', label: 'Anabolic', start: 0, end: 4 },
   { id: 'glucose', short: 'glucose', label: 'Glucose', start: 4, end: 12 },
   { id: 'fat', short: 'fat burn', label: 'Fat burn', start: 12, end: 16 },
-  { id: 'ketosis', short: 'ketosis', label: 'Ketosis', start: 16, end: 18 },
+  // `short` is the bar-label form: ketosis gets only a 2-hour slice in the
+  // 24h bar, so "ketosis" wraps. "keto" reads cleanly there; the header
+  // and chip still use the full `label`.
+  { id: 'ketosis', short: 'keto', label: 'Ketosis', start: 16, end: 18 },
   { id: 'autophagy', short: 'autophagy', label: 'Autophagy', start: 18, end: 24 },
 ];
 
