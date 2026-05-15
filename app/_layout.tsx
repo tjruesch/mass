@@ -26,10 +26,6 @@ import { tokens } from '@/theme/tokens';
 
 SplashScreen.preventAutoHideAsync();
 
-export const unstable_settings = {
-  anchor: '(tabs)',
-};
-
 export default function RootLayout() {
   const colorScheme = useColorScheme();
   const [fontsLoaded, fontError] = useFonts({
@@ -75,13 +71,13 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-        <Stack>
-          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-          <Stack.Screen name="fasting" options={{ headerShown: false }} />
-          <Stack.Screen name="fasting-settings" options={{ headerShown: false }} />
-          <Stack.Screen name="water" options={{ headerShown: false }} />
-          <Stack.Screen name="water-settings" options={{ headerShown: false }} />
-          <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
+        <Stack screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="index" />
+          <Stack.Screen name="fasting" />
+          <Stack.Screen name="fasting-settings" />
+          <Stack.Screen name="water" />
+          <Stack.Screen name="water-settings" />
+          <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal', headerShown: true }} />
         </Stack>
         <StatusBar style="auto" />
       </ThemeProvider>
