@@ -240,7 +240,16 @@ export default function FastingSettingsScreen() {
 
       <TabBar active="home" />
 
+      {/*
+        `key` forces a full remount of the sheet each time the user opens it
+        for a different field (or reopens for the same field). The iOS
+        DateTimePicker spinner caches its value at mount and ignores
+        subsequent prop updates, so without this the spinner can show stale
+        values from a previous open. Remounting also re-runs the internal
+        useState(value), so the picker is seeded with the current time.
+      */}
       <DateTimePickerSheet
+        key={editingField ?? 'closed'}
         open={editingField !== null}
         mode="time"
         title={editingField === 'start' ? 'Window start' : 'Window end'}
