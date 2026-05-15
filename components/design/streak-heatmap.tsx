@@ -7,15 +7,24 @@ import { fonts, tokens } from '@/theme/tokens';
 
 /**
  * Heatmap intensity palette — pre-computed sRGB mixes of `tokens.ink` over
- * `tokens.bg` (18% / 40% / 75%) plus `tokens.accentInk` for the PB tier.
- * Recompute these whenever the ink/bg tokens change (see `node -e` snippet
- * in the Mist · Petrol palette commit for the formula).
+ * `tokens.bg` (30% / 55% / 85%) plus `tokens.accentInk` for the PB tier.
+ *
+ * Why these percentages and not the original 18 / 40 / 75 from the design
+ * source: the old palette's near-black ink + warm-cream bg produced clear
+ * grays at those ratios. The Mist · Petrol ink is a deep teal (lighter
+ * than the old near-black) and the bg is a cooler gray-cream, so the same
+ * ratios collapsed level-1 into the bg, making "logged but short" cells
+ * indistinguishable from "missed". Bumping to 30 / 55 / 85 restores the
+ * step contrast.
+ *
+ * Recompute whenever the ink/bg tokens change — there's a `node -e`
+ * snippet in the commit that introduced these values that does it.
  */
 export const HEAT_COLORS = [
   tokens.bg2,        // 0 — empty cell
-  '#C6CECE',         // 1 — < 12h
-  '#98A7A7',         // 2 — 12–15h
-  '#4F6769',         // 3 — 16h+ (target)
+  '#ADB9B9',         // 1 — < 12h
+  '#798B8D',         // 2 — 12–15h
+  '#3A5558',         // 3 — 16h+ (target)
   tokens.accentInk,  // 4 — 18h+ (PB)
 ] as const;
 
