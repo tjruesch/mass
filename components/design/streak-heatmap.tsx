@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { Text, View } from 'react-native';
 
 import type { DailyFastLevel } from '@/src/hooks/use-fasting';
-import { dowMondayFirst, dowMondayFirstFromYmd, ymd } from '@/src/lib/time';
+import { addDays, dowMondayFirst, dowMondayFirstFromYmd, ymd } from '@/src/lib/time';
 import { fonts, tokens } from '@/theme/tokens';
 
 /**
@@ -151,6 +151,30 @@ export function StreakHeatmap({ cells, weeks = 14, today: providedToday, weekday
             <View key={colIdx} style={{ gap: GAP }}>
               {column.map((cell, rowIdx) => {
                 if (cell === null) {
+                  // Null grid positions are all in the future (Sat/Sun of the
+                  // current week when today is mid-week). Render the same
+                  // hairline as past off-days so the schedule reads
+                  // consistently across past and future. Scheduled-on future
+                  // days stay invisible — they haven't happened yet.
+                  const futureDate = addDays(
+                    today,
+                    colIdx * 7 + rowIdx - ((weeks - 1) * 7 + todayRow),
+                  );
+                  if (isOffDay(ymd(futureDate))) {
+                    return (
+                      <View
+                        key={rowIdx}
+                        style={{ width: CELL, height: CELL, alignItems: 'center', justifyContent: 'center' }}>
+                        <View
+                          style={{
+                            width: CELL * 0.55,
+                            height: 1,
+                            backgroundColor: tokens.line2,
+                          }}
+                        />
+                      </View>
+                    );
+                  }
                   return <View key={rowIdx} style={{ width: CELL, height: CELL }} />;
                 }
                 const isToday = cell.date === todayKey;
@@ -231,16 +255,16 @@ function buildMonthLabels(
 ): ReadonlyArray<{ col: number; label: string }> {
   if (cells.length === 0) return [];
   const todayRow = dowMondayFirst(today);
-  const todayMs = today.getTime();
   const totalDays = weeks * 7;
 
-  // date for (col, row) — use the same right-aligned mapping as `grid` above
+  // date for (col, row) — use the same right-aligned mapping as `grid` above.
+  // addDays walks calendar days; ms arithmetic would shift one day around DST.
   const dateFor = (col: number, row: number): Date | null => {
     const flat = col * 7 + row;
     const lastFlat = (weeks - 1) * 7 + todayRow;
     const offset = lastFlat - flat;
     if (offset < 0 || offset >= totalDays) return null;
-    return new Date(todayMs - offset * 86_400_000);
+    return addDays(today, -offset);
   };
 
   const fmt = new Intl.DateTimeFormat('en', { month: 'short' });

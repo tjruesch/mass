@@ -19,6 +19,7 @@ import { fastingSessions, type FastingSession } from '@/src/db/schema';
 import { useFastingPreferences } from '@/src/hooks/use-fasting-preferences';
 import { useNow } from '@/src/lib/use-now';
 import {
+  addDays,
   dowMondayFirst,
   elapsedHours,
   elapsedMs,
@@ -156,9 +157,11 @@ export function useFastingHistory(weeks: number = 14): FastingHistory {
     }
 
     // ── Heatmap cells (windowed) ─────────────────────────────────────────
+    // `addDays` walks local calendar days; ms-arithmetic would drift one
+    // calendar day around DST shifts (e.g. CET→CEST) and corrupt the keys.
     const cells: { date: string; level: DailyFastLevel }[] = [];
     for (let i = totalDays - 1; i >= 0; i--) {
-      const d = new Date(today.getTime() - i * 86_400_000);
+      const d = addDays(today, -i);
       const key = ymd(d);
       cells.push({ date: key, level: levelForHours(byDay.get(key)?.longestHours ?? 0) });
     }
@@ -171,17 +174,16 @@ export function useFastingHistory(weeks: number = 14): FastingHistory {
 
     // Cheap bound for the loops: don't walk further back than the earliest
     // session in the DB.
-    const earliestSessionMs =
-      sessions.length === 0 ? null : Math.min(...sessions.map((s) => s.startedAt.getTime()));
-    const firstDayMs =
-      earliestSessionMs === null ? null : startOfDay(new Date(earliestSessionMs)).getTime();
+    const earliestSession =
+      sessions.length === 0
+        ? null
+        : startOfDay(new Date(Math.min(...sessions.map((s) => s.startedAt.getTime()))));
 
     let currentStreak = 0;
-    if (firstDayMs !== null) {
-      for (let cursor = today.getTime(); cursor >= firstDayMs; cursor -= 86_400_000) {
-        const d = new Date(cursor);
-        if (!isScheduledOn(d)) continue; // neutral
-        if (byDay.get(ymd(d))?.targetHit) {
+    if (earliestSession) {
+      for (let cursor = today; cursor.getTime() >= earliestSession.getTime(); cursor = addDays(cursor, -1)) {
+        if (!isScheduledOn(cursor)) continue; // neutral
+        if (byDay.get(ymd(cursor))?.targetHit) {
           currentStreak++;
         } else {
           break;
@@ -190,12 +192,11 @@ export function useFastingHistory(weeks: number = 14): FastingHistory {
     }
 
     let bestStreak = 0;
-    if (firstDayMs !== null) {
+    if (earliestSession) {
       let run = 0;
-      for (let cursor = firstDayMs; cursor <= today.getTime(); cursor += 86_400_000) {
-        const d = new Date(cursor);
-        if (!isScheduledOn(d)) continue; // neutral
-        if (byDay.get(ymd(d))?.targetHit) {
+      for (let cursor = earliestSession; cursor.getTime() <= today.getTime(); cursor = addDays(cursor, 1)) {
+        if (!isScheduledOn(cursor)) continue; // neutral
+        if (byDay.get(ymd(cursor))?.targetHit) {
           run++;
           if (run > bestStreak) bestStreak = run;
         } else {

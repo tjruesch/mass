@@ -107,6 +107,21 @@ export function dowMondayFirstFromYmd(ymd: string): number {
   return dowMondayFirst(new Date(y, m - 1, d));
 }
 
+/**
+ * Add `n` calendar days to a Date in local time. Use this instead of
+ * `new Date(d.getTime() + n * 86_400_000)`, which silently misbehaves
+ * across DST boundaries — subtracting 50 fixed-ms days from a CEST
+ * midnight lands at 23:00 the day before in CET, and downstream code
+ * reading `.getDate()` then gets the wrong calendar day.
+ *
+ * `setDate()` respects DST: it always advances/retracts whole local days.
+ */
+export function addDays(d: Date, n: number): Date {
+  const out = new Date(d);
+  out.setDate(out.getDate() + n);
+  return out;
+}
+
 // ─── Time-of-day utilities ────────────────────────────────────────────────────
 // We model eating windows / clock-time inputs as minutes-since-midnight (0..1439).
 // All these helpers operate purely on that integer model — they never touch
