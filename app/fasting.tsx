@@ -91,11 +91,13 @@ function ActiveView({ state }: { state: Extract<FastingState, { status: 'active'
             label="projected"
             value={formatTime(projectedEnd)}
             sub={msToTarget > 0 ? `in ${formatRelative(msToTarget)}` : `${formatRelative(-msToTarget)} over`}
+            subTone={msToTarget < 0 ? 'over' : 'normal'}
           />
           <StatCell
             label="target"
             value={`${session.targetHours.toString().padStart(2, '0')}:00`}
-            sub={`${Math.min(999, Math.round(progress * 1000) / 10).toFixed(1)}%`}
+            sub={msToTarget < 0 ? `+${formatRelative(-msToTarget)} over` : `${(progress * 100).toFixed(1)}%`}
+            subTone={msToTarget < 0 ? 'over' : 'normal'}
           />
         </View>
       </View>
@@ -254,11 +256,18 @@ function HeroRing({ size, elapsedHours, targetHours, elapsedMs, phaseLabel }: He
   const c = 2 * Math.PI * r;
   const elapsedFrac = Math.min(1, elapsedHours / 24);
   const targetFrac = Math.min(1, targetHours / 24);
+  // Overrun: portion of the elapsed arc past `targetHours`, clamped to a full
+  // sweep so a 48h+ fast doesn't double-wrap visually. Drawn in accent on top
+  // of the elapsed arc to recolor the overage segment.
+  const overrunFrac =
+    elapsedHours > targetHours ? Math.min(1 - targetFrac, (elapsedHours - targetHours) / 24) : 0;
+  const overrunStartDeg = targetFrac * 360 - 90;
 
   // current head dot position
   const ang = elapsedFrac * Math.PI * 2 - Math.PI / 2;
   const headX = size / 2 + Math.cos(ang) * r;
   const headY = size / 2 + Math.sin(ang) * r;
+  const headInOverrun = overrunFrac > 0;
 
   // Split the live counter — main HH:MM in big mono, :SS in muted tail
   const counter = formatHMS(elapsedMs);
@@ -320,9 +329,32 @@ function HeroRing({ size, elapsedHours, targetHours, elapsedMs, phaseLabel }: He
           transform={`rotate(-90 ${size / 2} ${size / 2})`}
           strokeLinecap="round"
         />
-        {/* current head dot */}
-        <Circle cx={headX} cy={headY} r={5} fill={tokens.card} stroke={tokens.accentInk} strokeWidth={2} />
-        <Circle cx={headX} cy={headY} r={1.6} fill={tokens.accentInk} />
+        {/* overrun arc — accent-colored overlay from target → elapsed, drawn
+            after the elapsed arc so it recolors the overage segment. */}
+        {overrunFrac > 0 && (
+          <Circle
+            cx={size / 2}
+            cy={size / 2}
+            r={r}
+            fill="none"
+            stroke={tokens.accent}
+            strokeWidth={sw}
+            strokeDasharray={`${c * overrunFrac} ${c}`}
+            transform={`rotate(${overrunStartDeg} ${size / 2} ${size / 2})`}
+            strokeLinecap="round"
+          />
+        )}
+        {/* current head dot — accent fill when riding the overrun segment so
+            it reads as a single continuous motion past target. */}
+        <Circle
+          cx={headX}
+          cy={headY}
+          r={5}
+          fill={tokens.card}
+          stroke={headInOverrun ? tokens.accent : tokens.accentInk}
+          strokeWidth={2}
+        />
+        <Circle cx={headX} cy={headY} r={1.6} fill={headInOverrun ? tokens.accent : tokens.accentInk} />
       </Svg>
 
       <View style={StyleSheet.absoluteFill} pointerEvents="none">
@@ -434,11 +466,14 @@ function StatCell({
   label,
   value,
   sub,
+  subTone = 'normal',
   withDivider = true,
 }: {
   label: string;
   value: string;
   sub: string;
+  /** 'over' switches the sub line to accent ink + medium weight, signalling an overrun. */
+  subTone?: 'normal' | 'over';
   withDivider?: boolean;
 }) {
   return (
@@ -449,7 +484,14 @@ function StatCell({
       ]}>
       <Text style={[styles.statLabel, textStyles.cap]}>{label}</Text>
       <Text style={[styles.statValue, textStyles.tnum]}>{value}</Text>
-      <Text style={[styles.statSub, textStyles.tnum]}>{sub}</Text>
+      <Text
+        style={[
+          styles.statSub,
+          textStyles.tnum,
+          subTone === 'over' && { color: tokens.accentInk, fontFamily: fonts.monoSemibold },
+        ]}>
+        {sub}
+      </Text>
     </View>
   );
 }
