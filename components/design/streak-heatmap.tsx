@@ -1,5 +1,5 @@
-import { useMemo } from 'react';
-import { Text, View } from 'react-native';
+import { useMemo, useState } from 'react';
+import { Text, View, type LayoutChangeEvent } from 'react-native';
 
 import type { DailyFastLevel } from '@/src/hooks/use-fasting';
 import { dowMondayFirst, ymd } from '@/src/lib/time';
@@ -38,18 +38,30 @@ type Props = {
   today?: Date;
 };
 
-const CELL = 14;
 const GAP = 3;
+const FALLBACK_CELL = 14;
 
 /**
  * GitHub-style contribution grid, 7 rows (Mon→Sun) × N weeks.
  * The newest cell is bottom-right of the last column = today's row;
  * trailing cells (Fri/Sat/Sun on a Thursday "today") are left blank.
+ *
+ * Cells size themselves to fill the container width: we measure via
+ * onLayout and compute `(width - (weeks - 1) * GAP) / weeks` so the grid
+ * uses all the horizontal space available to it. First paint uses a 14px
+ * fallback, then re-renders to the real size in the next frame.
  */
 export function StreakHeatmap({ cells, weeks = 14, today: providedToday }: Props) {
   const today = providedToday ?? new Date();
   const todayKey = ymd(today);
   const todayRow = dowMondayFirst(today);
+
+  const [cellSize, setCellSize] = useState<number>(FALLBACK_CELL);
+  const onGridLayout = (e: LayoutChangeEvent) => {
+    const w = e.nativeEvent.layout.width;
+    const next = Math.floor((w - (weeks - 1) * GAP) / weeks);
+    if (next > 0 && next !== cellSize) setCellSize(next);
+  };
 
   // Lay out cells in (col, row) order, right-aligned to today.
   // grid[col][row] = Cell | null
@@ -90,7 +102,7 @@ export function StreakHeatmap({ cells, weeks = 14, today: providedToday }: Props
           <View
             key={i}
             style={{
-              height: CELL,
+              height: cellSize,
               minWidth: 10,
               alignItems: 'flex-end',
               justifyContent: 'center',
@@ -101,7 +113,7 @@ export function StreakHeatmap({ cells, weeks = 14, today: providedToday }: Props
                 fontSize: 7.5,
                 color: tokens.ink4,
                 letterSpacing: 0.45,
-                lineHeight: CELL,
+                lineHeight: cellSize,
               }}>
               {d}
             </Text>
@@ -118,7 +130,7 @@ export function StreakHeatmap({ cells, weeks = 14, today: providedToday }: Props
               key={`${m.col}-${m.label}`}
               style={{
                 position: 'absolute',
-                left: m.col * (CELL + GAP),
+                left: m.col * (cellSize + GAP),
                 fontFamily: fonts.mono,
                 fontSize: 8,
                 color: tokens.ink4,
@@ -130,18 +142,20 @@ export function StreakHeatmap({ cells, weeks = 14, today: providedToday }: Props
           ))}
         </View>
 
-        {/* The grid — flex columns */}
-        <View style={{ flexDirection: 'row', gap: GAP }}>
+        {/* The grid — flex columns. onLayout drives the cellSize calc. */}
+        <View style={{ flexDirection: 'row', gap: GAP }} onLayout={onGridLayout}>
           {grid.map((column, colIdx) => (
             <View key={colIdx} style={{ gap: GAP }}>
               {column.map((cell, rowIdx) => {
                 if (cell === null) {
-                  return <View key={rowIdx} style={{ width: CELL, height: CELL }} />;
+                  return <View key={rowIdx} style={{ width: cellSize, height: cellSize }} />;
                 }
                 const isToday = cell.date === todayKey;
                 const fill = HEAT_COLORS[cell.level];
                 return (
-                  <View key={rowIdx} style={{ width: CELL, height: CELL, alignItems: 'center', justifyContent: 'center' }}>
+                  <View
+                    key={rowIdx}
+                    style={{ width: cellSize, height: cellSize, alignItems: 'center', justifyContent: 'center' }}>
                     {isToday && (
                       <View
                         style={{
@@ -158,8 +172,8 @@ export function StreakHeatmap({ cells, weeks = 14, today: providedToday }: Props
                     )}
                     <View
                       style={{
-                        width: CELL,
-                        height: CELL,
+                        width: cellSize,
+                        height: cellSize,
                         borderRadius: 3,
                         backgroundColor: fill,
                         borderWidth: cell.level === 0 ? 1 : 0,
