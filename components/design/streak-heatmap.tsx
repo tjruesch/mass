@@ -63,9 +63,16 @@ export function StreakHeatmap({ cells, weeks = 14, today: providedToday }: Props
     const lastRow = todayRow;
 
     for (let i = 0; i <= lastIndex; i++) {
-      const offset = lastIndex - i; // 0 = today, larger = older
+      // `offset` is days-since-today. cells[0] is the OLDEST entry in the
+      // window, so i=0 ⇒ offset=lastIndex (largest), and i=lastIndex ⇒
+      // offset=0 (today).
+      const offset = lastIndex - i;
       const flat = lastCol * 7 + lastRow - offset;
-      if (flat < 0) break;
+      // The first few cells in the array can be older than the grid spans
+      // (when today isn't a Sunday, the leading-column rows above the
+      // top-left would land at flat < 0). Skip those — do NOT break, or
+      // we'd abort before placing the cells that *do* fit.
+      if (flat < 0) continue;
       const col = Math.floor(flat / 7);
       const row = flat % 7;
       out[col][row] = cells[i];
