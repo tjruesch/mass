@@ -12,3 +12,4 @@ export { Stripe } from './stripe';
 export { StreakHeatmap, HEAT_COLORS } from './streak-heatmap';
 export { SubHeader } from './sub-header';
 export { TabBar, type TabId } from './tab-bar';
+export { WindowStrip } from './window-strip';

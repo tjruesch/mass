@@ -14,11 +14,21 @@ import {
   StreakHeatmap,
   SubHeader,
   TabBar,
+  WindowStrip,
 } from '@/components/design';
 import { endSession, logPastSession, startSession, updateSessionStart } from '@/src/db/queries/fasting';
 import { useFasting, useFastingHistory, type FastingState } from '@/src/hooks/use-fasting';
 import { useFastingPreferences } from '@/src/hooks/use-fasting-preferences';
-import { FASTING_PHASES, formatHM, formatHMS, formatRelative } from '@/src/lib/time';
+import {
+  FASTING_PHASES,
+  formatHM,
+  formatHMS,
+  formatMinutes,
+  formatRelative,
+  isInWindow,
+  minutesUntil,
+  nowMinutes,
+} from '@/src/lib/time';
 import { fonts, textStyles, tokens } from '@/theme/tokens';
 
 export default function FastingScreen() {
@@ -203,17 +213,17 @@ function FastingBody({
 
       <View style={styles.phaseCardWrap}>
         <View style={styles.phaseCard}>
-          <FastingPhaseBar
-            active={
-              active
-                ? {
-                    elapsedHours: active.elapsedHours,
-                    msToNextPhase: active.msToNextPhase,
-                    phaseLabel: active.currentPhase.label,
-                  }
-                : undefined
-            }
-          />
+          {active ? (
+            <FastingPhaseBar
+              active={{
+                elapsedHours: active.elapsedHours,
+                msToNextPhase: active.msToNextPhase,
+                phaseLabel: active.currentPhase.label,
+              }}
+            />
+          ) : (
+            <EatingDayBar />
+          )}
         </View>
       </View>
 
@@ -595,6 +605,53 @@ function HeroRing({ size, targetHours, active, onStartFast, startDisabled }: Her
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// EatingDayBar — what shows in the phase-card slot when no fast is active.
+// Renders the user's eating schedule (from preferences) as a 24h day strip,
+// with a header showing whether they're currently *in* the eating window
+// and a footer counting down to the next transition.
+// ─────────────────────────────────────────────────────────────────────────────
+function EatingDayBar() {
+  const prefs = useFastingPreferences();
+  if (!prefs) {
+    // Reserve the card's visual height so the layout doesn't jump when prefs land.
+    return <View style={{ height: 84 }} />;
+  }
+
+  const { eatingWindowStartMin: startMin, eatingWindowEndMin: endMin } = prefs;
+  const now = nowMinutes();
+  const eating = isInWindow(now, startMin, endMin);
+  // When inside, the next transition is end → fast starts.
+  // When outside, the next transition is start → eating opens.
+  const nextEventMin = eating ? endMin : startMin;
+  const minsToNext = minutesUntil(now, nextEventMin);
+
+  const phaseLabel = eating ? 'eating window' : 'between meals';
+  const footerLabel = eating ? 'fast starts in' : 'eating opens in';
+
+  return (
+    <View>
+      <View style={styles.phaseHeader}>
+        <Text style={[styles.phaseLabel, textStyles.cap]}>
+          phase · <Text style={{ textTransform: 'lowercase' }}>{phaseLabel}</Text>
+        </Text>
+        <Text style={[styles.phaseEta, textStyles.tnum]}>
+          {footerLabel}{' '}
+          <Text style={{ color: tokens.ink, fontFamily: fonts.monoMedium }}>
+            {formatRelative(minsToNext * 60_000)}
+          </Text>
+        </Text>
+      </View>
+
+      <WindowStrip startMin={startMin} endMin={endMin} />
+
+      <Text style={styles.eatingFooterNote}>
+        at <Text style={styles.eatingFooterNoteStrong}>{formatMinutes(nextEventMin)}</Text>
+      </Text>
+    </View>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // PhaseBar — 5 segments + ketosis-in label + bottom labels.
 // (Visually distinct from home's smaller PhaseBar — taller, has its own header.)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -957,6 +1014,20 @@ const styles = StyleSheet.create({
   phaseLabels: {
     flexDirection: 'row',
     marginTop: 6,
+  },
+
+  // Eating-day footer
+  eatingFooterNote: {
+    marginTop: 8,
+    fontFamily: fonts.mono,
+    fontSize: 10,
+    color: tokens.ink4,
+    letterSpacing: 0.4,
+    textAlign: 'right',
+  },
+  eatingFooterNoteStrong: {
+    color: tokens.ink2,
+    fontFamily: fonts.monoMedium,
   },
 
   // Streak section

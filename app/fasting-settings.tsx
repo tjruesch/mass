@@ -1,12 +1,12 @@
 import { useRouter } from 'expo-router';
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View, type LayoutChangeEvent } from 'react-native';
-import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import { useEffect, useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { DateTimePickerSheet, Glyph, SubHeader, TabBar } from '@/components/design';
-import { useFastingPreferences } from '@/src/hooks/use-fasting-preferences';
+import { DateTimePickerSheet, Glyph, SubHeader, TabBar, WindowStrip } from '@/components/design';
 import { updatePreferences } from '@/src/db/queries/fasting-preferences';
 import type { FastingPreferences } from '@/src/db/schema';
+import { useFastingPreferences } from '@/src/hooks/use-fasting-preferences';
+import { formatMinutes, windowLengthMin, wrapMin } from '@/src/lib/time';
 import { fonts, textStyles, tokens } from '@/theme/tokens';
 
 const PROTOCOL_OPTIONS = [
@@ -343,144 +343,6 @@ function WindowStat({
   return <View style={cellStyle}>{content}</View>;
 }
 
-/**
- * 24-hour strip showing the eating window and a "now" marker.
- * Wraps midnight gracefully — if endMin < startMin, draws two rectangles.
- *
- * Drag lifecycle (when handlers are provided): a horizontal pan translates
- * the whole window with 15-min snapping. `onShiftStart` fires when the
- * gesture is recognized; `onShift(delta)` emits each snap-step's
- * incremental delta; `onShiftCommit` fires on lift (success);
- * `onShiftAbort` fires when the gesture is cancelled (e.g. parent scroll
- * claims it). Parents are expected to buffer state during the drag and
- * commit a single write at the end.
- */
-const SNAP_MIN = 15;
-
-function WindowStrip({
-  startMin,
-  endMin,
-  onShiftStart,
-  onShift,
-  onShiftCommit,
-  onShiftAbort,
-}: {
-  startMin: number;
-  endMin: number;
-  onShiftStart?: () => void;
-  onShift?: (deltaMin: number) => void;
-  onShiftCommit?: () => void;
-  onShiftAbort?: () => void;
-}) {
-  const totalMin = 24 * 60;
-  const now = new Date();
-  const nowMin = now.getHours() * 60 + now.getMinutes();
-
-  const widthRef = useRef(0);
-  const lastSnappedDelta = useRef(0);
-
-  const onLayout = (e: LayoutChangeEvent) => {
-    widthRef.current = e.nativeEvent.layout.width;
-  };
-
-  const interactive = !!(onShiftStart || onShift || onShiftCommit);
-
-  // Build the Pan gesture lazily so non-interactive strips don't pay for it.
-  const pan = useMemo(() => {
-    return Gesture.Pan()
-      // Activate on horizontal motion only — lets the parent ScrollView keep vertical scrolls.
-      .activeOffsetX([-4, 4])
-      .failOffsetY([-12, 12])
-      // Don't lose the gesture when the finger moves outside the strip bounds.
-      .shouldCancelWhenOutside(false)
-      .onStart(() => {
-        lastSnappedDelta.current = 0;
-        onShiftStart?.();
-      })
-      .onUpdate((e) => {
-        if (!onShift || widthRef.current === 0) return;
-        const rawDeltaMin = (e.translationX / widthRef.current) * totalMin;
-        const snapped = Math.round(rawDeltaMin / SNAP_MIN) * SNAP_MIN;
-        if (snapped !== lastSnappedDelta.current) {
-          const incremental = snapped - lastSnappedDelta.current;
-          lastSnappedDelta.current = snapped;
-          onShift(incremental);
-        }
-      })
-      .onEnd(() => onShiftCommit?.())
-      // Fires on success OR cancel — only revert on the latter.
-      .onFinalize((_, success) => {
-        if (!success) onShiftAbort?.();
-      })
-      // runOnJS so callbacks reach the JS thread where state lives.
-      .runOnJS(true);
-  }, [onShiftStart, onShift, onShiftCommit, onShiftAbort, totalMin]);
-
-  const segments: { left: number; width: number }[] = [];
-  if (endMin > startMin) {
-    segments.push({ left: (startMin / totalMin) * 100, width: ((endMin - startMin) / totalMin) * 100 });
-  } else if (endMin < startMin) {
-    segments.push({ left: (startMin / totalMin) * 100, width: ((totalMin - startMin) / totalMin) * 100 });
-    segments.push({ left: 0, width: (endMin / totalMin) * 100 });
-  }
-
-  const stripBody = (
-    <View style={styles.windowStripBg} onLayout={onLayout}>
-      {segments.map((s, i) => (
-        <View
-          key={i}
-          style={{
-            position: 'absolute',
-            top: 0,
-            bottom: 0,
-            left: `${s.left}%`,
-            width: `${s.width}%`,
-            backgroundColor: tokens.ink,
-          }}
-        />
-      ))}
-      {[0, 6, 12, 18].map((h) => (
-        <View
-          key={h}
-          style={{
-            position: 'absolute',
-            left: `${(h * 60) / totalMin * 100}%`,
-            top: 0,
-            bottom: 0,
-            width: 1,
-            backgroundColor: tokens.line2,
-            opacity: 0.5,
-          }}
-        />
-      ))}
-      <View style={[styles.windowNowMarker, { left: `${(nowMin / totalMin) * 100}%` }]} />
-      {interactive && (
-        // Grip hint at the window's midpoint so users discover it's draggable.
-        <View
-          pointerEvents="none"
-          style={[
-            styles.windowGrip,
-            { left: `${(wrapMin(startMin + windowLengthMin(startMin, endMin) / 2) / totalMin) * 100}%` },
-          ]}
-        />
-      )}
-    </View>
-  );
-
-  return (
-    <View>
-      {interactive ? <GestureDetector gesture={pan}>{stripBody}</GestureDetector> : stripBody}
-      <View style={styles.windowTickRow}>
-        {['00', '06', '12', '18', '24'].map((t) => (
-          <Text key={t} style={styles.windowTickText}>
-            {t}
-          </Text>
-        ))}
-      </View>
-    </View>
-  );
-}
-
 function Switch({ on, onToggle }: { on: boolean; onToggle: () => void }) {
   return (
     <Pressable
@@ -514,29 +376,11 @@ function GoalRow({ name, value, sub, last = false }: { name: string; value: stri
 // ─────────────────────────────────────────────────────────────────────────────
 // helpers
 // ─────────────────────────────────────────────────────────────────────────────
-function formatMinutes(min: number): string {
-  const h = Math.floor(min / 60);
-  const m = min % 60;
-  return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
-}
-
 function formatWindowLength(startMin: number, endMin: number): string {
   const length = windowLengthMin(startMin, endMin);
   const h = Math.floor(length / 60);
   const m = length % 60;
   return m === 0 ? `${h}h` : `${h}h ${m}m`;
-}
-
-function windowLengthMin(startMin: number, endMin: number): number {
-  let length = endMin - startMin;
-  if (length <= 0) length += 24 * 60;
-  return length;
-}
-
-/** Bring `min` into [0, 1440). Negatives wrap, so dragging left past midnight rolls around. */
-function wrapMin(min: number): number {
-  const total = 24 * 60;
-  return ((min % total) + total) % total;
 }
 
 function summarizeWeekdays(bitmask: number): string {
@@ -647,50 +491,6 @@ const styles = StyleSheet.create({
     marginTop: 4,
     letterSpacing: -0.36,
   },
-  windowStripBg: {
-    position: 'relative',
-    height: 28,
-    backgroundColor: tokens.bg2,
-    borderRadius: 4,
-    overflow: 'hidden',
-  },
-  windowNowMarker: {
-    position: 'absolute',
-    top: -3,
-    bottom: -3,
-    width: 2,
-    marginLeft: -1,
-    backgroundColor: tokens.accentInk,
-    borderRadius: 1,
-    shadowColor: tokens.accent,
-    shadowOffset: { width: 0, height: 0 },
-    shadowRadius: 8,
-    shadowOpacity: 1,
-  },
-  windowGrip: {
-    // Subtle "grab handle" hint — kept lightweight so it doesn't fight the design.
-    position: 'absolute',
-    top: '50%',
-    marginTop: -1,
-    marginLeft: -8,
-    width: 16,
-    height: 2,
-    borderRadius: 1,
-    backgroundColor: tokens.bg,
-    opacity: 0.45,
-  },
-  windowTickRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 6,
-  },
-  windowTickText: {
-    fontFamily: fonts.mono,
-    fontSize: 8.5,
-    color: tokens.ink4,
-    letterSpacing: 0.34,
-  },
-
   // Weekly schedule
   dayCircle: {
     flex: 1,

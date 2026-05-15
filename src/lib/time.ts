@@ -93,3 +93,56 @@ export function ymd(d: Date): string {
 export function dowMondayFirst(d: Date): number {
   return (d.getDay() + 6) % 7;
 }
+
+// ─── Time-of-day utilities ────────────────────────────────────────────────────
+// We model eating windows / clock-time inputs as minutes-since-midnight (0..1439).
+// All these helpers operate purely on that integer model — they never touch
+// `Date` — so they're agnostic to today's calendar position.
+
+/**
+ * Window length in minutes, treating start→end as advancing clockwise on a
+ * 24-hour dial. Wrap-past-midnight windows (start > end) get the wraparound
+ * portion folded in. Equal start/end is interpreted as a zero-length window.
+ */
+export function windowLengthMin(startMin: number, endMin: number): number {
+  let length = endMin - startMin;
+  if (length <= 0) length += 24 * 60;
+  return length;
+}
+
+/** Normalize a minute value into [0, 1440). Negatives wrap correctly. */
+export function wrapMin(min: number): number {
+  const total = 24 * 60;
+  return ((min % total) + total) % total;
+}
+
+/** Local clock time as minutes since midnight, e.g. 13:45 → 825. */
+export function nowMinutes(d: Date = new Date()): number {
+  return d.getHours() * 60 + d.getMinutes();
+}
+
+/** True when `mins` falls inside [startMin, endMin), respecting midnight wrap. */
+export function isInWindow(mins: number, startMin: number, endMin: number): boolean {
+  if (startMin === endMin) return false; // zero-length window
+  if (endMin > startMin) return mins >= startMin && mins < endMin;
+  // wraps midnight
+  return mins >= startMin || mins < endMin;
+}
+
+/**
+ * Minutes from `fromMin` forward to `targetMin`, wrapping around midnight.
+ * Always returns a positive integer in (0, 1440]. If they're equal, returns
+ * the full 1440 minutes (next-day occurrence).
+ */
+export function minutesUntil(fromMin: number, targetMin: number): number {
+  let diff = targetMin - fromMin;
+  if (diff <= 0) diff += 24 * 60;
+  return diff;
+}
+
+/** Minutes-since-midnight → "HH:MM" zero-padded. */
+export function formatMinutes(mins: number): string {
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+}
