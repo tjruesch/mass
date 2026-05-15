@@ -9,7 +9,12 @@ export { PrimaryButton } from './primary-button';
 export { Ring } from './ring';
 export { Spark } from './spark';
 export { Stripe } from './stripe';
-export { StreakHeatmap, HEAT_COLORS } from './streak-heatmap';
+export {
+  StreakHeatmap,
+  HEAT_COLORS,
+  CELL as HEATMAP_CELL,
+  GAP as HEATMAP_GAP,
+} from './streak-heatmap';
 export { SubHeader } from './sub-header';
 export { TabBar, type TabId } from './tab-bar';
 export { WindowStrip } from './window-strip';

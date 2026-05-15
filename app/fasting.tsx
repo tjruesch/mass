@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View, type LayoutChangeEvent } from 'react-native';
 import Svg, { Circle, G, Line } from 'react-native-svg';
 
 import {
@@ -10,6 +10,8 @@ import {
   DrawerSection,
   Glyph,
   HEAT_COLORS,
+  HEATMAP_CELL,
+  HEATMAP_GAP,
   PrimaryButton,
   StreakHeatmap,
   SubHeader,
@@ -371,21 +373,42 @@ function formatDurationFull(ms: number): string {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // StreakSection — heatmap card with current/best streak + legend.
+//
+// We pick `weeks` to fill the available horizontal space at the design's
+// fixed 14×14 cell size rather than stretching cells. onLayout on the
+// section measures the inner width (after streakWrap's horizontal padding),
+// then we subtract the day-labels column + its 6px gap and solve for how
+// many weeks fit. Minimum 14 so the heatmap stays a sensible read on a
+// narrow device.
 // ─────────────────────────────────────────────────────────────────────────────
-const WEEKS = 14;
+const STREAK_DAY_LABELS_WIDTH = 14; // M / W / F / S column, minWidth: 10 + slack
+const STREAK_LABEL_GAP = 6;
+const MIN_WEEKS = 14;
 
 function StreakSection() {
-  const history = useFastingHistory(WEEKS);
+  const [weeks, setWeeks] = useState(MIN_WEEKS);
+
+  const onSectionLayout = (e: LayoutChangeEvent) => {
+    const innerWidth = e.nativeEvent.layout.width - 22 * 2; // streakWrap paddingHorizontal
+    const gridWidth = innerWidth - STREAK_DAY_LABELS_WIDTH - STREAK_LABEL_GAP;
+    // weeks * CELL + (weeks - 1) * GAP ≤ gridWidth
+    //   → weeks ≤ (gridWidth + GAP) / (CELL + GAP)
+    const fits = Math.floor((gridWidth + HEATMAP_GAP) / (HEATMAP_CELL + HEATMAP_GAP));
+    const next = Math.max(MIN_WEEKS, fits);
+    if (next !== weeks) setWeeks(next);
+  };
+
+  const history = useFastingHistory(weeks);
   const today = new Date();
-  const startDate = new Date(today.getTime() - (WEEKS * 7 - 1) * 86_400_000);
+  const startDate = new Date(today.getTime() - (weeks * 7 - 1) * 86_400_000);
   const fmtDayMonth = new Intl.DateTimeFormat('en', { day: '2-digit', month: 'short' });
   const startLabel = fmtDayMonth.format(startDate).toLowerCase();
   const endLabel = fmtDayMonth.format(today).toLowerCase();
 
   return (
-    <View style={styles.streakWrap}>
+    <View style={styles.streakWrap} onLayout={onSectionLayout}>
       <View style={styles.streakHeader}>
-        <Text style={[styles.cardLabel, textStyles.cap]}>streak · last {WEEKS} weeks</Text>
+        <Text style={[styles.cardLabel, textStyles.cap]}>streak · last {weeks} weeks</Text>
         <Text style={[styles.streakMeta, textStyles.tnum]}>
           current <Text style={styles.streakMetaStrong}>{history.currentStreak}d</Text>
           <Text style={styles.streakMetaDot}>{'  ·  '}</Text>
@@ -393,7 +416,7 @@ function StreakSection() {
         </Text>
       </View>
 
-      <StreakHeatmap cells={history.cells} weeks={WEEKS} today={today} />
+      <StreakHeatmap cells={history.cells} weeks={weeks} today={today} />
 
       <View style={styles.streakLegend}>
         <Text style={styles.streakLegendEdge}>{startLabel}</Text>
