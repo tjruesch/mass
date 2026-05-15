@@ -2,9 +2,18 @@ import { useRouter } from 'expo-router';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 
-import { TabBar } from '@/components/design';
-import { useFasting } from '@/src/hooks/use-fasting';
-import { FASTING_PHASES, formatHM, formatHMS, formatRelative } from '@/src/lib/time';
+import { TabBar, WindowStrip } from '@/components/design';
+import { useFasting, type FastingState } from '@/src/hooks/use-fasting';
+import { useFastingPreferences } from '@/src/hooks/use-fasting-preferences';
+import {
+  FASTING_PHASES,
+  formatHM,
+  formatHMS,
+  formatRelative,
+  isInWindow,
+  minutesUntil,
+  nowMinutes,
+} from '@/src/lib/time';
 import { fonts, textStyles, tokens } from '@/theme/tokens';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -155,6 +164,89 @@ function PhaseBar({ elapsedHours }: { elapsedHours: number }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// FastingCardBody — header + counter + bar; same layout for active/idle.
+//
+// Active: counter is elapsed HH:MM:SS, chip shows current fasting phase, bar
+// is the 5-phase fasting progression.
+//
+// Idle:   counter is the countdown to the next fast (or to the eating
+// window opening, when outside it), chip reflects the eating-day phase, bar
+// is the 24h eating-window strip — mirroring the EatingDayBar on /fasting.
+// ─────────────────────────────────────────────────────────────────────────────
+function FastingCardBody({ fasting }: { fasting: FastingState }) {
+  if (fasting.status === 'active') {
+    return (
+      <>
+        <View style={styles.fastingHeader}>
+          <Text style={[styles.cardLabel, textStyles.cap]}>fasting</Text>
+          <View style={styles.fastingChip}>
+            <View style={styles.streakDot} />
+            <Text style={styles.fastingChipText}>{fasting.currentPhase.short}</Text>
+          </View>
+        </View>
+        <View style={styles.fastingTimes}>
+          <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 6 }}>
+            <Text style={[styles.fastingElapsed, textStyles.tnum]}>
+              {formatHMS(fasting.elapsedMs).slice(0, 5)}
+              <Text style={styles.fastingElapsedSeconds}>
+                {formatHMS(fasting.elapsedMs).slice(5)}
+              </Text>
+            </Text>
+            <Text style={styles.fastingElapsedLabel}>elapsed</Text>
+          </View>
+        </View>
+        <PhaseBar elapsedHours={fasting.elapsedHours} />
+      </>
+    );
+  }
+  return <IdleFastingCardBody />;
+}
+
+function IdleFastingCardBody() {
+  const prefs = useFastingPreferences();
+  if (!prefs) {
+    // Reserve roughly the active-state height so the card doesn't jump
+    // when prefs land.
+    return (
+      <>
+        <View style={styles.fastingHeader}>
+          <Text style={[styles.cardLabel, textStyles.cap]}>fasting</Text>
+        </View>
+        <View style={{ height: 70 }} />
+      </>
+    );
+  }
+  const { eatingWindowStartMin: startMin, eatingWindowEndMin: endMin } = prefs;
+  const now = nowMinutes();
+  const eating = isInWindow(now, startMin, endMin);
+  const nextEventMin = eating ? endMin : startMin;
+  const minsToNext = minutesUntil(now, nextEventMin);
+  const chipLabel = eating ? 'eating' : 'between meals';
+  const countdownLabel = eating ? 'fast in' : 'eating in';
+
+  return (
+    <>
+      <View style={styles.fastingHeader}>
+        <Text style={[styles.cardLabel, textStyles.cap]}>fasting</Text>
+        <View style={styles.fastingChip}>
+          <View style={styles.streakDot} />
+          <Text style={styles.fastingChipText}>{chipLabel}</Text>
+        </View>
+      </View>
+      <View style={styles.fastingTimes}>
+        <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 6 }}>
+          <Text style={[styles.fastingElapsed, textStyles.tnum]}>
+            {formatRelative(minsToNext * 60_000)}
+          </Text>
+          <Text style={styles.fastingElapsedLabel}>{countdownLabel}</Text>
+        </View>
+      </View>
+      <WindowStrip startMin={startMin} endMin={endMin} />
+    </>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Screen.
 // ─────────────────────────────────────────────────────────────────────────────
 export default function HomeScreen() {
@@ -232,46 +324,7 @@ export default function HomeScreen() {
           <Pressable onPress={() => router.push('/fasting')}>
             {({ pressed }) => (
               <View style={[styles.card, styles.fastingCard, pressed && { opacity: 0.94 }]}>
-                <View style={styles.fastingHeader}>
-                  <Text style={[styles.cardLabel, textStyles.cap]}>fasting</Text>
-                  {fasting.status === 'active' && (
-                    <View style={styles.fastingChip}>
-                      <View style={styles.streakDot} />
-                      <Text style={styles.fastingChipText}>{fasting.currentPhase.short}</Text>
-                    </View>
-                  )}
-                </View>
-
-                {fasting.status === 'active' ? (
-                  <>
-                    <View style={styles.fastingTimes}>
-                      <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 6 }}>
-                        <Text style={[styles.fastingElapsed, textStyles.tnum]}>
-                          {formatHMS(fasting.elapsedMs).slice(0, 5)}
-                          <Text style={styles.fastingElapsedSeconds}>
-                            {formatHMS(fasting.elapsedMs).slice(5)}
-                          </Text>
-                        </Text>
-                        <Text style={styles.fastingElapsedLabel}>elapsed</Text>
-                      </View>
-                      {fasting.nextPhase && fasting.msToNextPhase !== null && fasting.msToNextPhase > 0 && (
-                        <View style={{ alignItems: 'flex-end' }}>
-                          <Text style={[styles.fastingKetoLabel, textStyles.cap]}>
-                            {fasting.nextPhase.short} in
-                          </Text>
-                          <Text style={[styles.fastingKetoTime, textStyles.tnum]}>
-                            {formatRelative(fasting.msToNextPhase)}
-                          </Text>
-                        </View>
-                      )}
-                    </View>
-                    <PhaseBar elapsedHours={fasting.elapsedHours} />
-                  </>
-                ) : (
-                  <View style={styles.fastingIdle}>
-                    <Text style={styles.fastingIdleText}>tap to start a fast</Text>
-                  </View>
-                )}
+                <FastingCardBody fasting={fasting} />
               </View>
             )}
           </Pressable>
@@ -584,30 +637,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: tokens.ink3,
   },
-  fastingKetoLabel: {
-    fontFamily: fonts.mono,
-    fontSize: 8,
-    color: tokens.ink4,
-    letterSpacing: 1.76,
-  },
-  fastingKetoTime: {
-    fontFamily: fonts.monoSemibold,
-    fontSize: 13,
-    color: tokens.ink,
-    marginTop: 2,
-  },
-  fastingIdle: {
-    paddingTop: 18,
-    paddingBottom: 6,
-    alignItems: 'center',
-  },
-  fastingIdleText: {
-    fontFamily: fonts.mono,
-    fontSize: 11,
-    color: tokens.ink3,
-    letterSpacing: 0.44,
-  },
-
   // Phase bar
   phaseRow: {
     position: 'relative',
