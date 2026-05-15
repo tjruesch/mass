@@ -265,9 +265,19 @@ export default function FastingSettingsScreen() {
   );
 }
 
-/** Build a Date "today at hh:mm" from minutes-since-midnight so the time picker can seed itself. */
+/**
+ * Build a Date the iOS time picker will seed from.
+ *
+ * Uses a fixed reference date (Jan 1, 2000 local) rather than "today" —
+ * the iOS UIDatePicker in time mode seems to fall back to default wheel
+ * positions when fed a value matching the current calendar day, possibly
+ * because of how it merges value with its internal "now" reference. The
+ * date part is ignored downstream (we only read hours/minutes), so a fixed
+ * year/month/day is harmless and dodges the quirk.
+ */
 function minutesToDate(mins: number): Date {
-  const d = new Date();
+  // Fixed reference date — see jsdoc above.
+  const d = new Date(2000, 0, 1, 0, 0, 0, 0);
   d.setHours(Math.floor(mins / 60), mins % 60, 0, 0);
   return d;
 }
