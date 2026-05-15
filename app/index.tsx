@@ -73,16 +73,26 @@ function Concentric({
   const cx = size / 2;
   const cy = size / 2;
   const rings = [
-    { rOff: 0, target: 0.264, c: tokens.ink, sw: 11 },
-    { rOff: 17, target: h2oRaw, c: tokens.cool, sw: 11 },
-    { rOff: 34, target: 0.42, c: tokens.accentInk, sw: 11 },
+    // Outer + inner radii anchor the design (83 and 35 at size 184); the
+    // middle ring sits at their midpoint (radius 59 = rOff 24) so the
+    // stroke-to-stroke gaps land at 8px on both sides — equally spaced
+    // regardless of sw. Bump sw to thicken the bands without changing the
+    // outer or inner ring size; gap simply shrinks.
+    { rOff: 0, target: 0.264, c: tokens.ink, sw: 16 },
+    { rOff: 24, target: h2oRaw, c: tokens.cool, sw: 16 },
+    { rOff: 48, target: 0.42, c: tokens.accentInk, sw: 16 },
   ];
 
   return (
     <View style={{ width: size, height: size }}>
       <Svg width={size} height={size}>
         {rings.map((r, i) => {
-          const radius = (size - 12) / 2 - r.rOff;
+          // Inset accounts for the outer ring's half-stroke + head puck
+          // stroke overhang + anti-alias safety. At sw=16, 10 per side
+          // keeps the outer ring + puck fully inside the viewport with
+          // ~2px slack.
+          const outerInset = 10;
+          const radius = (size - outerInset * 2) / 2 - r.rOff;
           return (
             <Ring
               key={i}
@@ -453,43 +463,31 @@ export default function HomeScreen() {
           </Text>
         </View>
 
-        {/* ── 2. Hero rings card ────────────────────────────────── */}
-        <View style={styles.cardOuter}>
-          <View style={[styles.card, styles.heroCard]}>
-            <View style={styles.heroHeader}>
-              <View>
-                <Text style={[styles.cardLabel, textStyles.cap]}>daily rings</Text>
-                <Text style={styles.heroTitle}>On pace</Text>
-              </View>
-              <View style={styles.liveChip}>
-                <View style={styles.liveDot} />
-                <Text style={[styles.liveText, textStyles.cap]}>live</Text>
-              </View>
-            </View>
-            <View style={styles.heroBody}>
-              <Concentric size={138} h2oPct={waterPctValue} />
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <Legend swatch={tokens.ink} label="kcal" value="480" target="of 1820" pct="26%" />
-                <View style={styles.legendDivider} />
-                {/* Tappable legend row — only h2o is live; kcal + move come
-                    online in their own slices (meals, workouts). */}
-                <Pressable onPress={() => router.push('/water')}>
-                  {({ pressed }) => (
-                    <View style={pressed && { opacity: 0.6 }}>
-                      <Legend
-                        swatch={tokens.cool}
-                        label="h2o"
-                        value={waterValueLabel}
-                        unit="L"
-                        target={waterTargetLabel}
-                        pct={waterPctLabel}
-                      />
-                    </View>
-                  )}
-                </Pressable>
-                <View style={styles.legendDivider} />
-                <Legend swatch={tokens.accentInk} label="move" value="42" unit="min" target="of 100" pct="42%" />
-              </View>
+        {/* ── 2. Hero rings — inline, flows directly under the greeting ── */}
+        <View style={styles.heroSection}>
+          <View style={styles.heroBody}>
+            <Concentric size={184} h2oPct={waterPctValue} />
+            <View style={styles.heroLegendCol}>
+              <Legend swatch={tokens.ink} label="kcal" value="480" target="of 1820" pct="26%" />
+              <View style={styles.legendDivider} />
+              {/* Tappable legend row — only h2o is live; kcal + move come
+                  online in their own slices (meals, workouts). */}
+              <Pressable onPress={() => router.push('/water')}>
+                {({ pressed }) => (
+                  <View style={pressed && { opacity: 0.6 }}>
+                    <Legend
+                      swatch={tokens.cool}
+                      label="h2o"
+                      value={waterValueLabel}
+                      unit="L"
+                      target={waterTargetLabel}
+                      pct={waterPctLabel}
+                    />
+                  </View>
+                )}
+              </Pressable>
+              <View style={styles.legendDivider} />
+              <Legend swatch={tokens.accentInk} label="move" value="42" unit="min" target="of 100" pct="42%" />
             </View>
           </View>
         </View>
@@ -668,50 +666,23 @@ const styles = StyleSheet.create({
     letterSpacing: 1.62,
   },
 
-  // Hero card
-  heroCard: {
-    paddingTop: 18,
-    paddingHorizontal: 18,
-    paddingBottom: 14,
+  // Hero — inline section, no card frame. Sits on the page bg directly so
+  // the rings feel like the page itself rather than the first of three boxes.
+  // No internal header — the legend rows already label each ring.
+  heroSection: {
+    paddingTop: 22,
+    paddingHorizontal: 22,
   },
-  heroHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 10,
-  },
-  heroTitle: {
-    fontFamily: fonts.sansSemibold,
-    fontSize: 14,
-    marginTop: 3,
-    color: tokens.ink,
-    letterSpacing: -0.14,
-  },
-  liveChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  liveDot: {
-    width: 5,
-    height: 5,
-    borderRadius: 999,
-    backgroundColor: tokens.accentInk,
-    shadowColor: tokens.accent,
-    shadowOffset: { width: 0, height: 0 },
-    shadowRadius: 6,
-    shadowOpacity: 1,
-  },
-  liveText: {
-    fontFamily: fonts.mono,
-    fontSize: 9,
-    color: tokens.accentInk,
-    letterSpacing: 1.44,
-  },
+  // space-between: rings stick to the page's left padding, legend stays
+  // tucked against the right padding, all the slack becomes negative space
+  // between them (the user wanted that air, not stretched legend rows).
   heroBody: {
     flexDirection: 'row',
-    gap: 22,
     alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  heroLegendCol: {
+    width: 132,
   },
 
   // Legend
