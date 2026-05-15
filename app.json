@@ -13,7 +13,10 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.mass"
+      "bundleIdentifier": "com.mass.app",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "plugins": [
       "expo-router",
@@ -49,6 +52,13 @@
         "projectId": "d7b235e1-e6f8-4123-bde0-f463025eb015"
       }
     },
-    "owner": "tjruesch"
+    "owner": "tjruesch",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/d7b235e1-e6f8-4123-bde0-f463025eb015"
+    },
+    "android": {}
   }
 }
