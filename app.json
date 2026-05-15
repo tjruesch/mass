@@ -13,7 +13,7 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.mass.app",
+      "bundleIdentifier": "com.tjruesch.mass",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
