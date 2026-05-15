@@ -630,9 +630,10 @@ const styles = StyleSheet.create({
   },
   phaseLabels: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'baseline',
     marginTop: 6,
+    // Match phaseRow's gap so each label sits over its own segment.
+    gap: 2,
   },
 
   // Macros

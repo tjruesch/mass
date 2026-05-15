@@ -1013,6 +1013,9 @@ const styles = StyleSheet.create({
   phaseLabels: {
     flexDirection: 'row',
     marginTop: 6,
+    // Match phaseRow's gap so each label sits over its own segment.
+    // Without this, the labels cumulatively drift left vs the bar segments.
+    gap: 2,
   },
 
   // Streak section
