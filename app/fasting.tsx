@@ -23,7 +23,6 @@ import {
   FASTING_PHASES,
   formatHM,
   formatHMS,
-  formatMinutes,
   formatRelative,
   isInWindow,
   minutesUntil,
@@ -643,10 +642,6 @@ function EatingDayBar() {
       </View>
 
       <WindowStrip startMin={startMin} endMin={endMin} />
-
-      <Text style={styles.eatingFooterNote}>
-        at <Text style={styles.eatingFooterNoteStrong}>{formatMinutes(nextEventMin)}</Text>
-      </Text>
     </View>
   );
 }
@@ -1014,20 +1009,6 @@ const styles = StyleSheet.create({
   phaseLabels: {
     flexDirection: 'row',
     marginTop: 6,
-  },
-
-  // Eating-day footer
-  eatingFooterNote: {
-    marginTop: 8,
-    fontFamily: fonts.mono,
-    fontSize: 10,
-    color: tokens.ink4,
-    letterSpacing: 0.4,
-    textAlign: 'right',
-  },
-  eatingFooterNoteStrong: {
-    color: tokens.ink2,
-    fontFamily: fonts.monoMedium,
   },
 
   // Streak section
