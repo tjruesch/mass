@@ -11,11 +11,30 @@ import Svg, { Circle, G } from 'react-native-svg';
 
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
+// Locked to en so the dateline stays compact ("thu 14 may") regardless of
+// device locale — matches the design's deliberately terse mono treatment.
+const WEEKDAY_FMT = new Intl.DateTimeFormat('en', { weekday: 'short' });
+const MONTH_FMT = new Intl.DateTimeFormat('en', { month: 'short' });
+
+function formatDateline(d: Date): string {
+  const w = WEEKDAY_FMT.format(d).toLowerCase();
+  const day = d.getDate().toString().padStart(2, '0');
+  const m = MONTH_FMT.format(d).toLowerCase();
+  return `${w} ${day} ${m}`;
+}
+
+function formatClockTime(d: Date): string {
+  const h = d.getHours().toString().padStart(2, '0');
+  const m = d.getMinutes().toString().padStart(2, '0');
+  return `${h}:${m}`;
+}
+
 import { TabBar, WindowStrip } from '@/components/design';
 import { useFasting, type FastingState } from '@/src/hooks/use-fasting';
 import { useFastingPreferences } from '@/src/hooks/use-fasting-preferences';
 import { useWaterToday } from '@/src/hooks/use-water';
 import { useWaterPreferences } from '@/src/hooks/use-water-preferences';
+import { useNow } from '@/src/lib/use-now';
 import {
   FASTING_PHASES,
   formatHM,
@@ -375,6 +394,12 @@ export default function HomeScreen() {
   const waterPctLabel = `${Math.round(waterPctValue * 100)}%`;
   const waterValueLabel = (waterToday.totalMl / 1000).toFixed(2);
   const waterTargetLabel = `of ${(waterTargetMl / 1000).toFixed(1)}`;
+  // Dateline ticks every 60s so the displayed minute stays current. Day +
+  // weekday update on the next tick after midnight, which is good enough
+  // for an app you only have open in short bursts.
+  const now = useNow(60_000);
+  const datelineLabel = formatDateline(now);
+  const timeLabel = formatClockTime(now);
 
   return (
     <View style={{ flex: 1, backgroundColor: tokens.bg }}>
@@ -383,7 +408,7 @@ export default function HomeScreen() {
         <View style={styles.greetingWrap}>
           <View style={styles.greetingTopRow}>
             <Text style={[styles.dateline, textStyles.cap]}>
-              thu 14 may <Text style={styles.datelineDot}> · </Text>09:41
+              {datelineLabel} <Text style={styles.datelineDot}> · </Text>{timeLabel}
             </Text>
             <View style={styles.streakChip}>
               <View style={styles.streakDot} />
