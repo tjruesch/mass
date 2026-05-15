@@ -1,10 +1,21 @@
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import Svg, { Circle, G, Line, Path } from 'react-native-svg';
+import Svg, { Circle, G, Line } from 'react-native-svg';
 
-import { DateTimePickerSheet, Glyph, HEAT_COLORS, StreakHeatmap, SubHeader, TabBar } from '@/components/design';
-import { endSession, startSession, updateSessionStart } from '@/src/db/queries/fasting';
+import {
+  DateTimeField,
+  DateTimePickerSheet,
+  Drawer,
+  DrawerSection,
+  Glyph,
+  HEAT_COLORS,
+  PrimaryButton,
+  StreakHeatmap,
+  SubHeader,
+  TabBar,
+} from '@/components/design';
+import { endSession, logPastSession, startSession, updateSessionStart } from '@/src/db/queries/fasting';
 import { useFasting, useFastingHistory, type FastingState } from '@/src/hooks/use-fasting';
 import { useFastingPreferences } from '@/src/hooks/use-fasting-preferences';
 import { FASTING_PHASES, formatHM, formatHMS, formatRelative } from '@/src/lib/time';
@@ -15,6 +26,10 @@ const TARGET_OPTIONS = [13, 14, 16, 18, 20, 24] as const;
 export default function FastingScreen() {
   const router = useRouter();
   const state = useFasting(1000);
+  const [logPastOpen, setLogPastOpen] = useState(false);
+
+  const openLogPast = useCallback(() => setLogPastOpen(true), []);
+  const closeLogPast = useCallback(() => setLogPastOpen(false), []);
 
   return (
     <View style={{ flex: 1, backgroundColor: tokens.bg }}>
@@ -32,10 +47,16 @@ export default function FastingScreen() {
           }
         />
 
-        {state.status === 'active' ? <ActiveView state={state} /> : <IdleView />}
+        {state.status === 'active' ? (
+          <ActiveView state={state} onLogPast={openLogPast} />
+        ) : (
+          <IdleView onLogPast={openLogPast} />
+        )}
       </ScrollView>
 
       <TabBar active="home" />
+
+      <LogPastFastDrawer open={logPastOpen} onClose={closeLogPast} />
     </View>
   );
 }
@@ -43,7 +64,13 @@ export default function FastingScreen() {
 // ─────────────────────────────────────────────────────────────────────────────
 // ACTIVE — hero ring, stat strip, phase timeline, end-fast button.
 // ─────────────────────────────────────────────────────────────────────────────
-function ActiveView({ state }: { state: Extract<FastingState, { status: 'active' }> }) {
+function ActiveView({
+  state,
+  onLogPast,
+}: {
+  state: Extract<FastingState, { status: 'active' }>;
+  onLogPast: () => void;
+}) {
   const { session, elapsedMs, elapsedHours, msToNextPhase, msToTarget, progress, currentPhase } = state;
   const startedAt = session.startedAt;
   const projectedEnd = new Date(startedAt.getTime() + session.targetHours * 3_600_000);
@@ -140,20 +167,8 @@ function ActiveView({ state }: { state: Extract<FastingState, { status: 'active'
 
       {/* END FAST BUTTON */}
       <View style={styles.actionWrap}>
-        <Pressable onPress={handleEndFast} style={({ pressed }) => [styles.primaryBtn, pressed && { opacity: 0.85 }]}>
-          <Text style={styles.primaryBtnText}>end fast</Text>
-          <Svg width={10} height={10} viewBox="0 0 10 10">
-            <Path
-              d="M3 2l3 3-3 3"
-              stroke={tokens.accent}
-              strokeWidth={1.6}
-              fill="none"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </Svg>
-        </Pressable>
-        <LogPastFastLink />
+        <PrimaryButton label="end fast" onPress={handleEndFast} />
+        <LogPastFastLink onPress={onLogPast} />
       </View>
 
       <DateTimePickerSheet
@@ -173,7 +188,7 @@ function ActiveView({ state }: { state: Extract<FastingState, { status: 'active'
 // ─────────────────────────────────────────────────────────────────────────────
 // IDLE — choose a target and start a fast.
 // ─────────────────────────────────────────────────────────────────────────────
-function IdleView() {
+function IdleView({ onLogPast }: { onLogPast: () => void }) {
   const prefs = useFastingPreferences();
   const [target, setTarget] = useState<number | null>(null);
   // Seed once prefs load so users land on their preferred protocol.
@@ -205,20 +220,8 @@ function IdleView() {
         })}
       </View>
 
-      <Pressable onPress={handleStart} style={({ pressed }) => [styles.primaryBtn, pressed && { opacity: 0.85 }, { marginTop: 24 }]}>
-        <Text style={styles.primaryBtnText}>start fast</Text>
-        <Svg width={10} height={10} viewBox="0 0 10 10">
-          <Path
-            d="M3 2l3 3-3 3"
-            stroke={tokens.accent}
-            strokeWidth={1.6}
-            fill="none"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </Svg>
-      </Pressable>
-      <LogPastFastLink />
+      <PrimaryButton label="start fast" onPress={handleStart} style={{ marginTop: 24 }} />
+      <LogPastFastLink onPress={onLogPast} />
     </View>
   );
 }
@@ -226,16 +229,140 @@ function IdleView() {
 // ─────────────────────────────────────────────────────────────────────────────
 // LogPastFastLink — small text button under the primary CTA on either view.
 // ─────────────────────────────────────────────────────────────────────────────
-function LogPastFastLink() {
-  const router = useRouter();
+function LogPastFastLink({ onPress }: { onPress: () => void }) {
   return (
     <Pressable
-      onPress={() => router.push('/fasting-log-past')}
+      onPress={onPress}
       hitSlop={12}
       style={({ pressed }) => [styles.logPastLink, pressed && { opacity: 0.6 }]}>
       <Text style={styles.logPastLinkText}>+ log past fast</Text>
     </Pressable>
   );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LogPastFastDrawer — bottom-drawer form for retroactively logging a fast.
+// ─────────────────────────────────────────────────────────────────────────────
+const PAST_FAST_MAX_BACKDATE_MS = 30 * 24 * 3_600_000;
+
+function LogPastFastDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const prefs = useFastingPreferences();
+  const [targetHours, setTargetHours] = useState<number | null>(null);
+  const [startedAt, setStartedAt] = useState<Date>(() => new Date(Date.now() - 16 * 3_600_000));
+  const [endedAt, setEndedAt] = useState<Date>(() => new Date());
+  const [saving, setSaving] = useState(false);
+
+  // Seed target + default time range from prefs once available.
+  useEffect(() => {
+    if (targetHours === null && prefs) {
+      setTargetHours(prefs.defaultTargetHours);
+      setStartedAt(new Date(Date.now() - prefs.defaultTargetHours * 3_600_000));
+    }
+  }, [prefs, targetHours]);
+
+  // Re-seed each open so prior drawer state doesn't leak into the next session.
+  useEffect(() => {
+    if (open && prefs) {
+      setTargetHours(prefs.defaultTargetHours);
+      const now = new Date();
+      setEndedAt(now);
+      setStartedAt(new Date(now.getTime() - prefs.defaultTargetHours * 3_600_000));
+      setSaving(false);
+    }
+  }, [open, prefs]);
+
+  const minStart = new Date(Date.now() - PAST_FAST_MAX_BACKDATE_MS);
+  const maxEnd = new Date();
+  const durationMs = endedAt.getTime() - startedAt.getTime();
+  const valid =
+    durationMs > 0 && endedAt.getTime() <= Date.now() && targetHours !== null;
+
+  const handleSave = useCallback(() => {
+    if (!valid || targetHours === null || saving) return;
+    setSaving(true);
+    logPastSession({ startedAt, endedAt, targetHours })
+      .then(() => {
+        onClose();
+      })
+      .catch((err) => {
+        Alert.alert('Could not log fast', err.message);
+        setSaving(false);
+      });
+  }, [valid, targetHours, saving, startedAt, endedAt, onClose]);
+
+  return (
+    <Drawer
+      open={open}
+      onClose={onClose}
+      kicker="FASTING"
+      title="Log past fast"
+      cta={<PrimaryButton label={saving ? 'saving…' : 'save'} onPress={handleSave} disabled={!valid || saving} />}>
+      <DrawerSection label="target" marginTop={8}>
+        <View style={styles.drawerTargetGrid}>
+          {TARGET_OPTIONS.map((h) => {
+            const active = h === targetHours;
+            return (
+              <Pressable
+                key={h}
+                onPress={() => setTargetHours(h)}
+                style={[styles.drawerTargetChip, active && styles.drawerTargetChipActive]}>
+                <Text style={[styles.drawerTargetChipText, active && { color: tokens.bg }]}>{h}h</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </DrawerSection>
+
+      <DrawerSection label="start">
+        <DateTimeField
+          value={startedAt}
+          onChange={setStartedAt}
+          title="Start time"
+          minimumDate={minStart}
+          maximumDate={endedAt}
+        />
+      </DrawerSection>
+
+      <DrawerSection label="end">
+        <DateTimeField
+          value={endedAt}
+          onChange={setEndedAt}
+          title="End time"
+          minimumDate={startedAt}
+          maximumDate={maxEnd}
+        />
+      </DrawerSection>
+
+      <DrawerSection label="duration" sub={!valid && durationMs <= 0 ? 'invalid' : undefined}>
+        <View style={styles.drawerDurationRow}>
+          <Text
+            style={[
+              styles.drawerDurationValue,
+              textStyles.tnum,
+              !valid && { color: tokens.warn },
+            ]}>
+            {formatDurationFull(durationMs)}
+          </Text>
+        </View>
+        {!valid && durationMs <= 0 && (
+          <Text style={styles.drawerValidationMsg}>End time must come after start time.</Text>
+        )}
+        {!valid && endedAt.getTime() > Date.now() && (
+          <Text style={styles.drawerValidationMsg}>End time can&apos;t be in the future.</Text>
+        )}
+      </DrawerSection>
+    </Drawer>
+  );
+}
+
+function formatDurationFull(ms: number): string {
+  if (ms <= 0) return '—';
+  const totalMin = Math.floor(ms / 60_000);
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  if (h === 0) return `${m}m`;
+  if (m === 0) return `${h}h`;
+  return `${h}h ${m}m`;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -792,26 +919,6 @@ const styles = StyleSheet.create({
     paddingTop: 16,
     paddingHorizontal: 22,
   },
-  primaryBtn: {
-    height: 50,
-    borderRadius: 14,
-    backgroundColor: tokens.ink,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowRadius: 18,
-    shadowOpacity: 0.10,
-  },
-  primaryBtnText: {
-    fontFamily: fonts.monoSemibold,
-    fontSize: 11,
-    letterSpacing: 1.98,
-    textTransform: 'uppercase',
-    color: tokens.bg,
-  },
   logPastLink: {
     alignSelf: 'center',
     marginTop: 12,
@@ -865,5 +972,50 @@ const styles = StyleSheet.create({
   },
   targetChipTextActive: {
     color: tokens.bg,
+  },
+
+  // Log-past-fast drawer
+  drawerTargetGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  drawerTargetChip: {
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: tokens.line,
+    backgroundColor: tokens.bg2,
+  },
+  drawerTargetChipActive: {
+    backgroundColor: tokens.ink,
+    borderColor: tokens.ink,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowRadius: 14,
+    shadowOpacity: 0.10,
+  },
+  drawerTargetChipText: {
+    fontFamily: fonts.monoSemibold,
+    fontSize: 13,
+    color: tokens.ink,
+    letterSpacing: -0.13,
+  },
+  drawerDurationRow: {
+    paddingVertical: 4,
+  },
+  drawerDurationValue: {
+    fontFamily: fonts.monoSemibold,
+    fontSize: 22,
+    color: tokens.ink,
+    letterSpacing: -0.44,
+  },
+  drawerValidationMsg: {
+    fontFamily: fonts.mono,
+    fontSize: 11,
+    color: tokens.warn,
+    marginTop: 6,
+    fontStyle: 'italic',
   },
 });

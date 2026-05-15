@@ -1,8 +1,10 @@
 export { Bars } from './bars';
 export { DateTimeField } from './datetime-field';
 export { DateTimePickerSheet } from './datetime-picker-sheet';
+export { Drawer, DrawerSection } from './drawer';
 export { Glyph, type GlyphName } from './glyph';
 export { Hair } from './hair';
+export { PrimaryButton } from './primary-button';
 export { Ring } from './ring';
 export { Spark } from './spark';
 export { Stripe } from './stripe';
