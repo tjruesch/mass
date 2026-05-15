@@ -14,6 +14,7 @@ import { isNull } from 'drizzle-orm';
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import { useMemo } from 'react';
 
+import { type HeatLevel } from '@/components/design/streak-heatmap';
 import { db } from '@/src/db';
 import { fastingSessions, type FastingSession } from '@/src/db/schema';
 import { useFastingPreferences } from '@/src/hooks/use-fasting-preferences';
@@ -84,8 +85,11 @@ export function useFasting(tickMs: number = 1000): FastingState {
   }, [data, now]);
 }
 
-/** Heatmap intensity bucket for one day's longest fast. Mirrors the design. */
-export type DailyFastLevel = 0 | 1 | 2 | 3 | 4;
+/**
+ * Heatmap intensity bucket for one day's longest fast. Aliased to the
+ * shared `HeatLevel` so the streak heatmap is feature-agnostic.
+ */
+export type DailyFastLevel = HeatLevel;
 
 function levelForHours(hours: number): DailyFastLevel {
   if (hours <= 0) return 0;

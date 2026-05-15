@@ -1,10 +1,21 @@
 import { useRouter } from 'expo-router';
+import { useEffect, useRef } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import Svg, { Circle } from 'react-native-svg';
+import Animated, {
+  Easing,
+  useAnimatedProps,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
+import Svg, { Circle, G } from 'react-native-svg';
+
+const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
 import { TabBar, WindowStrip } from '@/components/design';
 import { useFasting, type FastingState } from '@/src/hooks/use-fasting';
 import { useFastingPreferences } from '@/src/hooks/use-fasting-preferences';
+import { useWaterToday } from '@/src/hooks/use-water';
+import { useWaterPreferences } from '@/src/hooks/use-water-preferences';
 import {
   FASTING_PHASES,
   formatHM,
@@ -19,46 +30,150 @@ import { fonts, textStyles, tokens } from '@/theme/tokens';
 // ─────────────────────────────────────────────────────────────────────────────
 // Hero rings — three concentric kcal/h2o/move arcs, no center label.
 // ─────────────────────────────────────────────────────────────────────────────
-function Concentric({ size = 138 }: { size?: number }) {
+function Concentric({
+  size = 138,
+  h2oPct,
+}: {
+  size?: number;
+  /** 0..1+ — middle ring (cool). Arc clamps at 1; the head puck keeps going past it. */
+  h2oPct?: number;
+}) {
+  const h2oRaw = h2oPct === undefined ? 0.617 : Math.max(0, h2oPct);
+  const cx = size / 2;
+  const cy = size / 2;
   const rings = [
-    { rOff: 0, pct: 0.264, c: tokens.ink, sw: 11 },
-    { rOff: 17, pct: 0.617, c: tokens.cool, sw: 11 },
-    { rOff: 34, pct: 0.42, c: tokens.accentInk, sw: 11 },
+    { rOff: 0, target: 0.264, c: tokens.ink, sw: 11 },
+    { rOff: 17, target: h2oRaw, c: tokens.cool, sw: 11 },
+    { rOff: 34, target: 0.42, c: tokens.accentInk, sw: 11 },
   ];
+
   return (
     <View style={{ width: size, height: size }}>
       <Svg width={size} height={size}>
         {rings.map((r, i) => {
           const radius = (size - 12) / 2 - r.rOff;
-          const c = 2 * Math.PI * radius;
           return (
-            <View key={i}>
-              {/* track */}
-              <Circle
-                cx={size / 2}
-                cy={size / 2}
-                r={radius}
-                fill="none"
-                stroke={tokens.bg2}
-                strokeWidth={r.sw}
-              />
-              {/* progress */}
-              <Circle
-                cx={size / 2}
-                cy={size / 2}
-                r={radius}
-                fill="none"
-                stroke={r.c}
-                strokeWidth={r.sw}
-                strokeDasharray={`${c * r.pct} ${c}`}
-                strokeLinecap="round"
-                transform={`rotate(-90 ${size / 2} ${size / 2})`}
-              />
-            </View>
+            <Ring
+              key={i}
+              cx={cx}
+              cy={cy}
+              radius={radius}
+              strokeWidth={r.sw}
+              color={r.c}
+              target={r.target}
+              // Tiny stagger so outer-to-inner reads like a sweep rather
+              // than a simultaneous fill — Apple Watch does the same trick.
+              delay={i * 60}
+            />
           );
         })}
       </Svg>
     </View>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Single ring — animated fill + head puck via react-native-reanimated.
+//
+// The fill value `progress` lives in a shared value so the arc's
+// strokeDasharray and the puck's cx/cy can both react to it on the UI
+// thread (no JS-side re-renders per frame). The arc renders clamped to
+// one lap, but the puck reads the raw value so over-target days keep the
+// puck advancing into a second rotation.
+// ─────────────────────────────────────────────────────────────────────────────
+function Ring({
+  cx,
+  cy,
+  radius,
+  strokeWidth,
+  color,
+  target,
+  delay = 0,
+}: {
+  cx: number;
+  cy: number;
+  radius: number;
+  strokeWidth: number;
+  color: string;
+  target: number;
+  delay?: number;
+}) {
+  const progress = useSharedValue(0);
+  const c = 2 * Math.PI * radius;
+  const headFillR = strokeWidth / 2 - 1;
+
+  const firstMountRef = useRef(true);
+
+  useEffect(() => {
+    const isFirst = firstMountRef.current;
+    firstMountRef.current = false;
+
+    const startAnimation = () => {
+      progress.value = withTiming(target, {
+        duration: 800,
+        easing: Easing.out(Easing.cubic),
+      });
+    };
+
+    // Stagger only on the first paint — afterwards, value changes (e.g. a
+    // new sip) animate immediately so the puck tracks the data without lag.
+    if (isFirst && delay > 0) {
+      const handle = setTimeout(startAnimation, delay);
+      return () => clearTimeout(handle);
+    }
+    startAnimation();
+  }, [target, delay, progress]);
+
+  const arcProps = useAnimatedProps(() => {
+    const arc = Math.min(1, progress.value);
+    return {
+      strokeDasharray: [c * arc, c] as [number, number],
+    };
+  });
+
+  const headProps = useAnimatedProps(() => {
+    const angle = -Math.PI / 2 + progress.value * 2 * Math.PI;
+    return {
+      cx: cx + Math.cos(angle) * radius,
+      cy: cy + Math.sin(angle) * radius,
+      // Puck fades in on the first few percent so it doesn't pop visibly
+      // at angle=-π/2 the moment the animation starts.
+      opacity: Math.min(1, progress.value / 0.03),
+    };
+  });
+
+  return (
+    <G>
+      {/* track */}
+      <Circle
+        cx={cx}
+        cy={cy}
+        r={radius}
+        fill="none"
+        stroke={tokens.bg2}
+        strokeWidth={strokeWidth}
+      />
+      {/* progress arc */}
+      <AnimatedCircle
+        cx={cx}
+        cy={cy}
+        r={radius}
+        fill="none"
+        stroke={color}
+        strokeWidth={strokeWidth}
+        strokeLinecap="round"
+        transform={`rotate(-90 ${cx} ${cy})`}
+        animatedProps={arcProps}
+      />
+      {/* head puck */}
+      <AnimatedCircle
+        r={headFillR}
+        fill={tokens.card}
+        stroke={color}
+        strokeWidth={1.5}
+        animatedProps={headProps}
+      />
+    </G>
   );
 }
 
@@ -252,6 +367,14 @@ function IdleFastingCardBody() {
 export default function HomeScreen() {
   const router = useRouter();
   const fasting = useFasting(1000);
+  // Live water — 60s tick is plenty; live query also re-runs on every sip.
+  const waterToday = useWaterToday();
+  const waterPrefs = useWaterPreferences();
+  const waterTargetMl = waterPrefs?.targetMl ?? 3000;
+  const waterPctValue = waterTargetMl > 0 ? waterToday.totalMl / waterTargetMl : 0;
+  const waterPctLabel = `${Math.round(waterPctValue * 100)}%`;
+  const waterValueLabel = (waterToday.totalMl / 1000).toFixed(2);
+  const waterTargetLabel = `of ${(waterTargetMl / 1000).toFixed(1)}`;
 
   return (
     <View style={{ flex: 1, backgroundColor: tokens.bg }}>
@@ -307,11 +430,26 @@ export default function HomeScreen() {
               </View>
             </View>
             <View style={styles.heroBody}>
-              <Concentric size={138} />
+              <Concentric size={138} h2oPct={waterPctValue} />
               <View style={{ flex: 1, minWidth: 0 }}>
                 <Legend swatch={tokens.ink} label="kcal" value="480" target="of 1820" pct="26%" />
                 <View style={styles.legendDivider} />
-                <Legend swatch={tokens.cool} label="h2o" value="1.85" unit="L" target="of 3.0" pct="62%" />
+                {/* Tappable legend row — only h2o is live; kcal + move come
+                    online in their own slices (meals, workouts). */}
+                <Pressable onPress={() => router.push('/water')}>
+                  {({ pressed }) => (
+                    <View style={pressed && { opacity: 0.6 }}>
+                      <Legend
+                        swatch={tokens.cool}
+                        label="h2o"
+                        value={waterValueLabel}
+                        unit="L"
+                        target={waterTargetLabel}
+                        pct={waterPctLabel}
+                      />
+                    </View>
+                  )}
+                </Pressable>
                 <View style={styles.legendDivider} />
                 <Legend swatch={tokens.accentInk} label="move" value="42" unit="min" target="of 100" pct="42%" />
               </View>

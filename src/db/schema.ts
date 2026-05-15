@@ -41,10 +41,42 @@ export const waterLogs = sqliteTable('water_logs', {
   id: id(),
   at: integer('at', { mode: 'timestamp_ms' }).notNull(),
   ml: integer('ml').notNull(),
+  /** What was sipped. tea/coffee count partially toward goal — see water_preferences. */
+  kind: text('kind', { enum: ['water', 'tea', 'coffee'] })
+    .notNull()
+    .default('water'),
   source: text('source', { enum: ['manual', 'voice', 'healthkit'] })
     .notNull()
     .default('manual'),
   createdAt: createdAt(),
+});
+
+// ─── Water preferences (singleton, always id=1) ───────────────────────────────
+export const waterPreferences = sqliteTable('water_preferences', {
+  /** Always 1. Same singleton convention as fasting_preferences. */
+  id: integer('id').primaryKey(),
+  /** Daily goal in milliliters. Default 3000 (3 L) — matches design. */
+  targetMl: integer('target_ml').notNull().default(3000),
+  /** Display unit. Storage is always ml; this only controls formatting. */
+  unit: text('unit', { enum: ['L', 'ml', 'cups'] })
+    .notNull()
+    .default('L'),
+  /** Quick-add tiles on the detail page. Four slots; ml + free-form label. */
+  quickAdd1Ml: integer('quick_add_1_ml').notNull().default(250),
+  quickAdd1Label: text('quick_add_1_label').notNull().default('glass'),
+  quickAdd2Ml: integer('quick_add_2_ml').notNull().default(350),
+  quickAdd2Label: text('quick_add_2_label').notNull().default('cup'),
+  quickAdd3Ml: integer('quick_add_3_ml').notNull().default(500),
+  quickAdd3Label: text('quick_add_3_label').notNull().default('bottle'),
+  quickAdd4Ml: integer('quick_add_4_ml').notNull().default(750),
+  quickAdd4Label: text('quick_add_4_label').notNull().default('mug'),
+  /** Weekday bitmask. Bit 0 = Monday … bit 6 = Sunday. 127 = every day on. */
+  weekdayBitmask: integer('weekday_bitmask').notNull().default(127),
+  /** When activity scaling is on, add this many ml to the day's goal per lift session. */
+  activityScalingMl: integer('activity_scaling_ml').notNull().default(350),
+  activityScalingEnabled: integer('activity_scaling_enabled', { mode: 'boolean' })
+    .notNull()
+    .default(false),
 });
 
 // ─── Pantry (food library) ────────────────────────────────────────────────────
@@ -239,3 +271,9 @@ export type NewHkSyncCursor = typeof hkSyncCursor.$inferInsert;
 
 export type FastingPreferences = typeof fastingPreferences.$inferSelect;
 export type NewFastingPreferences = typeof fastingPreferences.$inferInsert;
+
+export type WaterPreferences = typeof waterPreferences.$inferSelect;
+export type NewWaterPreferences = typeof waterPreferences.$inferInsert;
+
+export type WaterKind = NonNullable<NewWaterLog['kind']>;
+export type WaterSource = NonNullable<NewWaterLog['source']>;

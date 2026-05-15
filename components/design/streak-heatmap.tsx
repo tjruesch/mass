@@ -1,9 +1,15 @@
 import { useMemo } from 'react';
 import { Text, View } from 'react-native';
 
-import type { DailyFastLevel } from '@/src/hooks/use-fasting';
 import { addDays, dowMondayFirst, dowMondayFirstFromYmd, ymd } from '@/src/lib/time';
 import { fonts, tokens } from '@/theme/tokens';
+
+/**
+ * Heatmap intensity bucket. Domain-agnostic — fasting + water both bucket
+ * each day into 5 levels (0 = empty, 4 = PB / target met). Keeping the type
+ * here decouples the heatmap from any particular feature's history hook.
+ */
+export type HeatLevel = 0 | 1 | 2 | 3 | 4;
 
 /**
  * Heatmap intensity palette — pre-computed sRGB mixes of `tokens.ink` over
@@ -28,7 +34,7 @@ export const HEAT_COLORS = [
   tokens.accentInk,  // 4 — 18h+ (PB)
 ] as const;
 
-type Cell = { date: string; level: DailyFastLevel };
+type Cell = { date: string; level: HeatLevel };
 
 type Props = {
   cells: ReadonlyArray<Cell>;

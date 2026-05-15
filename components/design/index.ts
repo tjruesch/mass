@@ -14,7 +14,9 @@ export {
   HEAT_COLORS,
   CELL as HEATMAP_CELL,
   GAP as HEATMAP_GAP,
+  type HeatLevel,
 } from './streak-heatmap';
 export { SubHeader } from './sub-header';
 export { TabBar, type TabId } from './tab-bar';
+export { WaterLogDrawer } from './water-log-drawer';
 export { WindowStrip } from './window-strip';

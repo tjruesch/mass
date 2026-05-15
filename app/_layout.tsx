@@ -20,7 +20,8 @@ import 'react-native-reanimated';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { db, migrations, useMigrations } from '@/src/db';
-import { getPreferences } from '@/src/db/queries/fasting-preferences';
+import { getPreferences as getFastingPreferences } from '@/src/db/queries/fasting-preferences';
+import { getPreferences as getWaterPreferences } from '@/src/db/queries/water-preferences';
 import { tokens } from '@/theme/tokens';
 
 SplashScreen.preventAutoHideAsync();
@@ -44,8 +45,11 @@ export default function RootLayout() {
   // Seed singleton rows once migrations succeed so screens can assume they exist.
   useEffect(() => {
     if (!migrationsReady) return;
-    getPreferences().catch((err) => {
+    getFastingPreferences().catch((err) => {
       console.warn('Failed to seed fasting preferences:', err);
+    });
+    getWaterPreferences().catch((err) => {
+      console.warn('Failed to seed water preferences:', err);
     });
   }, [migrationsReady]);
 
@@ -75,6 +79,8 @@ export default function RootLayout() {
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen name="fasting" options={{ headerShown: false }} />
           <Stack.Screen name="fasting-settings" options={{ headerShown: false }} />
+          <Stack.Screen name="water" options={{ headerShown: false }} />
+          <Stack.Screen name="water-settings" options={{ headerShown: false }} />
           <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
         </Stack>
         <StatusBar style="auto" />
