@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { Text, View } from 'react-native';
 
 import type { DailyFastLevel } from '@/src/hooks/use-fasting';
-import { dowMondayFirst, ymd } from '@/src/lib/time';
+import { dowMondayFirst, dowMondayFirstFromYmd, ymd } from '@/src/lib/time';
 import { fonts, tokens } from '@/theme/tokens';
 
 /**
@@ -36,6 +36,14 @@ type Props = {
   weeks?: number;
   /** Today, for highlighting the "current" cell. Defaults to local today. */
   today?: Date;
+  /**
+   * Weekly schedule bitmask (bit 0 = Monday … bit 6 = Sunday). When provided,
+   * days that are scheduled-off AND have no fast (level 0) render with a
+   * thin hairline instead of an outlined empty box — matching the
+   * `not_planned` treatment in the plan-screen design. Omit to treat every
+   * day as scheduled-on.
+   */
+  weekdayBitmask?: number;
 };
 
 export const CELL = 14;
@@ -51,10 +59,12 @@ export const GAP = 3;
  * `CELL` + `GAP` exports so a parent can compute "how many weeks fit in
  * my container width."
  */
-export function StreakHeatmap({ cells, weeks = 14, today: providedToday }: Props) {
+export function StreakHeatmap({ cells, weeks = 14, today: providedToday, weekdayBitmask }: Props) {
   const today = providedToday ?? new Date();
   const todayKey = ymd(today);
   const todayRow = dowMondayFirst(today);
+  const isOffDay = (date: string) =>
+    weekdayBitmask !== undefined && (weekdayBitmask & (1 << dowMondayFirstFromYmd(date))) === 0;
 
   // Lay out cells in (col, row) order, right-aligned to today.
   // grid[col][row] = Cell | null
@@ -144,6 +154,7 @@ export function StreakHeatmap({ cells, weeks = 14, today: providedToday }: Props
                   return <View key={rowIdx} style={{ width: CELL, height: CELL }} />;
                 }
                 const isToday = cell.date === todayKey;
+                const offEmpty = cell.level === 0 && isOffDay(cell.date);
                 const fill = HEAT_COLORS[cell.level];
                 return (
                   <View
@@ -163,27 +174,40 @@ export function StreakHeatmap({ cells, weeks = 14, today: providedToday }: Props
                         }}
                       />
                     )}
-                    <View
-                      style={{
-                        width: CELL,
-                        height: CELL,
-                        borderRadius: 3,
-                        backgroundColor: fill,
-                        borderWidth: cell.level === 0 ? 1 : 0,
-                        // line2 reads ~4× more contrast against bg than line
-                        // does — without it the cool-tone level-0 cells fade
-                        // into the screen background and the grid pattern
-                        // vanishes.
-                        borderColor: tokens.line2,
-                        // PB glow
-                        ...(cell.level === 4 && {
-                          shadowColor: tokens.accent,
-                          shadowOffset: { width: 0, height: 0 },
-                          shadowRadius: 6,
-                          shadowOpacity: 1,
-                        }),
-                      }}
-                    />
+                    {offEmpty ? (
+                      // not_planned treatment (from screen-plan.jsx): a single
+                      // hairline through the cell center. No outlined box, so
+                      // scheduled-off days visually recede vs. real misses.
+                      <View
+                        style={{
+                          width: CELL * 0.55,
+                          height: 1,
+                          backgroundColor: tokens.line2,
+                        }}
+                      />
+                    ) : (
+                      <View
+                        style={{
+                          width: CELL,
+                          height: CELL,
+                          borderRadius: 3,
+                          backgroundColor: fill,
+                          borderWidth: cell.level === 0 ? 1 : 0,
+                          // line2 reads ~4× more contrast against bg than line
+                          // does — without it the cool-tone level-0 cells fade
+                          // into the screen background and the grid pattern
+                          // vanishes.
+                          borderColor: tokens.line2,
+                          // PB glow
+                          ...(cell.level === 4 && {
+                            shadowColor: tokens.accent,
+                            shadowOffset: { width: 0, height: 0 },
+                            shadowRadius: 6,
+                            shadowOpacity: 1,
+                          }),
+                        }}
+                      />
+                    )}
                   </View>
                 );
               })}

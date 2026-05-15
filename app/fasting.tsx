@@ -386,6 +386,7 @@ const MIN_WEEKS = 14;
 
 function StreakSection() {
   const [weeks, setWeeks] = useState(MIN_WEEKS);
+  const prefs = useFastingPreferences();
 
   const onSectionLayout = (e: LayoutChangeEvent) => {
     const innerWidth = e.nativeEvent.layout.width - 22 * 2; // streakWrap paddingHorizontal
@@ -415,7 +416,12 @@ function StreakSection() {
         </Text>
       </View>
 
-      <StreakHeatmap cells={history.cells} weeks={weeks} today={today} />
+      <StreakHeatmap
+        cells={history.cells}
+        weeks={weeks}
+        today={today}
+        weekdayBitmask={prefs?.weekdayBitmask}
+      />
 
       <View style={styles.streakLegend}>
         <Text style={styles.streakLegendEdge}>{startLabel}</Text>

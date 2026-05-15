@@ -97,6 +97,16 @@ export function dowMondayFirst(d: Date): number {
   return (d.getDay() + 6) % 7;
 }
 
+/**
+ * Same as `dowMondayFirst` but takes a local-calendar 'YYYY-MM-DD' string —
+ * useful when consuming the per-day keys from `ymd()`. Parses as local
+ * midnight rather than UTC so the day doesn't shift in zones west of GMT.
+ */
+export function dowMondayFirstFromYmd(ymd: string): number {
+  const [y, m, d] = ymd.split('-').map(Number);
+  return dowMondayFirst(new Date(y, m - 1, d));
+}
+
 // ─── Time-of-day utilities ────────────────────────────────────────────────────
 // We model eating windows / clock-time inputs as minutes-since-midnight (0..1439).
 // All these helpers operate purely on that integer model — they never touch
