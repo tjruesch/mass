@@ -54,6 +54,11 @@ export default function FastingSettingsScreen() {
   // until prefs reflects the new values (cleared by the effect below) so the
   // strip and stats don't flash through stale values for a frame.
   const [dragWindow, setDragWindow] = useState<{ start: number; end: number } | null>(null);
+  // Tap-to-edit start/end times. `null` = closed.
+  // Declared here (with the rest of the hooks) so the count stays stable
+  // across renders — moving it below the `if (!prefs) return` early-out
+  // would trip "rendered more hooks than during the previous render".
+  const [editingField, setEditingField] = useState<'start' | 'end' | null>(null);
 
   useEffect(() => {
     if (
@@ -121,10 +126,6 @@ export default function FastingSettingsScreen() {
     });
   };
   const onShiftAbort = () => setDragWindow(null);
-
-  // Tap-to-edit start/end times. `null` = closed; the value drives both
-  // the sheet title and the seed value for the time spinner.
-  const [editingField, setEditingField] = useState<'start' | 'end' | null>(null);
 
   const onPickTime = (next: Date) => {
     const mins = next.getHours() * 60 + next.getMinutes();
