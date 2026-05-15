@@ -21,8 +21,6 @@ import { useFastingPreferences } from '@/src/hooks/use-fasting-preferences';
 import { FASTING_PHASES, formatHM, formatHMS, formatRelative } from '@/src/lib/time';
 import { fonts, textStyles, tokens } from '@/theme/tokens';
 
-const TARGET_OPTIONS = [13, 14, 16, 18, 20, 24] as const;
-
 export default function FastingScreen() {
   const router = useRouter();
   const state = useFasting(1000);
@@ -190,37 +188,35 @@ function ActiveView({
 // ─────────────────────────────────────────────────────────────────────────────
 function IdleView({ onLogPast }: { onLogPast: () => void }) {
   const prefs = useFastingPreferences();
-  const [target, setTarget] = useState<number | null>(null);
-  // Seed once prefs load so users land on their preferred protocol.
-  useEffect(() => {
-    if (target === null && prefs) setTarget(prefs.defaultTargetHours);
-  }, [prefs, target]);
 
+  // Target is sourced from the global protocol; the session row snapshots it.
+  // If prefs haven't loaded yet, we keep the Start button disabled rather
+  // than guessing a target.
   const handleStart = useCallback(() => {
-    if (target === null) return;
-    startSession({ targetHours: target }).catch((err) => Alert.alert('Failed to start', err.message));
-  }, [target]);
+    if (!prefs) return;
+    startSession({ targetHours: prefs.defaultTargetHours }).catch((err) =>
+      Alert.alert('Failed to start', err.message),
+    );
+  }, [prefs]);
 
   return (
     <View style={{ paddingHorizontal: 22, paddingTop: 24 }}>
       <Text style={[styles.idleLabel, textStyles.cap]}>no active fast</Text>
-      <Text style={styles.idleHeading}>Choose a target.</Text>
+      <Text style={styles.idleHeading}>Ready to start.</Text>
+      <Text style={styles.idleTargetLine}>
+        fasting target{' '}
+        <Text style={styles.idleTargetValue}>
+          {prefs ? `${prefs.defaultTargetHours}h` : '—'}
+        </Text>
+        <Text style={styles.idleTargetMute}> · change in settings</Text>
+      </Text>
 
-      <View style={styles.targetGrid}>
-        {TARGET_OPTIONS.map((h) => {
-          const isActive = h === target;
-          return (
-            <Pressable
-              key={h}
-              onPress={() => setTarget(h)}
-              style={[styles.targetChip, isActive && styles.targetChipActive]}>
-              <Text style={[styles.targetChipText, isActive && styles.targetChipTextActive]}>{h}h</Text>
-            </Pressable>
-          );
-        })}
-      </View>
-
-      <PrimaryButton label="start fast" onPress={handleStart} style={{ marginTop: 24 }} />
+      <PrimaryButton
+        label="start fast"
+        onPress={handleStart}
+        disabled={!prefs}
+        style={{ marginTop: 24 }}
+      />
       <LogPastFastLink onPress={onLogPast} />
     </View>
   );
@@ -247,23 +243,15 @@ const PAST_FAST_MAX_BACKDATE_MS = 30 * 24 * 3_600_000;
 
 function LogPastFastDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
   const prefs = useFastingPreferences();
-  const [targetHours, setTargetHours] = useState<number | null>(null);
   const [startedAt, setStartedAt] = useState<Date>(() => new Date(Date.now() - 16 * 3_600_000));
   const [endedAt, setEndedAt] = useState<Date>(() => new Date());
   const [saving, setSaving] = useState(false);
 
-  // Seed target + default time range from prefs once available.
-  useEffect(() => {
-    if (targetHours === null && prefs) {
-      setTargetHours(prefs.defaultTargetHours);
-      setStartedAt(new Date(Date.now() - prefs.defaultTargetHours * 3_600_000));
-    }
-  }, [prefs, targetHours]);
-
-  // Re-seed each open so prior drawer state doesn't leak into the next session.
+  // Re-seed each open so prior drawer state doesn't leak between sessions.
+  // Default start = now - prefs.defaultTargetHours so the form opens
+  // matching the user's protocol; they edit from there.
   useEffect(() => {
     if (open && prefs) {
-      setTargetHours(prefs.defaultTargetHours);
       const now = new Date();
       setEndedAt(now);
       setStartedAt(new Date(now.getTime() - prefs.defaultTargetHours * 3_600_000));
@@ -274,21 +262,23 @@ function LogPastFastDrawer({ open, onClose }: { open: boolean; onClose: () => vo
   const minStart = new Date(Date.now() - PAST_FAST_MAX_BACKDATE_MS);
   const maxEnd = new Date();
   const durationMs = endedAt.getTime() - startedAt.getTime();
-  const valid =
-    durationMs > 0 && endedAt.getTime() <= Date.now() && targetHours !== null;
+  const valid = durationMs > 0 && endedAt.getTime() <= Date.now() && prefs !== null;
 
   const handleSave = useCallback(() => {
-    if (!valid || targetHours === null || saving) return;
+    if (!valid || !prefs || saving) return;
     setSaving(true);
-    logPastSession({ startedAt, endedAt, targetHours })
-      .then(() => {
-        onClose();
-      })
+    logPastSession({
+      startedAt,
+      endedAt,
+      // Snapshot the user's current global target onto the past session.
+      targetHours: prefs.defaultTargetHours,
+    })
+      .then(() => onClose())
       .catch((err) => {
         Alert.alert('Could not log fast', err.message);
         setSaving(false);
       });
-  }, [valid, targetHours, saving, startedAt, endedAt, onClose]);
+  }, [valid, prefs, saving, startedAt, endedAt, onClose]);
 
   return (
     <Drawer
@@ -297,23 +287,7 @@ function LogPastFastDrawer({ open, onClose }: { open: boolean; onClose: () => vo
       kicker="FASTING"
       title="Log past fast"
       cta={<PrimaryButton label={saving ? 'saving…' : 'save'} onPress={handleSave} disabled={!valid || saving} />}>
-      <DrawerSection label="target" marginTop={8}>
-        <View style={styles.drawerTargetGrid}>
-          {TARGET_OPTIONS.map((h) => {
-            const active = h === targetHours;
-            return (
-              <Pressable
-                key={h}
-                onPress={() => setTargetHours(h)}
-                style={[styles.drawerTargetChip, active && styles.drawerTargetChipActive]}>
-                <Text style={[styles.drawerTargetChipText, active && { color: tokens.bg }]}>{h}h</Text>
-              </Pressable>
-            );
-          })}
-        </View>
-      </DrawerSection>
-
-      <DrawerSection label="start">
+      <DrawerSection label="start" marginTop={8}>
         <DateTimeField
           value={startedAt}
           onChange={setStartedAt}
@@ -343,6 +317,11 @@ function LogPastFastDrawer({ open, onClose }: { open: boolean; onClose: () => vo
             ]}>
             {formatDurationFull(durationMs)}
           </Text>
+          {prefs && (
+            <Text style={styles.drawerTargetHint}>
+              vs {prefs.defaultTargetHours}h target
+            </Text>
+          )}
         </View>
         {!valid && durationMs <= 0 && (
           <Text style={styles.drawerValidationMsg}>End time must come after start time.</Text>
@@ -946,64 +925,32 @@ const styles = StyleSheet.create({
     marginTop: 6,
     color: tokens.ink,
   },
-  targetGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-    marginTop: 24,
+  idleTargetLine: {
+    fontFamily: fonts.mono,
+    fontSize: 11,
+    color: tokens.ink3,
+    marginTop: 4,
   },
-  targetChip: {
-    paddingVertical: 14,
-    paddingHorizontal: 22,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: tokens.line,
-    backgroundColor: tokens.card,
-  },
-  targetChipActive: {
-    backgroundColor: tokens.ink,
-    borderColor: tokens.ink,
-  },
-  targetChipText: {
-    fontFamily: fonts.monoSemibold,
-    fontSize: 14,
+  idleTargetValue: {
     color: tokens.ink,
-    letterSpacing: -0.14,
+    fontFamily: fonts.monoMedium,
   },
-  targetChipTextActive: {
-    color: tokens.bg,
+  idleTargetMute: {
+    color: tokens.ink4,
   },
 
   // Log-past-fast drawer
-  drawerTargetGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
-  },
-  drawerTargetChip: {
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: tokens.line,
-    backgroundColor: tokens.bg2,
-  },
-  drawerTargetChipActive: {
-    backgroundColor: tokens.ink,
-    borderColor: tokens.ink,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowRadius: 14,
-    shadowOpacity: 0.10,
-  },
-  drawerTargetChipText: {
-    fontFamily: fonts.monoSemibold,
-    fontSize: 13,
-    color: tokens.ink,
-    letterSpacing: -0.13,
-  },
   drawerDurationRow: {
     paddingVertical: 4,
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 10,
+  },
+  drawerTargetHint: {
+    fontFamily: fonts.mono,
+    fontSize: 11,
+    color: tokens.ink4,
+    fontStyle: 'italic',
   },
   drawerDurationValue: {
     fontFamily: fonts.monoSemibold,
