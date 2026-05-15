@@ -1,4 +1,5 @@
 export { Bars } from './bars';
+export { BottomSheet } from './bottom-sheet';
 export { DateTimeField } from './datetime-field';
 export { DateTimePickerSheet } from './datetime-picker-sheet';
 export { Drawer, DrawerSection } from './drawer';

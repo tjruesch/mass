@@ -1,8 +1,10 @@
 import type { ReactNode } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 
 import { fonts, textStyles, tokens } from '@/theme/tokens';
+
+import { BottomSheet } from './bottom-sheet';
 
 type DrawerProps = {
   open: boolean;
@@ -26,45 +28,39 @@ type DrawerProps = {
  * Generic on content — the same shell hosts water / weight / meal / past-fast
  * logging. Each drawer just provides its own kicker / title / sections / CTA.
  *
- * Note on nested overlays: the drawer is a `Modal`, and `DateTimeField`
- * children open their own `DateTimePickerSheet` (also a Modal). On iOS,
- * Modal-over-Modal works in practice for sequential interactions like this;
- * if we ever ship Android or hit a stacking glitch we'll move the picker
- * to an inline overlay layer.
+ * Animation comes from the shared `BottomSheet` primitive: the backdrop
+ * fades while the sheet slides up (independent animations, iOS feel).
  */
 export function Drawer({ open, onClose, kicker, title, cta, children }: DrawerProps) {
   return (
-    <Modal visible={open} transparent animationType="slide" statusBarTranslucent onRequestClose={onClose}>
-      <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Dismiss drawer" />
-      <View style={styles.sheet}>
-        <View style={styles.handle} />
-        <View style={styles.header}>
-          <View style={{ flex: 1 }}>
-            {kicker && <Text style={[styles.kicker, textStyles.cap]}>{kicker}</Text>}
-            <Text style={styles.title}>{title}</Text>
-          </View>
-          <Pressable
-            onPress={onClose}
-            hitSlop={10}
-            accessibilityRole="button"
-            accessibilityLabel="Close"
-            style={styles.closeBtn}>
-            <Svg width={11} height={11} viewBox="0 0 12 12">
-              <Path d="M2.5 2.5l7 7M9.5 2.5l-7 7" stroke={tokens.ink} strokeWidth={1.6} strokeLinecap="round" />
-            </Svg>
-          </Pressable>
+    <BottomSheet open={open} onClose={onClose} sheetStyle={styles.sheet}>
+      <View style={styles.handle} />
+      <View style={styles.header}>
+        <View style={{ flex: 1 }}>
+          {kicker && <Text style={[styles.kicker, textStyles.cap]}>{kicker}</Text>}
+          <Text style={styles.title}>{title}</Text>
         </View>
-
-        <ScrollView
-          style={styles.body}
-          contentContainerStyle={styles.bodyContent}
-          keyboardShouldPersistTaps="handled">
-          {children}
-        </ScrollView>
-
-        {cta && <View style={styles.ctaWrap}>{cta}</View>}
+        <Pressable
+          onPress={onClose}
+          hitSlop={10}
+          accessibilityRole="button"
+          accessibilityLabel="Close"
+          style={styles.closeBtn}>
+          <Svg width={11} height={11} viewBox="0 0 12 12">
+            <Path d="M2.5 2.5l7 7M9.5 2.5l-7 7" stroke={tokens.ink} strokeWidth={1.6} strokeLinecap="round" />
+          </Svg>
+        </Pressable>
       </View>
-    </Modal>
+
+      <ScrollView
+        style={styles.body}
+        contentContainerStyle={styles.bodyContent}
+        keyboardShouldPersistTaps="handled">
+        {children}
+      </ScrollView>
+
+      {cta && <View style={styles.ctaWrap}>{cta}</View>}
+    </BottomSheet>
   );
 }
 
@@ -96,15 +92,8 @@ export function DrawerSection({ label, sub, marginTop = 16, children }: DrawerSe
 const SHEET_HEIGHT_PCT = '78%' as const;
 
 const styles = StyleSheet.create({
-  backdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(20,20,15,0.35)',
-  },
+  // BottomSheet handles position/anchoring; we only set look + height here.
   sheet: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
     height: SHEET_HEIGHT_PCT,
     backgroundColor: tokens.bg,
     borderTopLeftRadius: 24,

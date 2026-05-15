@@ -1,8 +1,10 @@
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useEffect, useState } from 'react';
-import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { fonts, textStyles, tokens } from '@/theme/tokens';
+
+import { BottomSheet } from './bottom-sheet';
 
 type Props = {
   open: boolean;
@@ -59,47 +61,37 @@ export function DateTimePickerSheet({
   }, [open, value]);
 
   return (
-    <Modal visible={open} transparent animationType="slide" onRequestClose={onCancel} statusBarTranslucent>
-      <Pressable style={styles.backdrop} onPress={onCancel} accessibilityLabel="Dismiss picker" />
-      <View style={styles.sheet}>
-        <View style={styles.handle} />
-        <View style={styles.header}>
-          <Pressable onPress={onCancel} hitSlop={12} style={styles.actionWrap}>
-            <Text style={[styles.actionMuted, textStyles.cap]}>cancel</Text>
-          </Pressable>
-          <Text style={styles.title} numberOfLines={1}>
-            {title ?? ''}
-          </Text>
-          <Pressable onPress={() => onApply(internal)} hitSlop={12} style={[styles.actionWrap, { alignItems: 'flex-end' }]}>
-            <Text style={[styles.actionPrimary, textStyles.cap]}>apply</Text>
-          </Pressable>
-        </View>
-        <DateTimePicker
-          value={internal}
-          mode={mode}
-          display="spinner"
-          minimumDate={minimumDate}
-          maximumDate={maximumDate}
-          onChange={(_, d) => {
-            if (d) setInternal(d);
-          }}
-          textColor={tokens.ink}
-        />
+    <BottomSheet open={open} onClose={onCancel} sheetStyle={styles.sheet}>
+      <View style={styles.handle} />
+      <View style={styles.header}>
+        <Pressable onPress={onCancel} hitSlop={12} style={styles.actionWrap}>
+          <Text style={[styles.actionMuted, textStyles.cap]}>cancel</Text>
+        </Pressable>
+        <Text style={styles.title} numberOfLines={1}>
+          {title ?? ''}
+        </Text>
+        <Pressable onPress={() => onApply(internal)} hitSlop={12} style={[styles.actionWrap, { alignItems: 'flex-end' }]}>
+          <Text style={[styles.actionPrimary, textStyles.cap]}>apply</Text>
+        </Pressable>
       </View>
-    </Modal>
+      <DateTimePicker
+        value={internal}
+        mode={mode}
+        display="spinner"
+        minimumDate={minimumDate}
+        maximumDate={maximumDate}
+        onChange={(_, d) => {
+          if (d) setInternal(d);
+        }}
+        textColor={tokens.ink}
+      />
+    </BottomSheet>
   );
 }
 
 const styles = StyleSheet.create({
-  backdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.35)',
-  },
+  // BottomSheet handles position/anchoring; sheet style is look-only.
   sheet: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
     backgroundColor: tokens.bg,
     borderTopLeftRadius: 18,
     borderTopRightRadius: 18,
