@@ -105,3 +105,53 @@ export async function updateSessionStart(
     .returning();
   return updated ?? null;
 }
+
+/**
+ * Insert a completed past session — used when the user forgot to track a
+ * fast in real time. Distinct from `startSession` (which creates an
+ * *active* session) in that this one is born already `endedAt`-stamped.
+ *
+ * Validation:
+ *   • `endedAt > startedAt`.
+ *   • Both timestamps in the past.
+ *   • If an active session exists, the past range must not overlap it.
+ *     We treat the active session as occupying [active.startedAt, ∞).
+ */
+export async function logPastSession(opts: {
+  startedAt: Date;
+  endedAt: Date;
+  targetHours: number;
+  notes?: string;
+}): Promise<FastingSession> {
+  const now = new Date();
+  if (opts.endedAt.getTime() <= opts.startedAt.getTime()) {
+    throw new Error('End time must be after start time.');
+  }
+  if (opts.startedAt.getTime() > now.getTime() || opts.endedAt.getTime() > now.getTime()) {
+    throw new Error('Past sessions must lie entirely in the past.');
+  }
+  if (opts.targetHours <= 0 || opts.targetHours > 72) {
+    throw new Error('Target hours must be between 1 and 72.');
+  }
+
+  const active = await getActiveSession();
+  if (active) {
+    const overlap =
+      opts.endedAt.getTime() > active.startedAt.getTime() &&
+      opts.startedAt.getTime() < now.getTime();
+    if (overlap) {
+      throw new Error("This range overlaps the currently active session — end it first.");
+    }
+  }
+
+  const [row] = await db
+    .insert(fastingSessions)
+    .values({
+      startedAt: opts.startedAt,
+      endedAt: opts.endedAt,
+      targetHours: opts.targetHours,
+      notes: opts.notes,
+    })
+    .returning();
+  return row;
+}

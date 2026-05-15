@@ -153,6 +153,7 @@ function ActiveView({ state }: { state: Extract<FastingState, { status: 'active'
             />
           </Svg>
         </Pressable>
+        <LogPastFastLink />
       </View>
 
       <DateTimePickerSheet
@@ -217,7 +218,23 @@ function IdleView() {
           />
         </Svg>
       </Pressable>
+      <LogPastFastLink />
     </View>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LogPastFastLink — small text button under the primary CTA on either view.
+// ─────────────────────────────────────────────────────────────────────────────
+function LogPastFastLink() {
+  const router = useRouter();
+  return (
+    <Pressable
+      onPress={() => router.push('/fasting-log-past')}
+      hitSlop={12}
+      style={({ pressed }) => [styles.logPastLink, pressed && { opacity: 0.6 }]}>
+      <Text style={styles.logPastLinkText}>+ log past fast</Text>
+    </Pressable>
   );
 }
 
@@ -794,6 +811,18 @@ const styles = StyleSheet.create({
     letterSpacing: 1.98,
     textTransform: 'uppercase',
     color: tokens.bg,
+  },
+  logPastLink: {
+    alignSelf: 'center',
+    marginTop: 12,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+  },
+  logPastLinkText: {
+    fontFamily: fonts.mono,
+    fontSize: 11,
+    color: tokens.ink3,
+    letterSpacing: 0.44,
   },
 
   // Idle (no session)

@@ -75,6 +75,7 @@ export default function RootLayout() {
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen name="fasting" options={{ headerShown: false }} />
           <Stack.Screen name="fasting-settings" options={{ headerShown: false }} />
+          <Stack.Screen name="fasting-log-past" options={{ headerShown: false }} />
           <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
         </Stack>
         <StatusBar style="auto" />

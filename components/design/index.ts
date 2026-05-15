@@ -1,4 +1,5 @@
 export { Bars } from './bars';
+export { DateTimeField } from './datetime-field';
 export { DateTimePickerSheet } from './datetime-picker-sheet';
 export { Glyph, type GlyphName } from './glyph';
 export { Hair } from './hair';
