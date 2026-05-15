@@ -408,7 +408,7 @@ function StreakSection() {
                 borderRadius: 2,
                 backgroundColor: HEAT_COLORS[l],
                 borderWidth: l === 0 ? 1 : 0,
-                borderColor: tokens.line,
+                borderColor: tokens.line2,
               }}
             />
           ))}

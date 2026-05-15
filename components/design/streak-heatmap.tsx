@@ -156,7 +156,11 @@ export function StreakHeatmap({ cells, weeks = 14, today: providedToday }: Props
                         borderRadius: 3,
                         backgroundColor: fill,
                         borderWidth: cell.level === 0 ? 1 : 0,
-                        borderColor: tokens.line,
+                        // line2 reads ~4× more contrast against bg than line
+                        // does — without it the cool-tone level-0 cells fade
+                        // into the screen background and the grid pattern
+                        // vanishes.
+                        borderColor: tokens.line2,
                         // PB glow
                         ...(cell.level === 4 && {
                           shadowColor: tokens.accent,
