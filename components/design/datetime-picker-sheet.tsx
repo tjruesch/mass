@@ -35,19 +35,8 @@ type Props = {
  * across OS versions; the rest of the chrome is ours.
  *
  * Intentionally generic — used directly by the fasting hero ring to edit
- * an active session's start time, and reused by retroactive fast logging
- * and the precise eating-window picker via `DateTimeField`.
- *
- * iOS gotcha: the native UIDatePicker (display='spinner') seeds its wheels
- * the moment it's added to the view hierarchy and ignores subsequent
- * `value` prop changes. If we mount the picker during the Modal's
- * slide-in animation, the wheels end up at iOS's internal default (often
- * 01:00) instead of our value. The fix is two-fold: (1) the consumer
- * remounts the sheet via `key=` on each open so the React tree is fresh,
- * and (2) inside this component we defer the actual `<DateTimePicker>`
- * render until `Modal.onShow` fires, i.e. after the animation completes.
- * By that point our `internal` state is settled on the right value and
- * UIDatePicker picks it up correctly.
+ * an active session's start time, and slated for reuse by retroactive
+ * fast logging (#33) and the precise eating-window picker (#17).
  */
 export function DateTimePickerSheet({
   open,
@@ -63,29 +52,14 @@ export function DateTimePickerSheet({
   // scrolls — we only push back on Apply.
   const [internal, setInternal] = useState(value);
 
-  // Defer mounting <DateTimePicker> until the modal is fully shown — see
-  // class doc for why.
-  const [pickerMounted, setPickerMounted] = useState(false);
-
-  // Re-seed when the sheet opens so a reopen reflects the latest value.
+  // Re-seed each time the sheet opens so a reopen reflects the latest
+  // parent value (otherwise the spinner would show stale data).
   useEffect(() => {
     if (open) setInternal(value);
   }, [open, value]);
 
-  // When the sheet closes, drop the picker from the tree so the next open
-  // gets a fresh mount with the freshly-seeded internal value.
-  useEffect(() => {
-    if (!open) setPickerMounted(false);
-  }, [open]);
-
   return (
-    <Modal
-      visible={open}
-      transparent
-      animationType="slide"
-      onRequestClose={onCancel}
-      onShow={() => setPickerMounted(true)}
-      statusBarTranslucent>
+    <Modal visible={open} transparent animationType="slide" onRequestClose={onCancel} statusBarTranslucent>
       <Pressable style={styles.backdrop} onPress={onCancel} accessibilityLabel="Dismiss picker" />
       <View style={styles.sheet}>
         <View style={styles.handle} />
@@ -100,23 +74,17 @@ export function DateTimePickerSheet({
             <Text style={[styles.actionPrimary, textStyles.cap]}>apply</Text>
           </Pressable>
         </View>
-        {pickerMounted ? (
-          <DateTimePicker
-            value={internal}
-            mode={mode}
-            display="spinner"
-            minimumDate={minimumDate}
-            maximumDate={maximumDate}
-            onChange={(_, d) => {
-              if (d) setInternal(d);
-            }}
-            textColor={tokens.ink}
-          />
-        ) : (
-          // Reserve the wheel's vertical space so the sheet doesn't pop in
-          // when the picker mounts. 216 is the iOS spinner's intrinsic height.
-          <View style={{ height: 216 }} />
-        )}
+        <DateTimePicker
+          value={internal}
+          mode={mode}
+          display="spinner"
+          minimumDate={minimumDate}
+          maximumDate={maximumDate}
+          onChange={(_, d) => {
+            if (d) setInternal(d);
+          }}
+          textColor={tokens.ink}
+        />
       </View>
     </Modal>
   );
