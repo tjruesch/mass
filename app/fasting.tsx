@@ -3,8 +3,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Svg, { Circle, G, Line, Path } from 'react-native-svg';
 
-import { Glyph, HEAT_COLORS, StreakHeatmap, SubHeader, TabBar } from '@/components/design';
-import { endSession, startSession } from '@/src/db/queries/fasting';
+import { DateTimePickerSheet, Glyph, HEAT_COLORS, StreakHeatmap, SubHeader, TabBar } from '@/components/design';
+import { endSession, startSession, updateSessionStart } from '@/src/db/queries/fasting';
 import { useFasting, useFastingHistory, type FastingState } from '@/src/hooks/use-fasting';
 import { useFastingPreferences } from '@/src/hooks/use-fasting-preferences';
 import { FASTING_PHASES, formatHM, formatHMS, formatRelative } from '@/src/lib/time';
@@ -48,6 +48,9 @@ function ActiveView({ state }: { state: Extract<FastingState, { status: 'active'
   const startedAt = session.startedAt;
   const projectedEnd = new Date(startedAt.getTime() + session.targetHours * 3_600_000);
 
+  // Tap-to-edit on the hero ring opens the start-time picker sheet.
+  const [editingStart, setEditingStart] = useState(false);
+
   const handleEndFast = useCallback(() => {
     Alert.alert(
       'End fast?',
@@ -65,17 +68,36 @@ function ActiveView({ state }: { state: Extract<FastingState, { status: 'active'
     );
   }, [progress, session.targetHours]);
 
+  const handleStartTimeApply = useCallback(
+    (newStartedAt: Date) => {
+      updateSessionStart(session.id, newStartedAt)
+        .then(() => setEditingStart(false))
+        .catch((err) => Alert.alert('Failed to update', err.message));
+    },
+    [session.id],
+  );
+
+  // 72h cap matches updateSessionStart's validation; iOS spinner enforces visually.
+  const minStart = new Date(Date.now() - 72 * 3_600_000);
+  const maxStart = new Date();
+
   return (
     <>
-      {/* HERO RING */}
+      {/* HERO RING — tap to edit start time */}
       <View style={styles.heroWrap}>
-        <HeroRing
-          size={236}
-          elapsedHours={elapsedHours}
-          targetHours={session.targetHours}
-          elapsedMs={elapsedMs}
-          phaseLabel={currentPhase.short}
-        />
+        <Pressable
+          onPress={() => setEditingStart(true)}
+          accessibilityRole="button"
+          accessibilityLabel="Edit start time"
+          style={({ pressed }) => pressed && { opacity: 0.85 }}>
+          <HeroRing
+            size={236}
+            elapsedHours={elapsedHours}
+            targetHours={session.targetHours}
+            elapsedMs={elapsedMs}
+            phaseLabel={currentPhase.short}
+          />
+        </Pressable>
       </View>
 
       {/* STAT STRIP */}
@@ -132,6 +154,17 @@ function ActiveView({ state }: { state: Extract<FastingState, { status: 'active'
           </Svg>
         </Pressable>
       </View>
+
+      <DateTimePickerSheet
+        open={editingStart}
+        value={startedAt}
+        mode="datetime"
+        title="Edit start time"
+        minimumDate={minStart}
+        maximumDate={maxStart}
+        onApply={handleStartTimeApply}
+        onCancel={() => setEditingStart(false)}
+      />
     </>
   );
 }

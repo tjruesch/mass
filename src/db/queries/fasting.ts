@@ -60,3 +60,48 @@ export async function listRecent(limit: number = 14): Promise<FastingSession[]> 
     .orderBy(desc(fastingSessions.startedAt))
     .limit(limit);
 }
+
+/**
+ * Update the `startedAt` of an existing session — typically the active one
+ * when the user realizes after the fact that they actually started earlier
+ * or later than they tapped the Start button.
+ *
+ * Validation:
+ *   • Must be in the past (no future-dating an active session).
+ *   • Must be within the last 72 hours — sane bound for corrections; past
+ *     that we'd want a retroactive-log flow instead (issue #33).
+ *   • If the session has an `endedAt`, the new `startedAt` must come
+ *     before it.
+ */
+const MAX_BACKDATE_MS = 72 * 3_600_000;
+
+export async function updateSessionStart(
+  sessionId: number,
+  newStartedAt: Date,
+): Promise<FastingSession | null> {
+  const now = new Date();
+  if (newStartedAt.getTime() > now.getTime()) {
+    throw new Error("Start time can't be in the future.");
+  }
+  if (now.getTime() - newStartedAt.getTime() > MAX_BACKDATE_MS) {
+    throw new Error('Start time must be within the last 72 hours.');
+  }
+  // Guard against newStartedAt >= endedAt for completed sessions.
+  const existing = await db
+    .select()
+    .from(fastingSessions)
+    .where(eq(fastingSessions.id, sessionId))
+    .limit(1);
+  const row = existing[0];
+  if (!row) return null;
+  if (row.endedAt && newStartedAt.getTime() >= row.endedAt.getTime()) {
+    throw new Error("Start time must come before the session's end time.");
+  }
+
+  const [updated] = await db
+    .update(fastingSessions)
+    .set({ startedAt: newStartedAt })
+    .where(eq(fastingSessions.id, sessionId))
+    .returning();
+  return updated ?? null;
+}
