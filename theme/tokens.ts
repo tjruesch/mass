@@ -1,29 +1,32 @@
 /**
- * Design tokens — pixel-faithful port of designs/tokens.css.
+ * Design tokens.
  *
- * Lane 1 is the default paper/ink palette used by most app screens.
+ * Lane 1 is the active "Mist · Petrol" palette — cool cream surfaces with
+ * deep teal ink and a terracotta accent. Used by every app screen.
+ *
  * Lanes 2–4 (editorial, lab, hardware) are alternate visual treatments
- * referenced by lab-* and hardware demo screens.
- *
- * oklch() colors from the source have been converted to sRGB hex so they
- * work natively in React Native style props.
+ * carried over from the design source; currently unused, kept around as
+ * reference until the lane-decision issue resolves.
  */
 
 export const tokens = {
-  // ── Lane 1 — default (paper / ink) ──────────────────────────────
-  bg: '#FAFAF7',
-  bg2: '#F2F2EE',
-  card: '#FFFFFF',
-  ink: '#14140F',
-  ink2: '#3A3A33',
-  ink3: '#6B6B62',
-  ink4: '#9C9C92',
-  line: '#E8E8E0',
-  line2: '#D8D8CE',
-  accent: '#7EBA27',    // oklch(72% 0.18 130) — lime
-  accentInk: '#304C03', // oklch(38% 0.10 130)
-  warn: '#E58212',      // oklch(70% 0.16 60)  — amber
-  cool: '#54AAD1',      // oklch(70% 0.10 230) — steel blue
+  // ── Lane 1 — Mist · Petrol ──────────────────────────────────────
+  // Surfaces
+  bg: '#EBEFEE',
+  bg2: '#DFE5E4',
+  card: '#F5F8F7',
+  line: '#D2DAD9',
+  line2: '#BCC6C5',
+  // Ink (text + foreground)
+  ink: '#1B3A3D',
+  ink2: '#3A5558',
+  ink3: '#6A8084',
+  ink4: '#9DAEB1',
+  // Accents
+  accent: '#FE9B61',    // soft terracotta — fills, dots, chevron tails
+  accentInk: '#C55123', // deeper terracotta — text on accent + emphasis lines
+  warn: '#F2823B',      // amber-orange — validation, alerts
+  cool: '#48B7BD',      // muted teal — secondary hue
 
   // ── Lane 2 — editorial ──────────────────────────────────────────
   edBg: '#F4F1EA',

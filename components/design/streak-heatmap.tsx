@@ -6,17 +6,17 @@ import { dowMondayFirst, ymd } from '@/src/lib/time';
 import { fonts, tokens } from '@/theme/tokens';
 
 /**
- * Heatmap intensity palette — pre-computed sRGB mixes of `ink` over `bg`
- * (18% / 40% / 75%) plus accent-ink for level 4. The source uses
- * `color-mix(in oklab, ...)` which RN can't render; these are visual-close
- * approximations for desaturated grays.
+ * Heatmap intensity palette — pre-computed sRGB mixes of `tokens.ink` over
+ * `tokens.bg` (18% / 40% / 75%) plus `tokens.accentInk` for the PB tier.
+ * Recompute these whenever the ink/bg tokens change (see `node -e` snippet
+ * in the Mist · Petrol palette commit for the formula).
  */
 export const HEAT_COLORS = [
-  tokens.bg2,    // 0 — empty cell
-  '#D1D1CD',    // 1 — < 12h
-  '#9E9E9A',    // 2 — 12–15h
-  '#4E4E49',    // 3 — 16h+ (target)
-  tokens.accentInk, // 4 — 18h+ (PB)
+  tokens.bg2,        // 0 — empty cell
+  '#C6CECE',         // 1 — < 12h
+  '#98A7A7',         // 2 — 12–15h
+  '#4F6769',         // 3 — 16h+ (target)
+  tokens.accentInk,  // 4 — 18h+ (PB)
 ] as const;
 
 type Cell = { date: string; level: DailyFastLevel };

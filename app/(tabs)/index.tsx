@@ -698,7 +698,9 @@ const styles = StyleSheet.create({
   deficitValue: {
     fontFamily: fonts.monoSemibold,
     fontSize: 10,
-    color: '#1F7A3A',
+    // Was a hardcoded green for "good" — switched to the palette's `cool`
+    // teal so it reads positive without fighting the Mist · Petrol scheme.
+    color: tokens.cool,
   },
   deficitNote: {
     fontFamily: fonts.mono,
