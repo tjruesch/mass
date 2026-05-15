@@ -78,19 +78,6 @@ export function DateTimePickerSheet({
     if (!open) setPickerMounted(false);
   }, [open]);
 
-  // iOS UIDatePicker in time-mode + spinner doesn't always reposition its
-  // wheels when mounted with a non-default value — it can sit at iOS's
-  // built-in default (e.g. 01:00). Re-setting `internal` to a freshly-cloned
-  // Date right after mount forces a value-prop change that nudges the
-  // picker into honoring our seed.
-  useEffect(() => {
-    if (!pickerMounted) return;
-    const t = setTimeout(() => {
-      setInternal((prev) => new Date(prev.getTime()));
-    }, 16);
-    return () => clearTimeout(t);
-  }, [pickerMounted]);
-
   return (
     <Modal
       visible={open}
