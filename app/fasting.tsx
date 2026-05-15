@@ -1075,12 +1075,15 @@ const styles = StyleSheet.create({
 
   // Action button
   actionWrap: {
-    paddingTop: 16,
+    // Tightened now that the End Fast primary button moved into the hero
+    // ring — only the log-past link lives here.
+    paddingTop: 8,
     paddingHorizontal: 22,
   },
   logPastLink: {
     alignSelf: 'center',
-    marginTop: 12,
+    // marginTop dropped — was 12 to separate from a primary button above
+    // that no longer exists.
     paddingVertical: 6,
     paddingHorizontal: 10,
   },
