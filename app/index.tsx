@@ -50,13 +50,17 @@ function macroIndicator(current: number, target: number): MacroIndicatorKind {
   return ratio > 1 ? 'above' : 'below';
 }
 
-function MacroIndicator({ kind }: { kind: MacroIndicatorKind }) {
-  // Colour by status, not by macro, so the dot pops as "you nailed it"
-  // and the arrows read as neutral over/under deltas.
+function MacroIndicator({
+  kind,
+  color,
+}: {
+  kind: MacroIndicatorKind;
+  color: string;
+}) {
   if (kind === 'on-point') {
     return (
       <Svg width={7} height={7} viewBox="0 0 8 8">
-        <Circle cx={4} cy={4} r={2.2} fill="#1F7A3A" />
+        <Circle cx={4} cy={4} r={2.2} fill={color} />
       </Svg>
     );
   }
@@ -64,7 +68,7 @@ function MacroIndicator({ kind }: { kind: MacroIndicatorKind }) {
     kind === 'above' ? 'M1.5 5.5 L4 2 L6.5 5.5 Z' : 'M1.5 2.5 L4 6 L6.5 2.5 Z';
   return (
     <Svg width={8} height={8} viewBox="0 0 8 8">
-      <Path d={path} fill={tokens.ink3} />
+      <Path d={path} fill={color} />
     </Svg>
   );
 }
@@ -702,7 +706,7 @@ export default function HomeScreen() {
                     },
                   ].map((m) => (
                     <View key={m.k} style={styles.macroCell}>
-                      <MacroIndicator kind={m.indicator} />
+                      <MacroIndicator kind={m.indicator} color={m.c} />
                       <Text
                         style={{
                           fontFamily: fonts.monoMedium,
