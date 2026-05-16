@@ -104,6 +104,17 @@ export function MealLogDrawer({
   /** True while the edit-mode hydration is in flight. Prevents the
    *  form from reading stale defaults the user starts typing into. */
   const [hydrating, setHydrating] = useState(false);
+  /**
+   * Edit-mode portion base. Holds the macros at the moment of
+   * hydration so the portion chips can scale them without losing the
+   * source values across multiple ×N taps. `null` outside edit mode.
+   */
+  const [editBase, setEditBase] = useState<{
+    kcal: number;
+    proteinG: number;
+    carbsG: number;
+    fatG: number;
+  } | null>(null);
 
   const isEdit = editingMealId !== undefined;
 
@@ -125,6 +136,7 @@ export function MealLogDrawer({
     setNotes('');
     setSaving(false);
 
+    setEditBase(null);
     if (editingMealId === undefined) return;
     setHydrating(true);
     let cancelled = false;
@@ -142,6 +154,16 @@ export function MealLogDrawer({
           setSlot(slotForHour(m.eatenAt.getHours()));
         }
         setNotes(m.notes ?? '');
+        // Snapshot the hydrated macros as the ×1 base so portion chips
+        // can scale relative to "what was originally logged" rather
+        // than the most recent ×N apply.
+        setEditBase({
+          kcal: m.kcal ?? 0,
+          proteinG: m.proteinG ?? 0,
+          carbsG: m.carbsG ?? 0,
+          fatG: m.fatG ?? 0,
+        });
+        setPortion(1);
       })
       .catch((err) => {
         Alert.alert(
@@ -357,6 +379,21 @@ export function MealLogDrawer({
     setEatenAt(variant === 'now' ? new Date() : new Date(Date.now() - 60 * 60_000));
   };
 
+  /**
+   * Edit-mode portion tap. Scales the macro inputs to `editBase × p`.
+   * Manual typing afterwards continues to win — the next portion tap
+   * still scales from the original `editBase`, not from the typed
+   * values, so the chips remain a stable "reset to ×N of original".
+   */
+  const handleEditPortion = (p: number) => {
+    if (!isEdit || editBase === null) return;
+    setPortion(p);
+    setKcalText(formatNum(editBase.kcal * p));
+    setProteinText(formatNum(editBase.proteinG * p));
+    setCarbsText(formatNum(editBase.carbsG * p));
+    setFatText(formatNum(editBase.fatG * p));
+  };
+
   // ─── Render ──────────────────────────────────────────────────────────────
 
   const ctaLabel = saving
@@ -477,6 +514,40 @@ export function MealLogDrawer({
             </View>
           </DrawerSection>
         </>
+      )}
+
+      {/* PORTION — edit mode shows portion chips that scale the
+          hydrated macros (×0.5 → ×2). The chips operate on the
+          `editBase` snapshot so re-taps are stable, and the user can
+          fine-tune macros manually afterwards. */}
+      {isEdit && editBase !== null && (
+        <DrawerSection
+          label="scale"
+          sub="multiplier of the original macros">
+          <View style={styles.portionRow}>
+            {PORTIONS.map((p) => {
+              const active = portion === p;
+              return (
+                <Pressable
+                  key={p}
+                  onPress={() => handleEditPortion(p)}
+                  style={({ pressed }) => [
+                    styles.portionChip,
+                    active && styles.portionChipActive,
+                    pressed && !active && { opacity: 0.7 },
+                  ]}>
+                  <Text
+                    style={[
+                      styles.portionLabel,
+                      active && { color: tokens.bg },
+                    ]}>
+                    ×{p}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </DrawerSection>
       )}
 
       {/* PORTION — only when a library meal is selected (create only). */}
