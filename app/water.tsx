@@ -362,7 +362,7 @@ function HeroCard({ prefs, today }: { prefs: WaterPreferences; today: WaterToday
           </View>
         </View>
 
-        <WaterColumn width={120} height={232} consumed={counted} target={target} />
+        <WaterColumn width={100} height={232} consumed={counted} target={target} />
       </View>
     </View>
   );
