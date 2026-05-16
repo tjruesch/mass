@@ -229,7 +229,7 @@ export default function MealsScreen() {
                     textStyles.tnum,
                     { color: overBudget ? tokens.warn : '#1F7A3A' },
                   ]}>
-                  {formatSignedKcal(actualDeficitKcal)}
+                  {Math.abs(Math.round(actualDeficitKcal))}
                 </Text>
                 <Text style={styles.heroDeficitLabel}> deficit</Text>
               </Text>
