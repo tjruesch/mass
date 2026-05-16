@@ -9,7 +9,6 @@
 import { useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import {
-  Alert,
   Dimensions,
   Pressable,
   ScrollView,
@@ -41,7 +40,6 @@ import { useWeightPreferences } from '@/src/hooks/use-weight-preferences';
 import { useLastWeightSyncAt } from '@/src/hooks/use-weight-sync';
 import type { WeightEntry } from '@/src/db/schema';
 import { useNow } from '@/src/lib/use-now';
-import { seedWeightDataDev } from '@/src/lib/dev-seed';
 import { useHkAuthState } from '@/src/lib/healthkit/auth';
 import { BODY_MASS_PERMISSIONS } from '@/src/lib/healthkit/weight';
 import { fonts, textStyles, tokens } from '@/theme/tokens';
@@ -155,24 +153,6 @@ export default function WeightScreen() {
         <RecentEntries entries={recent} onEdit={openEdit} />
 
         <StreakSection />
-
-        {/* Dev-only seed action — gated on __DEV__ so it never ships in
-            release builds. Lets the simulator render the chart since HK
-            isn't available there. */}
-        {__DEV__ && (
-          <Pressable
-            onPress={async () => {
-              try {
-                const r = await seedWeightDataDev();
-                Alert.alert('Seeded', `Inserted ${r.inserted} entries.`);
-              } catch (err) {
-                Alert.alert('Seed failed', err instanceof Error ? err.message : String(err));
-              }
-            }}
-            style={({ pressed }) => [styles.devSeedBtn, pressed && { opacity: 0.6 }]}>
-            <Text style={styles.devSeedText}>DEV · seed 14 days</Text>
-          </Pressable>
-        )}
       </ScrollView>
       <TabBar active="home" />
 
@@ -442,7 +422,7 @@ function formatRecentDate(d: Date): string {
 
 
 // ─────────────────────────────────────────────────────────────────────────────
-// StreakSection — adherence + current/best streak above a binary heatmap.
+// StreakSection — current/best streak above a binary heatmap.
 // Weeks count is computed from measured container width so cells stay at
 // their fixed 14px design size (same trick as fasting + water).
 // ─────────────────────────────────────────────────────────────────────────────
@@ -463,15 +443,12 @@ function StreakSection() {
   };
 
   const history = useWeighInHistory(weeks);
-  const adherencePct = Math.round(history.adherencePct * 100);
 
   return (
     <View style={styles.streakWrap} onLayout={onSectionLayout}>
       <View style={styles.streakHeader}>
         <Text style={[styles.recentKicker, textStyles.cap]}>weigh-ins</Text>
         <Text style={[styles.streakMeta, textStyles.tnum]}>
-          adherence <Text style={styles.streakMetaStrong}>{adherencePct}%</Text>
-          <Text style={styles.streakMetaDot}>{'  ·  '}</Text>
           streak <Text style={styles.streakMetaStrong}>{history.currentStreak}d</Text>
           <Text style={styles.streakMetaDot}>{'  ·  '}</Text>
           best <Text style={styles.streakMetaStrong}>{history.bestStreak}d</Text>
@@ -813,21 +790,4 @@ const styles = StyleSheet.create({
     letterSpacing: 0.44,
   },
 
-  devSeedBtn: {
-    alignSelf: 'center',
-    marginTop: 24,
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: tokens.line,
-    borderStyle: 'dashed',
-  },
-  devSeedText: {
-    fontFamily: fonts.mono,
-    fontSize: 12,
-    color: tokens.ink4,
-    letterSpacing: 1.92,
-    textTransform: 'uppercase',
-  },
 });
