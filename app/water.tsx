@@ -273,7 +273,7 @@ function StreakSection() {
   return (
     <View style={styles.streakWrap} onLayout={onSectionLayout}>
       <View style={styles.streakHeader}>
-        <Text style={[styles.kicker, textStyles.cap]}>streak · last {weeks} weeks</Text>
+        <Text style={[styles.kicker, textStyles.cap]}>streak</Text>
         <Text style={[styles.streakMeta, textStyles.tnum]}>
           current <Text style={styles.streakMetaStrong}>{history.currentStreak}d</Text>
           <Text style={styles.streakMetaDot}>{'  ·  '}</Text>

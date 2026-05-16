@@ -468,9 +468,7 @@ function StreakSection() {
   return (
     <View style={styles.streakWrap} onLayout={onSectionLayout}>
       <View style={styles.streakHeader}>
-        <Text style={[styles.recentKicker, textStyles.cap]}>
-          weigh-ins · last {weeks} weeks
-        </Text>
+        <Text style={[styles.recentKicker, textStyles.cap]}>weigh-ins</Text>
         <Text style={[styles.streakMeta, textStyles.tnum]}>
           adherence <Text style={styles.streakMetaStrong}>{adherencePct}%</Text>
           <Text style={styles.streakMetaDot}>{'  ·  '}</Text>
