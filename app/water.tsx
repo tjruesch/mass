@@ -571,7 +571,7 @@ function WaterColumn({
               fill={reached ? tokens.bg : tokens.ink3}
               fillOpacity={reached ? 0.85 : 0.7}
               textAnchor="end">
-              {(ml / 1000).toFixed(1)}L
+              {(ml / 1000).toFixed(1)}
             </SvgText>
           );
         })}
