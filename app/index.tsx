@@ -635,13 +635,6 @@ export default function HomeScreen() {
               → pantry (temp)
             </Text>
           </Pressable>
-          <Pressable
-            onPress={() => router.push('/trends' as never)}
-            style={({ pressed }) => pressed && { opacity: 0.6 }}>
-            <Text style={[styles.tempWeightLinkText, textStyles.cap]}>
-              → trends (temp)
-            </Text>
-          </Pressable>
         </View>
 
         {/* ── 3. Fasting card ───────────────────────────────────── */}

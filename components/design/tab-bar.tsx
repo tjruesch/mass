@@ -1,5 +1,6 @@
 import { BlurView } from 'expo-blur';
-import { Text, View } from 'react-native';
+import { useRouter } from 'expo-router';
+import { Pressable, Text, View } from 'react-native';
 
 import { fonts, tokens } from '@/theme/tokens';
 
@@ -11,14 +12,17 @@ type Tab = {
   id: TabId;
   label: string;
   icon: GlyphName;
+  /** Route to navigate to on tap. Null tabs no-op for now and will
+   *  light up once their slice lands (`today` and `me` aren't built). */
+  route: string | null;
 };
 
 const TABS: readonly Tab[] = [
-  { id: 'home', label: 'home', icon: 'home' },
-  { id: 'today', label: 'today', icon: 'today' },
-  { id: 'plan', label: 'plan', icon: 'plan' },
-  { id: 'trends', label: 'trends', icon: 'trends' },
-  { id: 'me', label: 'me', icon: 'me' },
+  { id: 'home', label: 'home', icon: 'home', route: '/' },
+  { id: 'today', label: 'today', icon: 'today', route: null },
+  { id: 'plan', label: 'plan', icon: 'plan', route: '/meals-plan' },
+  { id: 'trends', label: 'trends', icon: 'trends', route: '/trends' },
+  { id: 'me', label: 'me', icon: 'me', route: null },
 ];
 
 type Props = {
@@ -33,8 +37,10 @@ type Props = {
  * will wire these into expo-router's <Tabs>.
  */
 export function TabBar({ active = 'home', dark = false }: Props) {
+  const router = useRouter();
   const ink = dark ? '#FFFFFF' : tokens.ink;
   const mute = dark ? 'rgba(255,255,255,0.45)' : tokens.ink4;
+  const disabled = dark ? 'rgba(255,255,255,0.25)' : tokens.line2;
   // Translucent tint sits on top of the blur. Source used 0.94/0.96 alpha.
   const tintOverlay = dark ? 'rgba(20,20,15,0.55)' : 'rgba(250,250,247,0.55)';
   const borderColor = dark ? '#252521' : tokens.line;
@@ -72,9 +78,26 @@ export function TabBar({ active = 'home', dark = false }: Props) {
         }}
       />
       {TABS.map((t) => {
-        const color = t.id === active ? ink : mute;
+        const isActive = t.id === active;
+        const isDisabled = t.route === null;
+        const color = isDisabled ? disabled : isActive ? ink : mute;
+        const onPress = () => {
+          if (t.route === null || isActive) return;
+          router.push(t.route as never);
+        };
         return (
-          <View key={t.id} style={{ alignItems: 'center', gap: 4 }}>
+          <Pressable
+            key={t.id}
+            onPress={onPress}
+            disabled={isDisabled}
+            accessibilityRole="button"
+            accessibilityLabel={t.label}
+            accessibilityState={{ selected: isActive, disabled: isDisabled }}
+            hitSlop={8}
+            style={({ pressed }) => [
+              { alignItems: 'center', gap: 4 },
+              pressed && !isActive && !isDisabled && { opacity: 0.55 },
+            ]}>
             <Glyph name={t.icon} color={color} />
             <Text
               style={{
@@ -86,7 +109,7 @@ export function TabBar({ active = 'home', dark = false }: Props) {
               }}>
               {t.label}
             </Text>
-          </View>
+          </Pressable>
         );
       })}
     </BlurView>
