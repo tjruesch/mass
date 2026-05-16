@@ -390,7 +390,6 @@ function WeekdayCell({
   const isToday = cell.status === 'today';
   const isDone = cell.status === 'done';
   const isPlanned = cell.status === 'planned';
-  const isMissed = cell.status === 'missed';
   const isRest = cell.status === 'rest';
 
   const iconBg = isDone ? tokens.ink : tokens.bg2;
@@ -413,27 +412,6 @@ function WeekdayCell({
           isPlanned && styles.weekIconPlanned,
         ]}>
         <WorkoutGlyph icon={def?.icon ?? 'rest'} color={iconColor} size={18} />
-      </View>
-      <Text
-        style={[
-          styles.weekType,
-          {
-            color: isRest
-              ? tokens.ink4
-              : isToday
-              ? tokens.ink2
-              : isDone
-              ? tokens.ink2
-              : tokens.ink3,
-          },
-          isRest && { fontStyle: 'italic' },
-        ]}>
-        {def ? def.key : 'rest'}
-      </Text>
-      <View style={styles.weekPip}>
-        {isDone && <View style={styles.pipDone} />}
-        {isToday && <View style={styles.pipToday} />}
-        {isMissed && <View style={styles.pipMissed} />}
       </View>
     </View>
   );
@@ -602,40 +580,6 @@ const styles = StyleSheet.create({
     borderColor: tokens.line,
     opacity: 0.85,
   },
-  weekType: {
-    fontFamily: fonts.mono,
-    fontSize: 11,
-    letterSpacing: 0.55,
-  },
-  weekPip: {
-    height: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  pipDone: {
-    width: 4,
-    height: 4,
-    borderRadius: 999,
-    backgroundColor: tokens.ink,
-  },
-  pipToday: {
-    width: 5,
-    height: 5,
-    borderRadius: 999,
-    backgroundColor: tokens.accentInk,
-    shadowColor: tokens.accent,
-    shadowOffset: { width: 0, height: 0 },
-    shadowRadius: 8,
-    shadowOpacity: 1,
-  },
-  pipMissed: {
-    width: 4,
-    height: 4,
-    borderRadius: 999,
-    backgroundColor: tokens.warn,
-    opacity: 0.7,
-  },
-
   // Today's slot card
   todayOuter: {
     paddingTop: 14,
