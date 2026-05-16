@@ -112,6 +112,8 @@ export default function RootLayout() {
           <Stack.Screen name="workouts" />
           <Stack.Screen name="workouts-settings" />
           <Stack.Screen name="workout-type/[id]" />
+          <Stack.Screen name="pantry/index" />
+          <Stack.Screen name="pantry/[id]" />
           <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal', headerShown: true }} />
         </Stack>
         <StatusBar style="auto" />
