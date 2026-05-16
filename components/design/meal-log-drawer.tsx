@@ -58,9 +58,12 @@ type LibrarySelection =
 type Props = {
   open: boolean;
   onClose: () => void;
+  /** Pre-select a slot when the drawer opens — used by /meals slot cards
+   *  so tapping "+ log dinner" defaults to dinner instead of hour-of-day. */
+  initialSlot?: MealSlot;
 };
 
-export function MealLogDrawer({ open, onClose }: Props) {
+export function MealLogDrawer({ open, onClose, initialSlot }: Props) {
   const library = useLibraryMeals();
   // Pulled in for the bySlot index — if the user has already logged
   // a meal for the current slot, default the drawer to the next empty
@@ -91,7 +94,7 @@ export function MealLogDrawer({ open, onClose }: Props) {
     setCarbsText('');
     setFatText('');
     setPortion(1);
-    setSlot(pickDefaultSlot(now, today.bySlot));
+    setSlot(initialSlot ?? pickDefaultSlot(now, today.bySlot));
     setEatenAt(now);
     setNotes('');
     setSaving(false);

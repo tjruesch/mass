@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Animated, {
   Easing,
@@ -41,7 +41,7 @@ function greetingFor(d: Date): string {
   return 'Evening';
 }
 
-import { MealLogDrawer, TabBar, WindowStrip } from '@/components/design';
+import { TabBar, WindowStrip } from '@/components/design';
 import { useTodayMove } from '@/src/hooks/use-move';
 import { useFasting, type FastingState } from '@/src/hooks/use-fasting';
 import { useFastingPreferences } from '@/src/hooks/use-fasting-preferences';
@@ -413,7 +413,6 @@ function IdleFastingCardBody() {
 export default function HomeScreen() {
   const router = useRouter();
   const fasting = useFasting(1000);
-  const [mealDrawerOpen, setMealDrawerOpen] = useState(false);
   // Live water — 60s tick is plenty; live query also re-runs on every sip.
   const waterToday = useWaterToday();
   const waterPrefs = useWaterPreferences();
@@ -530,17 +529,17 @@ export default function HomeScreen() {
             </Text>
           </Pressable>
           <Pressable
+            onPress={() => router.push('/meals' as never)}
+            style={({ pressed }) => pressed && { opacity: 0.6 }}>
+            <Text style={[styles.tempWeightLinkText, textStyles.cap]}>
+              → meals (temp)
+            </Text>
+          </Pressable>
+          <Pressable
             onPress={() => router.push('/pantry' as never)}
             style={({ pressed }) => pressed && { opacity: 0.6 }}>
             <Text style={[styles.tempWeightLinkText, textStyles.cap]}>
               → pantry (temp)
-            </Text>
-          </Pressable>
-          <Pressable
-            onPress={() => setMealDrawerOpen(true)}
-            style={({ pressed }) => pressed && { opacity: 0.6 }}>
-            <Text style={[styles.tempWeightLinkText, textStyles.cap]}>
-              + log meal (temp)
             </Text>
           </Pressable>
         </View>
@@ -611,11 +610,6 @@ export default function HomeScreen() {
       </ScrollView>
 
       <TabBar active="home" />
-
-      <MealLogDrawer
-        open={mealDrawerOpen}
-        onClose={() => setMealDrawerOpen(false)}
-      />
     </View>
   );
 }
