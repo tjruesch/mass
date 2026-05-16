@@ -29,6 +29,7 @@ import Svg, {
   Path,
   Rect,
   Stop,
+  Text as SvgText,
 } from 'react-native-svg';
 
 import {
@@ -361,7 +362,7 @@ function HeroCard({ prefs, today }: { prefs: WaterPreferences; today: WaterToday
           </View>
         </View>
 
-        <WaterColumn width={92} height={232} consumed={counted} target={target} />
+        <WaterColumn width={120} height={232} consumed={counted} target={target} />
       </View>
     </View>
   );
@@ -445,12 +446,13 @@ function StatRow({
 // ─────────────────────────────────────────────────────────────────────────────
 // WaterColumn — vertical fill cylinder.
 //
-// Layout: a tick-label column on the left (0.0 L → target L, top→bottom), then
-// the glass cylinder with a gradient fill clipped to the rounded rect. The
-// surface line uses the accent ink so it reads against the dark fill.
+// Layout: a single SVG. Tick labels live INSIDE the glass on the left edge,
+// drawn as SVG `<Text>` so they sit on the same canvas as the fill. Labels
+// in the filled portion render in `bg` (light), labels above the waterline
+// in `ink3` (dark) — so each reads against its own background.
 //
-// Tick marks every 500 ml; majors at L boundaries get a longer line and
-// bolder/larger label.
+// Tick marks every 500 ml; majors at L boundaries get a longer mark and
+// bolder label.
 // ─────────────────────────────────────────────────────────────────────────────
 function WaterColumn({
   width,
@@ -475,33 +477,7 @@ function WaterColumn({
   const innerTicks = allTicks.slice(1, -1);
 
   return (
-    <View style={waterColumnStyles.outer}>
-      {/* Left: tick labels reading top→bottom for inner ticks only. The
-          labels are absolute-positioned so they line up exactly with the
-          tick marks inside the cylinder. */}
-      <View style={[waterColumnStyles.labels, { height, width: 36 }]}>
-        {innerTicks.map((ml) => {
-          const reached = consumed >= ml;
-          const isMajor = ml % 1000 === 0;
-          const y = height - (ml / target) * height;
-          return (
-            <Text
-              key={ml}
-              style={[
-                waterColumnStyles.tickLabel,
-                {
-                  top: y - 5, // centers the 10px line-height around the tick y
-                  color: reached ? tokens.ink3 : tokens.ink4,
-                  fontFamily: isMajor ? fonts.monoMedium : fonts.mono,
-                  fontStyle: reached ? 'normal' : 'italic',
-                },
-              ]}>
-              {(ml / 1000).toFixed(1)} L
-            </Text>
-          );
-        })}
-      </View>
-
+    <View>
       {/* Glass cylinder — fill alone communicates progress; no surface
           indicator any more. */}
       <Svg width={width} height={height}>
@@ -555,15 +531,15 @@ function WaterColumn({
           clipPath="url(#waterClip)"
         />
 
-        {/* Tick marks on the right edge inside the cylinder — inner only. */}
+        {/* Tick marks + labels inside the cylinder on the right edge. */}
         {innerTicks.map((ml) => {
           const y = height - (ml / target) * height;
           const major = ml % 1000 === 0;
           const reached = consumed >= ml;
           return (
             <Line
-              key={ml}
-              x1={width - (major ? 14 : 9)}
+              key={`mark-${ml}`}
+              x1={width - (major ? 12 : 8)}
               y1={y}
               x2={width - 2}
               y2={y}
@@ -571,6 +547,32 @@ function WaterColumn({
               strokeOpacity={reached ? 0.7 : 0.35}
               strokeWidth={major ? 0.9 : 0.6}
             />
+          );
+        })}
+
+        {/*
+          Labels — also right-aligned inside the cylinder, sitting just to
+          the LEFT of the tick mark. Color flips with the waterline:
+          below the surface (reached) we paint in bg so it reads against
+          the dark fill; above the surface (unreached) we paint in ink3
+          so it reads against the light bg2.
+        */}
+        {innerTicks.map((ml) => {
+          const y = height - (ml / target) * height;
+          const major = ml % 1000 === 0;
+          const reached = consumed >= ml;
+          return (
+            <SvgText
+              key={`label-${ml}`}
+              x={width - (major ? 16 : 12)}
+              y={y + 3.5}
+              fontFamily={major ? fonts.monoSemibold : fonts.mono}
+              fontSize={major ? 10 : 9}
+              fill={reached ? tokens.bg : tokens.ink3}
+              fillOpacity={reached ? 0.85 : 0.7}
+              textAnchor="end">
+              {(ml / 1000).toFixed(1)}L
+            </SvgText>
           );
         })}
       </Svg>
@@ -910,21 +912,3 @@ const styles = StyleSheet.create({
   },
 });
 
-const waterColumnStyles = StyleSheet.create({
-  outer: {
-    flexDirection: 'row',
-    alignItems: 'stretch',
-    gap: 8,
-  },
-  labels: {
-    position: 'relative',
-  },
-  tickLabel: {
-    position: 'absolute',
-    right: 0,
-    fontSize: 10,
-    letterSpacing: 0.4,
-    lineHeight: 12,
-    textAlign: 'right',
-  },
-});
