@@ -50,27 +50,7 @@ import {
   type MealSlot,
 } from '@/src/hooks/use-meals';
 import { dowMondayFirst } from '@/src/lib/time';
-import { pace, type PaceState } from '@/src/lib/meal-budget';
 import { fonts, textStyles, tokens } from '@/theme/tokens';
-
-// Pace pill palette — mirrors the design source (green when on-pace,
-// amber-ish when behind, terracotta when over).
-const PACE_COLORS: Record<
-  PaceState,
-  { fg: string; bg: string; label: string }
-> = {
-  'on-pace': {
-    fg: '#1F7A3A',
-    bg: 'rgba(31,122,58,0.10)',
-    label: 'on pace',
-  },
-  behind: {
-    fg: '#A07A2A',
-    bg: 'rgba(192,138,40,0.10)',
-    label: 'behind',
-  },
-  over: { fg: tokens.warn, bg: 'rgba(180,90,30,0.10)', label: 'over' },
-};
 
 const DOW_LABELS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'] as const;
 const DAY_NAMES = [
@@ -104,8 +84,6 @@ export default function MealsScreen() {
   const selectedDay = week.days[selectedDow]!;
   const budgetKcal = mealPrefs.budgetKcal;
   const tdeeKcal = mealPrefs.prefs?.tdeeKcal ?? 2400;
-  const paceState = pace(today.totalKcal, budgetKcal);
-  const pacePalette = PACE_COLORS[paceState];
 
   // Rolling deficit. Only counts days that actually have logged meals
   // — including a zero-kcal day in the sum would treat any unlogged
@@ -186,31 +164,9 @@ export default function MealsScreen() {
         {/* ── Hero: today's energy budget ─────────────────────────────── */}
         <View style={styles.heroOuter}>
           <View style={styles.heroCard}>
-            <View style={styles.heroHeaderRow}>
-              <Text style={[styles.kicker, textStyles.cap]}>
-                today · energy
-              </Text>
-              <View
-                style={[
-                  styles.pacePill,
-                  { backgroundColor: pacePalette.bg },
-                ]}>
-                <View
-                  style={[
-                    styles.pacePillDot,
-                    { backgroundColor: pacePalette.fg },
-                  ]}
-                />
-                <Text
-                  style={[
-                    styles.pacePillText,
-                    textStyles.cap,
-                    { color: pacePalette.fg },
-                  ]}>
-                  {pacePalette.label}
-                </Text>
-              </View>
-            </View>
+            <Text style={[styles.kicker, textStyles.cap]}>
+              today · energy
+            </Text>
             <View style={styles.heroBigRow}>
               <View style={styles.heroNumberRow}>
                 <Text style={[styles.heroNumber, textStyles.tnum]}>
@@ -729,11 +685,6 @@ const styles = StyleSheet.create({
     shadowRadius: 24,
     shadowOpacity: 0.04,
   },
-  heroHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'baseline',
-  },
   cogBtn: {
     width: 30,
     height: 30,
@@ -745,24 +696,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  pacePill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    paddingVertical: 2,
-    paddingHorizontal: 7,
-    borderRadius: 999,
-  },
-  pacePillDot: {
-    width: 5,
-    height: 5,
-    borderRadius: 999,
-  },
-  pacePillText: {
-    fontFamily: fonts.monoSemibold,
-    fontSize: 8,
-    letterSpacing: 1.44,
-  },
   kickerSmall: {
     fontFamily: fonts.mono,
     fontSize: 8,
