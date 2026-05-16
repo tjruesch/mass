@@ -52,6 +52,37 @@ export function hkActivityValueForKey(key: string): number | null {
   return typeof v === 'number' ? v : null;
 }
 
+/**
+ * HK activities where distance is a meaningful metric — walking, running,
+ * cycling, swimming, etc. Used by the log drawer to conditionally show
+ * the distance field and by the kcal/distance allocator to skip strength
+ * steps when splitting distance across a composite type.
+ *
+ * Conservative list; rest of the catalog defaults to "no distance".
+ * Extend if a real use case shows up.
+ */
+const DISTANCE_TRACKED_KEYS: ReadonlySet<string> = new Set([
+  'walking',
+  'running',
+  'cycling',
+  'hiking',
+  'swimming',
+  'rowing',
+  'paddleSports',
+  'crossCountrySkiing',
+  'downhillSkiing',
+  'wheelchairWalkPace',
+  'wheelchairRunPace',
+  'handCycling',
+  'snowboarding',
+  'surfingSports',
+  'skatingSports',
+]);
+
+export function isDistanceTrackedActivity(hkActivityKey: string): boolean {
+  return DISTANCE_TRACKED_KEYS.has(hkActivityKey);
+}
+
 /** Best-guess display label for an HK activity key. */
 export function fallbackLabelForHkActivity(hkActivityKey: string): string {
   // Lowercase first letter, split camelCase to spaces, capitalize first.

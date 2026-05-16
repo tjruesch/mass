@@ -38,10 +38,17 @@ import {
   deleteWorkoutEntry,
   updateWorkoutEntry,
 } from '@/src/db/queries/workouts';
-import { totalPlannedMinutes } from '@/src/db/queries/workout-types';
+import {
+  totalPlannedMinutes,
+  type WorkoutTypeDef,
+} from '@/src/db/queries/workout-types';
 import type { WorkoutEntry } from '@/src/db/schema';
 import { useWorkoutTypes } from '@/src/hooks/use-workout-types';
 import { logWorkout } from '@/src/lib/healthkit/workouts';
+import {
+  fallbackLabelForHkActivity,
+  isDistanceTrackedActivity,
+} from '@/src/lib/workouts/types';
 import { fonts, textStyles, tokens } from '@/theme/tokens';
 
 import { DateTimeField } from './datetime-field';
@@ -69,6 +76,12 @@ export function WorkoutLogDrawer({ open, onClose, entry }: Props) {
   const [typeKey, setTypeKey] = useState<string>('');
   const [startedAt, setStartedAt] = useState<Date>(() => new Date());
   const [kcalText, setKcalText] = useState<string>('');
+  /**
+   * Distance is displayed + entered in kilometres for ergonomics
+   * (the user types "5.2"). Internal storage stays in canonical
+   * meters via `kmTextToMeters` / `metersToKmText`.
+   */
+  const [distanceKmText, setDistanceKmText] = useState<string>('');
   const [notes, setNotes] = useState<string>('');
   const [saving, setSaving] = useState(false);
 
@@ -79,13 +92,17 @@ export function WorkoutLogDrawer({ open, onClose, entry }: Props) {
     if (!open) return;
     setSaving(false);
     if (entry) {
-      // Reverse-lookup: any type whose first step's HK activity matches.
-      // Falls back to the first library entry — a workout from an unknown
-      // sport still gets a sane default chip.
-      const found = types.find((t) => t.steps.some((s) => s.hkActivityKey === entry.type));
-      setTypeKey(found?.key ?? types[0]?.key ?? '');
+      // Reverse-lookup: any type whose steps include the entry's HK
+      // activity. No fallback if nothing matches — picking a wrong type
+      // and saving would rewrite the activity (#76.2). Leave typeKey
+      // empty; the drawer surfaces a notice and disables save.
+      const found = types.find((t) =>
+        t.steps.some((s) => s.hkActivityKey === entry.type),
+      );
+      setTypeKey(found?.key ?? '');
       setStartedAt(entry.startedAt);
       setKcalText(entry.kcal != null ? Math.round(entry.kcal).toString() : '');
+      setDistanceKmText(entry.distanceM != null ? metersToKmText(entry.distanceM) : '');
       setNotes(entry.notes ?? '');
     } else {
       // Default start = now − total planned duration of the seeded first
@@ -96,38 +113,52 @@ export function WorkoutLogDrawer({ open, onClose, entry }: Props) {
       setTypeKey(def?.key ?? '');
       setStartedAt(start);
       setKcalText('');
+      setDistanceKmText('');
       setNotes('');
     }
   }, [open, entry?.id, types]);
 
   const endedAt = new Date(startedAt.getTime() + totalMin * 60_000);
   const valid = typeDef !== null && totalMin > 0 && endedAt.getTime() <= Date.now();
+  const typeUsesDistance = typeDef
+    ? typeDef.steps.some((s) => isDistanceTrackedActivity(s.hkActivityKey))
+    : false;
+  // Edit-mode pre-fill failed to map the stored HK activity to any
+  // library type — see useEffect. We keep the entry's original `type`
+  // field intact on save and tell the user to reclassify if they want.
+  const orphanedFromLibrary =
+    mode === 'edit' && entry != null && typeKey === '';
 
   const handleSave = useCallback(() => {
     if (!valid || saving || !typeDef) return;
     setSaving(true);
     const kcalParsed = kcalText.trim() === '' ? null : Number.parseFloat(kcalText);
     const kcal = Number.isFinite(kcalParsed) ? kcalParsed : null;
+    const distanceM = typeUsesDistance ? kmTextToMeters(distanceKmText) : null;
     const trimmedNotes = notes.trim();
 
     const op =
       entry != null
         ? updateWorkoutEntry(entry.id, {
-            // Edit keeps the entry's own HK activity if it matches a step;
-            // otherwise we re-pin to the type's first step's activity so
-            // the linker still sees a coherent type.
+            // Keep the entry's HK activity unchanged when it matches a
+            // step of the picked type. If the original activity is
+            // foreign (orphanedFromLibrary path), we don't reach here —
+            // save is disabled. So the second branch is only when the
+            // user explicitly switched type to something else.
             type:
               typeDef.steps.find((s) => s.hkActivityKey === entry.type)?.hkActivityKey ??
               typeDef.steps[0].hkActivityKey,
             startedAt,
             endedAt,
             kcal,
+            distanceM,
             notes: trimmedNotes === '' ? null : trimmedNotes,
           })
         : logWorkout({
             typeKey,
             startedAt,
             kcal,
+            distanceM,
             notes: trimmedNotes === '' ? null : trimmedNotes,
           });
     op
@@ -139,7 +170,7 @@ export function WorkoutLogDrawer({ open, onClose, entry }: Props) {
         );
         setSaving(false);
       });
-  }, [valid, saving, entry, typeKey, typeDef, startedAt, endedAt, kcalText, notes, onClose]);
+  }, [valid, saving, entry, typeKey, typeDef, typeUsesDistance, startedAt, endedAt, kcalText, distanceKmText, notes, onClose]);
 
   const handleDelete = useCallback(() => {
     if (saving || !entry || !typeDef) return;
@@ -197,6 +228,8 @@ export function WorkoutLogDrawer({ open, onClose, entry }: Props) {
             label={
               saving
                 ? 'saving…'
+                : orphanedFromLibrary
+                ? 'pick a type to save'
                 : mode === 'edit'
                 ? 'save changes'
                 : valid
@@ -204,7 +237,7 @@ export function WorkoutLogDrawer({ open, onClose, entry }: Props) {
                 : 'pick a type + valid time'
             }
             onPress={handleSave}
-            disabled={!valid || saving}
+            disabled={!valid || saving || orphanedFromLibrary}
           />
         )
       }>
@@ -244,6 +277,11 @@ export function WorkoutLogDrawer({ open, onClose, entry }: Props) {
             );
           })}
         </View>
+        {orphanedFromLibrary && entry && (
+          <Text style={styles.orphanHint}>
+            Recorded as <Text style={styles.orphanActivity}>{fallbackLabelForHkActivity(entry.type).toLowerCase()}</Text> — none of your current types include this activity. Pick one above to reclassify, or close to leave it as-is.
+          </Text>
+        )}
         {typeDef && typeDef.steps.length > 1 && (
           <Text style={styles.stepBreakdown}>
             {typeDef.steps
@@ -301,6 +339,30 @@ export function WorkoutLogDrawer({ open, onClose, entry }: Props) {
         )}
       </DrawerSection>
 
+      {typeUsesDistance && (
+        <DrawerSection label="distance · optional">
+          <View style={styles.kcalRow}>
+            <TextInput
+              value={distanceKmText}
+              onChangeText={(t) => setDistanceKmText(sanitizeDecimal(t))}
+              keyboardType="decimal-pad"
+              returnKeyType="done"
+              placeholder="—"
+              placeholderTextColor={tokens.ink4}
+              maxLength={6}
+              editable={mode !== 'view'}
+              style={[styles.kcalInput, textStyles.tnum]}
+            />
+            <Text style={styles.kcalUnit}>km</Text>
+          </View>
+          {typeDef && distributedDistanceStepCount(typeDef) > 1 && distanceKmText.trim() !== '' && mode !== 'view' && (
+            <Text style={styles.kcalSplitHint}>
+              split across {distributedDistanceStepCount(typeDef)} moving steps proportional to duration
+            </Text>
+          )}
+        </DrawerSection>
+      )}
+
       <DrawerSection label="notes · optional">
         <TextInput
           value={notes}
@@ -341,6 +403,43 @@ export function WorkoutLogDrawer({ open, onClose, entry }: Props) {
 
 function sanitizeKcal(s: string): string {
   return s.replace(/[^0-9]/g, '');
+}
+
+/** Decimal-friendly sanitiser — digits + a single dot. Accepts comma
+ *  on locale keyboards and translates to dot. */
+function sanitizeDecimal(s: string): string {
+  const normalised = s.replace(',', '.');
+  // Keep digits + at most one dot.
+  let seenDot = false;
+  let out = '';
+  for (const ch of normalised) {
+    if (ch >= '0' && ch <= '9') out += ch;
+    else if (ch === '.' && !seenDot) {
+      out += '.';
+      seenDot = true;
+    }
+  }
+  return out;
+}
+
+function metersToKmText(m: number): string {
+  // Two decimals so 1234m reads as "1.23". Trim trailing .00 for whole km.
+  const km = m / 1000;
+  if (Number.isInteger(km)) return km.toString();
+  return (Math.round(km * 100) / 100).toString();
+}
+
+function kmTextToMeters(s: string): number | null {
+  if (s.trim() === '') return null;
+  const km = Number.parseFloat(s);
+  if (!Number.isFinite(km) || km < 0) return null;
+  return Math.round(km * 1000);
+}
+
+function distributedDistanceStepCount(def: WorkoutTypeDef): number {
+  // Count distance-tracked steps to drive the "split across N moving steps"
+  // hint. Imported inline since the helper lives in the lib module.
+  return def.steps.filter((s) => isDistanceTrackedActivity(s.hkActivityKey)).length;
 }
 
 function formatDuration(min: number): string {
@@ -490,6 +589,21 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: tokens.accentInk,
     letterSpacing: 1.6,
+  },
+
+  // Orphaned-activity hint (edit mode, entry.type not in any library type)
+  orphanHint: {
+    marginTop: 8,
+    fontFamily: fonts.mono,
+    fontSize: 10,
+    color: tokens.ink3,
+    fontStyle: 'italic',
+    lineHeight: 14,
+    letterSpacing: 0.2,
+  },
+  orphanActivity: {
+    color: tokens.ink,
+    fontFamily: fonts.monoSemibold,
   },
 
   // HK-sourced view-mode banner

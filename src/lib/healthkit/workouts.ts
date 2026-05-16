@@ -32,7 +32,11 @@ import {
   type WorkoutTypeDef,
 } from '@/src/db/queries/workout-types';
 import type { WorkoutEntry } from '@/src/db/schema';
-import { hkActivityKeyForValue, hkActivityValueForKey } from '@/src/lib/workouts/types';
+import {
+  hkActivityKeyForValue,
+  hkActivityValueForKey,
+  isDistanceTrackedActivity,
+} from '@/src/lib/workouts/types';
 
 import { getHkAuthState, type HkPermissionRequest } from './auth';
 import { syncWorkoutType, type SyncQuantityResult } from './sync';
@@ -54,6 +58,13 @@ export const WORKOUT_PERMISSIONS: HkPermissionRequest = {
  * initial sync snappy. Anchored deltas after that are unbounded.
  */
 const INITIAL_PULL_YEARS_BACK = 2;
+
+/**
+ * Custom HK metadata key for round-tripping app-side notes. Prefixed
+ * to avoid collision with Apple/third-party keys. Anyone reading HK
+ * data outside of Maß can ignore it.
+ */
+const HK_METADATA_NOTES_KEY = 'mass_notes';
 
 function hkKeyFromActivity(activityType: WorkoutActivityType): string {
   return (
@@ -83,6 +94,12 @@ export async function syncWorkoutsFromHealthKit(): Promise<SyncQuantityResult> {
       // persisting; unknown units → null + console warn (see #74).
       const kcal = quantityToKcal(workout.totalEnergyBurned);
       const distanceM = quantityToMeters(workout.totalDistance);
+      // App-side notes survive a re-pull when we stamp them under a
+      // custom metadata key on push (#76.3). Older samples won't have
+      // the key — that yields null, same as a workout with no notes.
+      const metadata = workout.metadata as Record<string, unknown> | null | undefined;
+      const rawNotes = metadata?.[HK_METADATA_NOTES_KEY];
+      const notes = typeof rawNotes === 'string' && rawNotes.trim() !== '' ? rawNotes : null;
       await addWorkoutEntry(
         {
           startedAt: workout.startDate,
@@ -90,6 +107,7 @@ export async function syncWorkoutsFromHealthKit(): Promise<SyncQuantityResult> {
           type: hkKeyFromActivity(workout.workoutActivityType),
           kcal,
           distanceM,
+          notes,
           healthkitUuid: workout.uuid,
         },
         tx,
@@ -117,6 +135,7 @@ export async function logWorkout(opts: {
   typeKey: string;
   startedAt: Date;
   kcal?: number | null;
+  distanceM?: number | null;
   notes?: string | null;
 }): Promise<ReadonlyArray<WorkoutEntry>> {
   const types = await getWorkoutTypes();
@@ -129,6 +148,9 @@ export async function logWorkout(opts: {
   const totalMin = totalPlannedMinutes(typeDef);
   const stepStartEnds = computeStepWindows(opts.startedAt, typeDef);
   const stepKcal = allocateKcal(opts.kcal ?? null, typeDef, totalMin);
+  const stepDistance = allocateDistance(opts.distanceM ?? null, typeDef);
+  const trimmedNotes =
+    typeof opts.notes === 'string' && opts.notes.trim() !== '' ? opts.notes : null;
 
   // Insert all local rows first so the user has data even if HK push
   // fails. Then push each step to HK and backfill UUIDs.
@@ -141,8 +163,9 @@ export async function logWorkout(opts: {
       endedAt: stepEnd,
       type: step.hkActivityKey,
       kcal: stepKcal[i],
+      distanceM: stepDistance[i],
       // Note attached only to the first row to avoid duplication.
-      notes: i === 0 ? opts.notes ?? null : null,
+      notes: i === 0 ? trimmedNotes : null,
     });
     localEntries.push(entry);
   }
@@ -164,8 +187,15 @@ export async function logWorkout(opts: {
       );
       continue;
     }
-    const totals: { energyBurned?: number } = {};
+    const totals: { energyBurned?: number; distance?: number } = {};
     if (stepKcal[i] != null) totals.energyBurned = stepKcal[i]!;
+    if (stepDistance[i] != null) totals.distance = stepDistance[i]!;
+    // Notes ride along on the first step so a HK re-pull preserves
+    // them (#76.3). HK's metadata is per-sample, so siblings stay
+    // unannotated and the first-step row is the canonical carrier.
+    const metadata = i === 0 && trimmedNotes
+      ? { [HK_METADATA_NOTES_KEY]: trimmedNotes }
+      : undefined;
     try {
       const saved = await saveWorkoutSample(
         activityValue as WorkoutActivityType,
@@ -173,6 +203,7 @@ export async function logWorkout(opts: {
         stepStart,
         stepEnd,
         Object.keys(totals).length > 0 ? totals : undefined,
+        metadata,
       );
       if (saved?.uuid) {
         await attachHealthKitUuid(localEntries[i].id, saved.uuid);
@@ -222,4 +253,42 @@ function allocateKcal(
   const drift = totalKcal - raw.reduce((a, b) => a + b, 0);
   raw[raw.length - 1] += drift;
   return raw;
+}
+
+/**
+ * Distance only applies to "moving" activities (#76.1). Skip strength
+ * steps entirely — they get null, not a fractional share. The total is
+ * split across distance-tracked steps proportional to their duration.
+ *
+ * If the user entered a distance but the type has no distance-tracked
+ * step (e.g. picked Push for a manually-logged run), the param is
+ * silently dropped — better than annotating a strength step with a
+ * fake meters value HK doesn't accept.
+ */
+function allocateDistance(
+  totalMeters: number | null,
+  typeDef: WorkoutTypeDef,
+): Array<number | null> {
+  if (totalMeters == null) return typeDef.steps.map(() => null);
+  const distanceSteps = typeDef.steps.filter((s) =>
+    isDistanceTrackedActivity(s.hkActivityKey),
+  );
+  if (distanceSteps.length === 0) return typeDef.steps.map(() => null);
+  const distanceTotalMin = distanceSteps.reduce((a, s) => a + s.durationMin, 0);
+  // Per-step share + drift correction on the last distance-tracked step.
+  const out: Array<number | null> = typeDef.steps.map((s) =>
+    isDistanceTrackedActivity(s.hkActivityKey)
+      ? Math.round((s.durationMin / distanceTotalMin) * totalMeters)
+      : null,
+  );
+  const sum = out.reduce<number>((a, v) => a + (v ?? 0), 0);
+  const drift = totalMeters - sum;
+  // Patch the last non-null index.
+  for (let i = out.length - 1; i >= 0; i--) {
+    if (out[i] != null) {
+      out[i] = (out[i] ?? 0) + drift;
+      break;
+    }
+  }
+  return out;
 }
