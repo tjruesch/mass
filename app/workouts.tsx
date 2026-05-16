@@ -193,7 +193,7 @@ export default function WorkoutsScreen() {
               <WorkoutGlyph
                 icon={todayType?.icon ?? 'rest'}
                 color={toneColor(todayType?.tone ?? 'mute')}
-                size={22}
+                size={18}
               />
             </View>
             <View style={{ flex: 1, minWidth: 0 }}>
@@ -218,7 +218,7 @@ export default function WorkoutsScreen() {
                 styles.todayBtn,
                 pressed && { opacity: 0.65 },
               ]}>
-              <Glyph name="plus" color={tokens.accent} size={16} />
+              <Glyph name="plus" color={tokens.accent} size={14} />
               <Text style={styles.todayBtnText}>log</Text>
             </Pressable>
           </View>
@@ -658,9 +658,9 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.02,
   },
   todayIcon: {
-    width: 56,
-    height: 56,
-    borderRadius: 14,
+    width: 48,
+    height: 48,
+    borderRadius: 12,
     backgroundColor: tokens.bg2,
     borderWidth: 1,
     borderColor: tokens.line,
@@ -669,20 +669,20 @@ const styles = StyleSheet.create({
   },
   todayTitle: {
     fontFamily: fonts.sansSemibold,
-    fontSize: 18,
+    fontSize: 15,
     color: tokens.ink,
-    letterSpacing: -0.18,
+    letterSpacing: -0.15,
   },
   todaySub: {
     fontFamily: fonts.mono,
-    fontSize: 13,
+    fontSize: 11,
     color: tokens.ink3,
-    marginTop: 5,
-    letterSpacing: 0.52,
+    marginTop: 4,
+    letterSpacing: 0.44,
   },
   todayBtn: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
     borderRadius: 12,
     backgroundColor: tokens.ink,
     flexDirection: 'row',
@@ -695,9 +695,9 @@ const styles = StyleSheet.create({
   },
   todayBtnText: {
     fontFamily: fonts.monoSemibold,
-    fontSize: 12,
+    fontSize: 11,
     color: tokens.bg,
-    letterSpacing: 1.92,
+    letterSpacing: 1.76,
     textTransform: 'uppercase',
   },
 
