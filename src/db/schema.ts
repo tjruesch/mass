@@ -251,6 +251,13 @@ export const workoutPreferences = sqliteTable('workout_preferences', {
   autoImportHealthKit: integer('auto_import_healthkit', { mode: 'boolean' })
     .notNull()
     .default(true),
+  /**
+   * Daily Move-ring target in kcal — drives the home-screen move ring
+   * fill. HK doesn't expose the user's actual Apple Watch move goal
+   * programmatically, so we store our own and let the user adjust it
+   * in /workouts-settings. Default 500 — Apple's typical baseline.
+   */
+  moveTargetKcal: integer('move_target_kcal').notNull().default(500),
 });
 
 // ─── Goals (programs / phases like "cut-04 · day 14/28") ──────────────────────

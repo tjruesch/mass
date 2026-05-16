@@ -1,0 +1,1 @@
+ALTER TABLE `workout_preferences` ADD `move_target_kcal` integer DEFAULT 500 NOT NULL;

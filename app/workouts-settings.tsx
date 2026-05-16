@@ -93,6 +93,17 @@ export default function WorkoutsSettingsScreen() {
   const onToggleAutoImport = () =>
     write({ autoImportHealthKit: !prefs.autoImportHealthKit });
 
+  const MOVE_STEP = 50;
+  const MOVE_MIN = 100;
+  const MOVE_MAX = 2000;
+  const onAdjustMove = (delta: number) => {
+    const next = Math.min(
+      MOVE_MAX,
+      Math.max(MOVE_MIN, prefs.moveTargetKcal + delta),
+    );
+    if (next !== prefs.moveTargetKcal) write({ moveTargetKcal: next });
+  };
+
   const typeByKey = (k: string | null): WorkoutTypeDef | null =>
     k === null ? null : types.find((t) => t.key === k) ?? null;
 
@@ -211,6 +222,45 @@ export default function WorkoutsSettingsScreen() {
             onConnect={() => ensureHkAuthorization(WORKOUT_PERMISSIONS)}
             onToggleAutoImport={onToggleAutoImport}
           />
+        </Section>
+
+        {/* MOVE GOAL — drives the home-screen move ring fill. Stored as
+            kcal/day; the value the watch reports comes from HK on its own. */}
+        <Section
+          label="move goal"
+          sub="active kcal per day · home ring target">
+          <View style={styles.moveCard}>
+            <View style={styles.moveValueRow}>
+              <Text style={[styles.moveValue, textStyles.tnum]}>
+                {prefs.moveTargetKcal}
+              </Text>
+              <Text style={styles.moveValueUnit}>kcal</Text>
+            </View>
+            <View style={styles.moveSteppers}>
+              <Pressable
+                onPress={() => onAdjustMove(-MOVE_STEP)}
+                disabled={prefs.moveTargetKcal <= MOVE_MIN}
+                hitSlop={4}
+                style={({ pressed }) => [
+                  styles.moveStepBtn,
+                  prefs.moveTargetKcal <= MOVE_MIN && { opacity: 0.35 },
+                  pressed && prefs.moveTargetKcal > MOVE_MIN && { opacity: 0.6 },
+                ]}>
+                <Text style={styles.moveStepLabel}>−{MOVE_STEP}</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => onAdjustMove(MOVE_STEP)}
+                disabled={prefs.moveTargetKcal >= MOVE_MAX}
+                hitSlop={4}
+                style={({ pressed }) => [
+                  styles.moveStepBtn,
+                  prefs.moveTargetKcal >= MOVE_MAX && { opacity: 0.35 },
+                  pressed && prefs.moveTargetKcal < MOVE_MAX && { opacity: 0.6 },
+                ]}>
+                <Text style={styles.moveStepLabel}>+{MOVE_STEP}</Text>
+              </Pressable>
+            </View>
+          </View>
         </Section>
 
         <Text style={styles.deferredHint}>
@@ -675,5 +725,58 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
     textAlign: 'center',
     letterSpacing: 0.48,
+  },
+
+  // Move goal stepper
+  moveCard: {
+    backgroundColor: tokens.card,
+    borderWidth: 1,
+    borderColor: tokens.line,
+    borderRadius: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowRadius: 3,
+    shadowOpacity: 0.02,
+  },
+  moveValueRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 6,
+  },
+  moveValue: {
+    fontFamily: fonts.monoSemibold,
+    fontSize: 24,
+    color: tokens.ink,
+    letterSpacing: -0.48,
+  },
+  moveValueUnit: {
+    fontFamily: fonts.mono,
+    fontSize: 13,
+    color: tokens.ink3,
+  },
+  moveSteppers: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  moveStepBtn: {
+    minWidth: 50,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    backgroundColor: tokens.bg2,
+    borderWidth: 1,
+    borderColor: tokens.line,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  moveStepLabel: {
+    fontFamily: fonts.monoSemibold,
+    fontSize: 12,
+    color: tokens.ink,
   },
 });

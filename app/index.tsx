@@ -42,7 +42,7 @@ function greetingFor(d: Date): string {
 }
 
 import { TabBar, WindowStrip } from '@/components/design';
-import { useTodayExerciseMinutes } from '@/src/hooks/use-exercise';
+import { useTodayMove } from '@/src/hooks/use-move';
 import { useFasting, type FastingState } from '@/src/hooks/use-fasting';
 import { useFastingPreferences } from '@/src/hooks/use-fasting-preferences';
 import { useWaterToday } from '@/src/hooks/use-water';
@@ -422,13 +422,14 @@ export default function HomeScreen() {
   const waterValueLabel = (waterToday.totalMl / 1000).toFixed(2);
   const waterTargetLabel = `of ${(waterTargetMl / 1000).toFixed(1)}`;
 
-  // Live move ring — exercise minutes from HK. Returns null while HK
-  // auth is pending; the ring + legend gracefully show 0/—.
-  const exercise = useTodayExerciseMinutes();
-  const moveValueLabel = exercise.minutes === null ? '—' : Math.round(exercise.minutes).toString();
-  const moveTargetLabel = `of ${exercise.target}`;
+  // Live move ring — active kcal from HK (Apple's red Move ring).
+  // Returns null while HK auth is pending; the ring + legend
+  // gracefully show 0 / '—'.
+  const move = useTodayMove();
+  const moveValueLabel = move.kcal === null ? '—' : Math.round(move.kcal).toString();
+  const moveTargetLabel = `of ${move.target}`;
   const movePctLabel =
-    exercise.minutes === null ? '—' : `${Math.round(exercise.pct * 100)}%`;
+    move.kcal === null ? '—' : `${Math.round(move.pct * 100)}%`;
   // Dateline ticks every 60s so the displayed minute stays current. Day +
   // weekday update on the next tick after midnight, which is good enough
   // for an app you only have open in short bursts.
@@ -479,7 +480,7 @@ export default function HomeScreen() {
         {/* ── 2. Hero rings — inline, flows directly under the greeting ── */}
         <View style={styles.heroSection}>
           <View style={styles.heroBody}>
-            <Concentric size={184} h2oPct={waterPctValue} movePct={exercise.pct} />
+            <Concentric size={184} h2oPct={waterPctValue} movePct={move.pct} />
             <View style={styles.heroLegendCol}>
               <Legend swatch={tokens.ink} label="kcal" value="480" target="of 1820" pct="26%" />
               <View style={styles.legendDivider} />
@@ -504,7 +505,7 @@ export default function HomeScreen() {
                 swatch={tokens.accentInk}
                 label="move"
                 value={moveValueLabel}
-                unit="min"
+                unit="kcal"
                 target={moveTargetLabel}
                 pct={movePctLabel}
               />

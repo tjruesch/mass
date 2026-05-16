@@ -43,21 +43,21 @@ import { syncWorkoutType, type SyncQuantityResult } from './sync';
 import { quantityToKcal, quantityToMeters } from './units';
 
 const WORKOUT_TYPE_IDENTIFIER = 'HKWorkoutTypeIdentifier' as const;
-const EXERCISE_TIME_IDENTIFIER = 'HKQuantityTypeIdentifierAppleExerciseTime' as const;
+const ACTIVE_ENERGY_IDENTIFIER = 'HKQuantityTypeIdentifierActiveEnergyBurned' as const;
 
 /**
  * Permission set for HK workouts. Stable module-level reference so the
  * auth hook keys off it cleanly without re-subscribing each render.
  *
- * Bundles in `AppleExerciseTime` as a read-side permission so the
+ * Bundles in `ActiveEnergyBurned` as a read-side permission so the
  * home-screen move ring populates as soon as the user connects from
- * the workouts settings page — no separate auth flow for exercise time.
- * Existing installs will see a one-time re-prompt the next time they
- * tap Connect on workouts settings since HK detects the new requested
- * type.
+ * the workouts settings page — no separate auth flow for the move
+ * ring data. Existing installs will see a one-time re-prompt the next
+ * time they tap Connect on workouts settings since HK detects the new
+ * requested type.
  */
 export const WORKOUT_PERMISSIONS: HkPermissionRequest = {
-  toRead: [WORKOUT_TYPE_IDENTIFIER, EXERCISE_TIME_IDENTIFIER],
+  toRead: [WORKOUT_TYPE_IDENTIFIER, ACTIVE_ENERGY_IDENTIFIER],
   toShare: [WORKOUT_TYPE_IDENTIFIER],
 };
 
