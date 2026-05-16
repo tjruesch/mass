@@ -42,6 +42,8 @@ import { Glyph, MealLogDrawer, SubHeader, TabBar } from '@/components/design';
 import type { Meal } from '@/src/db/schema';
 import { useMealPreferences } from '@/src/hooks/use-meal-preferences';
 import { useWeekPlan, type WeekPlanEntry } from '@/src/hooks/use-meal-plan';
+import { useWeekStockNeed } from '@/src/hooks/use-week-stock-need';
+import type { PantryItem } from '@/src/db/schema';
 import {
   MEAL_SLOTS,
   useLastNDaysKcal,
@@ -78,6 +80,7 @@ export default function MealsScreen() {
   const mealPrefs = useMealPreferences();
   const last7 = useLastNDaysKcal(7);
   const plan = useWeekPlan();
+  const stockNeed = useWeekStockNeed();
 
   const todayDow = dowMondayFirst(new Date());
   const [selectedDow, setSelectedDow] = useState<number>(todayDow);
@@ -280,6 +283,47 @@ export default function MealsScreen() {
           </Text>
         </View>
 
+        {/* ── Missing-ingredients banner ───────────────────────────── */}
+        {stockNeed.missingMealCount > 0 && (
+          <Pressable
+            onPress={() => router.push('/pantry' as never)}
+            accessibilityRole="button"
+            accessibilityLabel="Review pantry shortage"
+            style={({ pressed }) => [
+              styles.missingBanner,
+              pressed && { opacity: 0.75 },
+            ]}>
+            <View style={styles.missingBannerIcon}>
+              <Svg width={13} height={13} viewBox="0 0 14 14">
+                <Path
+                  d="M7 1.5L13 12H1z"
+                  fill="none"
+                  stroke={tokens.warn}
+                  strokeWidth={1.4}
+                  strokeLinejoin="round"
+                />
+                <Path
+                  d="M7 5.5v3.5M7 10.5v.5"
+                  stroke={tokens.warn}
+                  strokeWidth={1.4}
+                  strokeLinecap="round"
+                />
+              </Svg>
+            </View>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={styles.missingBannerTitle}>
+                {stockNeed.missingMealCount} meal
+                {stockNeed.missingMealCount === 1 ? '' : 's'} missing
+                ingredients
+              </Text>
+              <Text style={styles.missingBannerSub} numberOfLines={1}>
+                {topMissingNames(stockNeed)}
+              </Text>
+            </View>
+            <Glyph name="chev" color={tokens.warn} />
+          </Pressable>
+        )}
+
         {/* ── Day strip (M-S) ─────────────────────────────────────────── */}
         <View style={styles.dayStripOuter}>
           <View style={styles.dayStrip}>
@@ -348,17 +392,24 @@ export default function MealsScreen() {
             </Text>
           </View>
           <View style={styles.slotList}>
-            {MEAL_SLOTS.map((slot) => (
-              <SlotCard
-                key={slot}
-                slot={slot}
-                meals={selectedDay.bySlot[slot]}
-                plan={selectedPlan[slot]}
-                canLog={selectedDow === todayDow}
-                onLog={() => openDrawerForSlot(slot)}
-                onEditMeal={openDrawerForEdit}
-              />
-            ))}
+            {MEAL_SLOTS.map((slot) => {
+              const planEntry = selectedPlan[slot];
+              const missing = planEntry
+                ? stockNeed.missingByMealId.get(planEntry.meal.id) ?? []
+                : [];
+              return (
+                <SlotCard
+                  key={slot}
+                  slot={slot}
+                  meals={selectedDay.bySlot[slot]}
+                  plan={planEntry}
+                  missingItems={missing}
+                  canLog={selectedDow === todayDow}
+                  onLog={() => openDrawerForSlot(slot)}
+                  onEditMeal={openDrawerForEdit}
+                />
+              );
+            })}
           </View>
         </View>
 
@@ -395,6 +446,7 @@ function SlotCard({
   slot,
   meals,
   plan,
+  missingItems,
   canLog,
   onLog,
   onEditMeal,
@@ -405,6 +457,10 @@ function SlotCard({
    *  ghost card with a 'log as planned' affordance when nothing is
    *  logged yet. Ignored once a meal has been logged for the slot. */
   plan: WeekPlanEntry | undefined;
+  /** Pantry items the planned meal references that are currently
+   *  `out` or `short` for the week. Drives the `missing N` warn
+   *  pill + `needs:` row on the planned-ghost card. */
+  missingItems: ReadonlyArray<PantryItem>;
   canLog: boolean;
   onLog: () => void;
   /** Tap handler for a populated slot — opens the drawer in edit
@@ -415,6 +471,7 @@ function SlotCard({
     if (plan !== undefined) {
       // Ghost-planned card. Past days fall through the canLog check
       // and become read-only "missed" plans.
+      const hasMissing = missingItems.length > 0;
       return (
         <Pressable
           onPress={canLog ? onLog : undefined}
@@ -442,14 +499,44 @@ function SlotCard({
                 <Text style={styles.slotMacroUnit}> kcal</Text>
               </Text>
             </View>
-            {canLog && (
-              <View style={styles.slotPlannedCta}>
-                <Text style={[styles.slotPlannedCtaText, textStyles.cap]}>
-                  log
+            {hasMissing ? (
+              <View style={styles.slotMissingPill}>
+                <Text style={[styles.slotMissingPillText, textStyles.cap]}>
+                  missing {missingItems.length}
                 </Text>
               </View>
+            ) : (
+              canLog && (
+                <View style={styles.slotPlannedCta}>
+                  <Text
+                    style={[styles.slotPlannedCtaText, textStyles.cap]}>
+                    log
+                  </Text>
+                </View>
+              )
             )}
           </View>
+          {hasMissing && (
+            <View style={styles.slotNeedsRow}>
+              <Text style={[styles.slotNeedsLabel, textStyles.cap]}>
+                needs:
+              </Text>
+              <View style={styles.slotNeedsChipRow}>
+                {missingItems.slice(0, 3).map((p) => (
+                  <View key={p.id} style={styles.slotNeedsChip}>
+                    <Text style={styles.slotNeedsChipText}>
+                      {p.name.toLowerCase()}
+                    </Text>
+                  </View>
+                ))}
+                {missingItems.length > 3 && (
+                  <Text style={styles.slotNeedsMore}>
+                    + {missingItems.length - 3} more
+                  </Text>
+                )}
+              </View>
+            </View>
+          )}
         </Pressable>
       );
     }
@@ -669,6 +756,31 @@ function SevenDayBars({
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
+
+/**
+ * Build the comma-separated list of the top missing pantry items
+ * across all planned-with-shortage meals for the banner subline.
+ * De-dupes by item id so the same shortage doesn't show twice when
+ * referenced by multiple planned meals.
+ */
+function topMissingNames(
+  stockNeed: ReturnType<typeof useWeekStockNeed>,
+): string {
+  const seen = new Set<number>();
+  const names: string[] = [];
+  for (const items of stockNeed.missingByMealId.values()) {
+    for (const item of items) {
+      if (seen.has(item.id)) continue;
+      seen.add(item.id);
+      names.push(item.name.toLowerCase());
+      if (names.length >= 3) break;
+    }
+    if (names.length >= 3) break;
+  }
+  const remaining = stockNeed.missingByMealId.size - names.length;
+  const more = remaining > 0 ? ` + ${remaining} more` : '';
+  return names.join(' · ') + more;
+}
 
 function formatSignedKcal(d: number): string {
   if (d > 0) return `−${d}`;
@@ -1014,6 +1126,98 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: tokens.bg,
     letterSpacing: 1.8,
+  },
+  slotMissingPill: {
+    paddingVertical: 3,
+    paddingHorizontal: 7,
+    borderRadius: 999,
+    backgroundColor: 'rgba(180,90,30,0.10)',
+  },
+  slotMissingPillText: {
+    fontFamily: fonts.monoSemibold,
+    fontSize: 8.5,
+    color: tokens.warn,
+    letterSpacing: 1.6,
+  },
+  slotNeedsRow: {
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: tokens.line,
+    borderStyle: 'dashed',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 6,
+  },
+  slotNeedsLabel: {
+    fontFamily: fonts.mono,
+    fontSize: 9,
+    color: tokens.ink4,
+    letterSpacing: 0.4,
+    fontStyle: 'italic',
+  },
+  slotNeedsChipRow: {
+    flex: 1,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 6,
+  },
+  slotNeedsChip: {
+    paddingVertical: 2,
+    paddingHorizontal: 6,
+    borderRadius: 4,
+    backgroundColor: 'rgba(180,90,30,0.10)',
+  },
+  slotNeedsChipText: {
+    fontFamily: fonts.monoSemibold,
+    fontSize: 9.5,
+    color: tokens.warn,
+    letterSpacing: 0.2,
+  },
+  slotNeedsMore: {
+    fontFamily: fonts.mono,
+    fontSize: 9.5,
+    color: tokens.ink4,
+    fontStyle: 'italic',
+  },
+
+  // Missing-ingredients banner (top of /meals)
+  missingBanner: {
+    marginTop: 12,
+    marginHorizontal: 22,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 14,
+    backgroundColor: 'rgba(180,90,30,0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(180,90,30,0.22)',
+  },
+  missingBannerIcon: {
+    width: 30,
+    height: 30,
+    borderRadius: 999,
+    backgroundColor: 'rgba(180,90,30,0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  missingBannerTitle: {
+    fontFamily: fonts.sansSemibold,
+    fontSize: 12.5,
+    color: tokens.ink,
+    letterSpacing: -0.06,
+  },
+  missingBannerSub: {
+    marginTop: 2,
+    fontFamily: fonts.mono,
+    fontSize: 9.5,
+    color: tokens.ink3,
+    fontStyle: 'italic',
+    letterSpacing: 0.4,
   },
   slotHeadRow: {
     flexDirection: 'row',

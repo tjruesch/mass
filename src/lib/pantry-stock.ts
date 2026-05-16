@@ -1,17 +1,21 @@
 /**
- * Pantry stock status helpers. Pantry rows carry a nullable
- * `currentQty` + nullable `lowThreshold`; combining them gives a
- * four-state status the UI uses for chips, dots, and grouping.
+ * Pantry stock status helpers. Combines a row's `currentQty` +
+ * `lowThreshold` with the week's required quantity (from meal_plan)
+ * to produce a five-state status:
  *
- * The week-plan-driven `short` state ("enough on hand, but not enough
- * for upcoming meals") lands with #95 — it needs the meal_plan table
- * to compute weekly required quantities. Until then, items only flip
- * between `out / low / ok / untracked`.
+ *   - `untracked`: stock tracking off (currentQty IS NULL).
+ *   - `out`:        currentQty <= 0.
+ *   - `short`:      have some, but not enough for the week's planned
+ *                   demand. Triggers when required > 0 AND
+ *                   currentQty < required.
+ *   - `low`:        either currentQty < lowThreshold (manual), or
+ *                   within 30 % of required (auto, "running close").
+ *   - `ok`:         enough on hand for the week + above threshold.
  */
 
 import type { PantryCategory, PantryItem } from '@/src/db/schema';
 
-export type StockStatus = 'out' | 'low' | 'ok' | 'untracked';
+export type StockStatus = 'out' | 'short' | 'low' | 'ok' | 'untracked';
 
 export const PANTRY_CATEGORIES: ReadonlyArray<PantryCategory> = [
   'fresh',
@@ -27,26 +31,36 @@ export const PANTRY_CATEGORY_LABELS: Record<PantryCategory, string> = {
   pantry: 'pantry',
 };
 
-export function stockStatusFor(item: PantryItem): StockStatus {
-  // `null` qty = stock tracking not enabled for this item. The legacy
-  // back-fill before #90 lands every pantry row in this state. The UI
-  // surfaces them inside their category section but without a status
-  // pip, and excludes them from the summary counts.
+/**
+ * Compute a row's status. `required` is the qty the week's planned-
+ * but-not-yet-logged meals will use; 0 when no plan demand exists.
+ */
+export function stockStatusFor(
+  item: PantryItem,
+  required: number = 0,
+): StockStatus {
+  // `null` qty = stock tracking not enabled for this item. UI
+  // surfaces it inside its category section but without a status
+  // pip, and excludes from summary counts.
   if (item.currentQty === null) return 'untracked';
   if (item.currentQty <= 0) return 'out';
+  if (required > 0 && item.currentQty < required) return 'short';
   if (item.lowThreshold !== null && item.currentQty < item.lowThreshold) {
     return 'low';
   }
+  // Auto-low when within 30 % of the planned demand — gives the user
+  // a heads-up before the bucket flips to `short`.
+  if (required > 0 && item.currentQty < required * 1.3) return 'low';
   return 'ok';
 }
 
-/** Sort key for category sections so `out` items surface first, then
- *  `low`, then `ok`, with `untracked` at the bottom. */
+/** Sort key for category sections so problems surface first. */
 const STATUS_ORDER: Record<StockStatus, number> = {
   out: 0,
-  low: 1,
-  ok: 2,
-  untracked: 3,
+  short: 1,
+  low: 2,
+  ok: 3,
+  untracked: 4,
 };
 export function compareStockStatus(a: StockStatus, b: StockStatus): number {
   return STATUS_ORDER[a] - STATUS_ORDER[b];

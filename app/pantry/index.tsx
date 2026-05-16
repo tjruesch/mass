@@ -2,21 +2,19 @@
  * Pantry · stock + shopping list (#90).
  *
  * Three sections, top-to-bottom, matching designs/screen-pantry.jsx:
- *   1. Stock summary chips — out / low / ok counts. The `short` chip
- *      (some on hand but not enough for the week ahead) waits on #95's
- *      meal_plan table so we have a "required quantity" source.
- *   2. Auto shopping list — items currently `out` or `low`, with a
- *      footer link to export to iOS Reminders (TODO until #90 D-part).
+ *   1. Stock summary chips — out / short / low / ok counts. `short`
+ *      is now driven by the week's planned-but-not-yet-logged demand
+ *      (sourced from #95's meal_plan).
+ *   2. Auto shopping list — items currently `out`, `short`, or `low`,
+ *      with a footer link to export to iOS Reminders (placeholder for
+ *      the share flow).
  *   3. Pantry grouped by category (fresh / protein / dairy / pantry),
- *      sorted within each section so out items surface first.
- *
- * Tapping a row routes to `/pantry/<id>` for editing. The SubHeader's
- * trailing "+ add" link routes to `/pantry/new`.
+ *      sorted within each section so problems surface first. Each
+ *      row shows "need X this week" when the plan demands the item.
  *
  * Untracked items (currentQty === null) skip the summary counts and
  * render without a status pip, but still appear under their category
- * so users can find them. Filling in stock on the editor flips them
- * into the tracked flow.
+ * so users can find them.
  */
 
 import { useRouter } from 'expo-router';
@@ -26,25 +24,25 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SubHeader, TabBar } from '@/components/design';
 import type { PantryCategory, PantryItem } from '@/src/db/schema';
 import { usePantryItems } from '@/src/hooks/use-pantry';
+import { useWeekStockNeed } from '@/src/hooks/use-week-stock-need';
 import {
   PANTRY_CATEGORIES,
   PANTRY_CATEGORY_LABELS,
   compareStockStatus,
   effectiveStockUnit,
-  stockStatusFor,
   type StockStatus,
 } from '@/src/lib/pantry-stock';
 import { fonts, textStyles, tokens } from '@/theme/tokens';
 
-// Status palette — pulled from the design source. The warn tones lean
-// terracotta (matches the Mist · Petrol accent), `low` is amber-ochre,
-// `ok` is forest green. Background swatches keep the same hue at 8-10%
-// opacity so chips stay legible against the card surface.
+// Status palette — terracotta tones for out/short, amber for low,
+// forest green for ok. Background swatches keep the same hue at
+// 8-10 % opacity so chips stay legible against the card surface.
 const STATUS_COLORS: Record<
   Exclude<StockStatus, 'untracked'>,
   { fg: string; bg: string }
 > = {
   out: { fg: tokens.warn, bg: 'rgba(180,90,30,0.10)' },
+  short: { fg: tokens.warn, bg: 'rgba(180,90,30,0.08)' },
   low: { fg: '#A07A2A', bg: 'rgba(192,138,40,0.10)' },
   ok: { fg: '#1F7A3A', bg: 'rgba(31,122,58,0.10)' },
 };
@@ -52,16 +50,24 @@ const STATUS_COLORS: Record<
 export default function PantryScreen() {
   const router = useRouter();
   const items = usePantryItems();
+  const { needByPantryId, statusByPantryId } = useWeekStockNeed();
+
+  const statusFor = (id: number): StockStatus =>
+    statusByPantryId.get(id) ?? 'untracked';
 
   const summary = useMemo(() => {
     let out = 0;
+    let short = 0;
     let low = 0;
     let ok = 0;
     let untracked = 0;
     for (const item of items) {
-      switch (stockStatusFor(item)) {
+      switch (statusFor(item.id)) {
         case 'out':
           out++;
+          break;
+        case 'short':
+          short++;
           break;
         case 'low':
           low++;
@@ -74,19 +80,19 @@ export default function PantryScreen() {
           break;
       }
     }
-    return { out, low, ok, untracked };
-  }, [items]);
+    return { out, short, low, ok, untracked };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items, statusByPantryId]);
 
-  // Shopping list = items that need restocking. Until #95 adds week
-  // plan persistence (which sources the "required this week" total),
-  // we use the same `out + low` partition the summary chips show.
+  // Shopping list = anything that needs restocking, week-plan-aware.
   const shoppingList = useMemo(
     () =>
       items.filter((item) => {
-        const s = stockStatusFor(item);
-        return s === 'out' || s === 'low';
+        const s = statusFor(item.id);
+        return s === 'out' || s === 'short' || s === 'low';
       }),
-    [items],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [items, statusByPantryId],
   );
 
   const grouped = useMemo(() => {
@@ -101,16 +107,14 @@ export default function PantryScreen() {
     }
     for (const cat of PANTRY_CATEGORIES) {
       out[cat].sort((a, b) => {
-        const cmp = compareStockStatus(
-          stockStatusFor(a),
-          stockStatusFor(b),
-        );
+        const cmp = compareStockStatus(statusFor(a.id), statusFor(b.id));
         if (cmp !== 0) return cmp;
         return a.name.localeCompare(b.name);
       });
     }
     return out;
-  }, [items]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items, statusByPantryId]);
 
   return (
     <View style={{ flex: 1, backgroundColor: tokens.bg }}>
@@ -135,16 +139,14 @@ export default function PantryScreen() {
 
         {/* ── Stock summary ──────────────────────────────────────── */}
         <View style={styles.summaryOuter}>
-          <Text style={[styles.kicker, textStyles.cap]}>stock</Text>
+          <Text style={[styles.kicker, textStyles.cap]}>
+            stock · this week's plan
+          </Text>
           <View style={styles.summaryGrid}>
             <SummaryChip kind="out" count={summary.out} />
+            <SummaryChip kind="short" count={summary.short} />
             <SummaryChip kind="low" count={summary.low} />
             <SummaryChip kind="ok" count={summary.ok} />
-            <SummaryChip
-              kind="untracked"
-              count={summary.untracked}
-              label="untracked"
-            />
           </View>
         </View>
 
@@ -247,6 +249,8 @@ export default function PantryScreen() {
                   <CategoryRow
                     key={it.id}
                     item={it}
+                    status={statusFor(it.id)}
+                    requiredThisWeek={needByPantryId.get(it.id) ?? 0}
                     isLast={i === rows.length - 1}
                     onPress={() => router.push(`/pantry/${it.id}` as never)}
                   />
@@ -300,14 +304,17 @@ function SummaryChip({
 // ─────────────────────────────────────────────────────────────────────────────
 function CategoryRow({
   item,
+  status,
+  requiredThisWeek,
   isLast,
   onPress,
 }: {
   item: PantryItem;
+  status: StockStatus;
+  requiredThisWeek: number;
   isLast: boolean;
   onPress: () => void;
 }) {
-  const status = stockStatusFor(item);
   const struckOut = status === 'out';
   return (
     <Pressable
@@ -333,7 +340,7 @@ function CategoryRow({
           {item.name}
         </Text>
         <Text style={styles.catSub} numberOfLines={1}>
-          {formatCatSub(item)}
+          {formatCatSub(item, requiredThisWeek)}
         </Text>
       </View>
       {status !== 'untracked' && <StatusPip status={status} />}
@@ -372,9 +379,13 @@ function formatStockQty(item: PantryItem): string {
   return `${formatNum(item.currentQty)} ${unit}`;
 }
 
-function formatCatSub(item: PantryItem): string {
-  // Brand first when set; otherwise show kcal/100g so the row isn't
-  // empty. Status pip + qty handle the stock side on the right.
+function formatCatSub(item: PantryItem, requiredThisWeek: number): string {
+  // Need-this-week takes priority — most actionable info. Falls back
+  // to brand, then to per-100g kcal so the row isn't empty.
+  if (requiredThisWeek > 0) {
+    const unit = effectiveStockUnit(item);
+    return `need ${formatNum(requiredThisWeek)} ${unit} this week`;
+  }
   if (item.brand !== null && item.brand.trim() !== '') return item.brand;
   return `${Math.round(item.kcalPerServing)} kcal / 100g`;
 }
