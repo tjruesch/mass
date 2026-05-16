@@ -93,7 +93,12 @@ type Props = {
 export function WorkoutTypeEditorDrawer({ open, onClose, type }: Props) {
   const types = useWorkoutTypes();
   const mode: 'create' | 'edit' = type ? 'edit' : 'create';
-  const isBuiltin = type?.isBuiltin === true;
+  // `is_builtin` survives as metadata for the seeder (so it doesn't
+  // overwrite user-customized starter types on next boot), but it no
+  // longer gates the editor. Originally we blocked editing entirely;
+  // that broke the "5 starters you can tweak" expectation on a fresh
+  // install — there were no editable types until you'd built one from
+  // scratch.
 
   const [name, setName] = useState('');
   const [key, setKey] = useState('');
@@ -194,7 +199,7 @@ export function WorkoutTypeEditorDrawer({ open, onClose, type }: Props) {
   // ─── Save / Delete ───────────────────────────────────────────────────────
 
   const handleSave = useCallback(() => {
-    if (!valid || saving || isBuiltin) return;
+    if (!valid || saving) return;
     setSaving(true);
     const stepInputs: ReadonlyArray<WorkoutStepInput> = steps.map((s) => ({
       durationMin: s.durationMin,
@@ -232,10 +237,10 @@ export function WorkoutTypeEditorDrawer({ open, onClose, type }: Props) {
         );
         setSaving(false);
       });
-  }, [valid, saving, isBuiltin, type, trimmedKey, trimmedName, tone, icon, steps, onClose]);
+  }, [valid, saving, type, trimmedKey, trimmedName, tone, icon, steps, onClose]);
 
   const handleDelete = useCallback(() => {
-    if (!type || isBuiltin || saving) return;
+    if (!type || saving) return;
     Alert.alert(
       `Delete ${type.label}?`,
       'Planned slots that use this type will fall back to rest. This can\'t be undone.',
@@ -259,7 +264,7 @@ export function WorkoutTypeEditorDrawer({ open, onClose, type }: Props) {
         },
       ],
     );
-  }, [type, isBuiltin, saving, onClose]);
+  }, [type, saving, onClose]);
 
   const activeActivityStep =
     activityPickerStepId !== null
@@ -278,8 +283,6 @@ export function WorkoutTypeEditorDrawer({ open, onClose, type }: Props) {
             label={
               saving
                 ? 'saving…'
-                : isBuiltin
-                ? 'built-in · read only'
                 : valid
                 ? `save · ${totalMin}m total`
                 : keyConflict
@@ -287,7 +290,7 @@ export function WorkoutTypeEditorDrawer({ open, onClose, type }: Props) {
                 : 'fill name + at least one step'
             }
             onPress={handleSave}
-            disabled={!valid || saving || isBuiltin}
+            disabled={!valid || saving}
           />
         }>
         {/* NAME + KEY */}
@@ -296,7 +299,6 @@ export function WorkoutTypeEditorDrawer({ open, onClose, type }: Props) {
             <TextInput
               value={name}
               onChangeText={(t) => setName(t.slice(0, NAME_MAX))}
-              editable={!isBuiltin}
               placeholder="e.g. Marathon prep"
               placeholderTextColor={tokens.ink4}
               style={styles.textInput}
@@ -312,7 +314,6 @@ export function WorkoutTypeEditorDrawer({ open, onClose, type }: Props) {
                 setKeyTouched(true);
                 setKey(t.slice(0, KEY_MAX));
               }}
-              editable={!isBuiltin}
               autoCapitalize="none"
               autoCorrect={false}
               placeholder="marathon-prep"
@@ -335,13 +336,11 @@ export function WorkoutTypeEditorDrawer({ open, onClose, type }: Props) {
               return (
                 <Pressable
                   key={t.value}
-                  disabled={isBuiltin}
                   onPress={() => setTone(t.value)}
                   style={({ pressed }) => [
                     styles.chip,
                     active && styles.chipActive,
                     pressed && !active && { opacity: 0.7 },
-                    isBuiltin && { opacity: 0.5 },
                   ]}>
                   <View
                     style={[
@@ -370,14 +369,12 @@ export function WorkoutTypeEditorDrawer({ open, onClose, type }: Props) {
               return (
                 <Pressable
                   key={i.value}
-                  disabled={isBuiltin}
                   onPress={() => setIcon(i.value)}
                   accessibilityState={{ selected: active }}
                   style={({ pressed }) => [
                     styles.iconTile,
                     active && styles.iconTileActive,
                     pressed && !active && { opacity: 0.7 },
-                    isBuiltin && { opacity: 0.5 },
                   ]}>
                   <WorkoutGlyph
                     icon={i.value}
@@ -407,7 +404,7 @@ export function WorkoutTypeEditorDrawer({ open, onClose, type }: Props) {
                 index={idx}
                 total={steps.length}
                 step={s}
-                disabled={isBuiltin}
+                disabled={false}
                 onChangeDuration={(d) => updateStep(s.tempId, { durationMin: d })}
                 onPickActivity={() => setActivityPickerStepId(s.tempId)}
                 onMoveUp={() => moveStep(s.tempId, -1)}
@@ -416,20 +413,18 @@ export function WorkoutTypeEditorDrawer({ open, onClose, type }: Props) {
               />
             ))}
           </View>
-          {!isBuiltin && (
-            <Pressable
-              onPress={addStep}
-              style={({ pressed }) => [
-                styles.addStepBtn,
-                pressed && { opacity: 0.55 },
-              ]}>
-              <Glyph name="plus" color={tokens.ink3} size={10} />
-              <Text style={[styles.addStepText, textStyles.cap]}>add step</Text>
-            </Pressable>
-          )}
+          <Pressable
+            onPress={addStep}
+            style={({ pressed }) => [
+              styles.addStepBtn,
+              pressed && { opacity: 0.55 },
+            ]}>
+            <Glyph name="plus" color={tokens.ink3} size={10} />
+            <Text style={[styles.addStepText, textStyles.cap]}>add step</Text>
+          </Pressable>
         </DrawerSection>
 
-        {mode === 'edit' && !isBuiltin && (
+        {mode === 'edit' && (
           <Pressable
             onPress={handleDelete}
             disabled={saving}
@@ -441,12 +436,6 @@ export function WorkoutTypeEditorDrawer({ open, onClose, type }: Props) {
             ]}>
             <Text style={[styles.deleteText, textStyles.cap]}>delete type</Text>
           </Pressable>
-        )}
-
-        {isBuiltin && (
-          <Text style={styles.builtinHint}>
-            built-in types are read-only — duplicate to customize (coming soon)
-          </Text>
         )}
 
         <View style={{ height: 12 }} />
@@ -878,15 +867,6 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: tokens.accentInk,
     letterSpacing: 1.6,
-  },
-  builtinHint: {
-    marginTop: 18,
-    fontFamily: fonts.mono,
-    fontSize: 10,
-    color: tokens.ink4,
-    fontStyle: 'italic',
-    textAlign: 'center',
-    letterSpacing: 0.4,
   },
 });
 

@@ -191,7 +191,7 @@ export default function WorkoutsSettingsScreen() {
                     {t.isBuiltin && (
                       <View style={styles.builtinPill}>
                         <Text style={[styles.builtinPillText, textStyles.cap]}>
-                          built-in
+                          default
                         </Text>
                       </View>
                     )}
