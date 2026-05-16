@@ -7,7 +7,6 @@
  *   2. workout types    — DB-backed library list with step subline
  *   3. apple health     — state-driven connect/auto-import + source mapping
  *                          aggregated across all type steps
- *   4. linking rules    — auto-link + window stepper
  *
  * Out of scope (deferred follow-ups):
  *   - Custom workout types editor — #72.
@@ -66,10 +65,6 @@ const WEEKDAYS: ReadonlyArray<WeekdayCfg> = [
   { key: 'sun', short: 'S', long: 'sunday',    typeField: 'sunType', timeField: 'sunTimeMin' },
 ];
 
-const LINK_WINDOW_MIN = 15;
-const LINK_WINDOW_MAX = 360;
-const LINK_WINDOW_STEP = 15;
-
 export default function WorkoutsSettingsScreen() {
   const router = useRouter();
   const prefs = useWorkoutPreferences();
@@ -93,14 +88,6 @@ export default function WorkoutsSettingsScreen() {
       [wd.timeField]: patch.timeMin,
     } as Partial<WorkoutPreferences>);
     setPlanKey(null);
-  };
-
-  const onAdjustWindow = (delta: number) => {
-    const next = Math.min(
-      LINK_WINDOW_MAX,
-      Math.max(LINK_WINDOW_MIN, prefs.linkWindowMinutes + delta),
-    );
-    if (next !== prefs.linkWindowMinutes) write({ linkWindowMinutes: next });
   };
 
   const onToggleAutoImport = () =>
@@ -226,48 +213,6 @@ export default function WorkoutsSettingsScreen() {
           />
         </Section>
 
-        {/* LINKING RULES */}
-        <Section
-          label="linking rules"
-          sub="how detected sessions match the plan">
-          <View style={styles.cardList}>
-            <View style={styles.ruleRow}>
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <Text style={styles.ruleName}>auto-link by step sequence</Text>
-                <Text style={styles.ruleSub}>
-                  matches HK sessions to a planned slot when every step is found within the window below
-                </Text>
-              </View>
-              <View style={styles.ruleOnPill}>
-                <Text style={[styles.ruleOnText, textStyles.cap]}>on</Text>
-              </View>
-            </View>
-            <View style={[styles.ruleRow, styles.ruleRowBorder]}>
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <Text style={styles.ruleName}>time window</Text>
-                <Text style={styles.ruleSub}>± minutes from planned slot</Text>
-              </View>
-              <View style={styles.linkValueRow}>
-                <Text style={[styles.linkValue, textStyles.tnum]}>
-                  ±{prefs.linkWindowMinutes}
-                </Text>
-                <View style={styles.linkSteppers}>
-                  <StepperButton
-                    label={`−${LINK_WINDOW_STEP}`}
-                    disabled={prefs.linkWindowMinutes <= LINK_WINDOW_MIN}
-                    onPress={() => onAdjustWindow(-LINK_WINDOW_STEP)}
-                  />
-                  <StepperButton
-                    label={`+${LINK_WINDOW_STEP}`}
-                    disabled={prefs.linkWindowMinutes >= LINK_WINDOW_MAX}
-                    onPress={() => onAdjustWindow(LINK_WINDOW_STEP)}
-                  />
-                </View>
-              </View>
-            </View>
-          </View>
-        </Section>
-
         <Text style={styles.deferredHint}>
           reminders coming in a separate update
         </Text>
@@ -316,30 +261,6 @@ function Section({
       </View>
       {children}
     </View>
-  );
-}
-
-function StepperButton({
-  label,
-  onPress,
-  disabled,
-}: {
-  label: string;
-  onPress: () => void;
-  disabled?: boolean;
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      disabled={disabled}
-      hitSlop={4}
-      style={({ pressed }) => [
-        styles.stepperBtn,
-        disabled && { opacity: 0.35 },
-        pressed && !disabled && { opacity: 0.6 },
-      ]}>
-      <Text style={styles.stepperLabel}>{label}</Text>
-    </Pressable>
   );
 }
 
@@ -722,77 +643,6 @@ const styles = StyleSheet.create({
     color: tokens.bg,
     letterSpacing: 1.92,
     textTransform: 'uppercase',
-  },
-
-  // Linking rules
-  ruleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    gap: 12,
-  },
-  ruleRowBorder: {
-    borderTopWidth: 1,
-    borderTopColor: tokens.line,
-  },
-  ruleName: {
-    fontFamily: fonts.sansMedium,
-    fontSize: 15,
-    color: tokens.ink,
-  },
-  ruleSub: {
-    fontFamily: fonts.mono,
-    fontSize: 12,
-    color: tokens.ink4,
-    marginTop: 3,
-    fontStyle: 'italic',
-    letterSpacing: 0.48,
-  },
-  ruleOnPill: {
-    paddingVertical: 4,
-    paddingHorizontal: 10,
-    borderRadius: 999,
-    backgroundColor: 'rgba(31, 122, 58, 0.08)',
-    borderWidth: 1,
-    borderColor: 'rgba(31, 122, 58, 0.18)',
-  },
-  ruleOnText: {
-    fontFamily: fonts.monoSemibold,
-    fontSize: 11,
-    color: '#1F7A3A',
-    letterSpacing: 1.92,
-  },
-  linkValueRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  linkValue: {
-    fontFamily: fonts.monoSemibold,
-    fontSize: 17,
-    color: tokens.ink,
-    letterSpacing: -0.17,
-  },
-  linkSteppers: {
-    flexDirection: 'row',
-    gap: 4,
-  },
-  stepperBtn: {
-    minWidth: 38,
-    paddingVertical: 6,
-    paddingHorizontal: 8,
-    borderRadius: 6,
-    backgroundColor: tokens.bg2,
-    borderWidth: 1,
-    borderColor: tokens.line,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  stepperLabel: {
-    fontFamily: fonts.monoSemibold,
-    fontSize: 12,
-    color: tokens.ink,
   },
 
   // Switch

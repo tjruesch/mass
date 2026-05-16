@@ -23,7 +23,6 @@ import {
 } from '@/src/db/queries/workout-types';
 import { dowMondayFirst, startOfDay } from '@/src/lib/time';
 
-const DAY_MINUTES = 24 * 60;
 /**
  * Per-step duration tolerance: ±25%, with a 5-minute floor so short steps
  * (e.g. a 10m warmup) aren't impossibly strict. Loose enough that a 30m
@@ -115,11 +114,14 @@ export function linkCompositeSlot(
 ): CompositeLinkResult | null {
   const totalMin = totalPlannedMinutes(slot.type);
 
-  // Pool: weekday-matching entries, not consumed, optionally within window.
+  // Pool: weekday-matching entries, not consumed. No within-day time
+  // window — any entry on the matching weekday is fair game. The
+  // duration tolerance below still filters out wildly mismatched
+  // sessions (e.g. a 5-min walk doesn't satisfy a 45-min walking step).
+  void totalMin; // kept for shape; window math removed.
   const pool = candidates
     .filter((e) => !consumed.has(e.id))
     .filter((e) => dowMondayFirst(startOfDay(e.startedAt)) === slot.weekday)
-    .filter((e) => withinWindow(e, slot, totalMin, prefs.linkWindowMinutes))
     .sort((a, b) => a.startedAt.getTime() - b.startedAt.getTime());
 
   // Greedy left-to-right: for each step in planned order, consume the
@@ -158,32 +160,6 @@ export function linkCompositeSlot(
     spanStart,
     spanEnd,
   };
-}
-
-function withinWindow(
-  entry: WorkoutEntry,
-  slot: PlannedSlot,
-  totalMin: number,
-  windowMin: number,
-): boolean {
-  if (slot.startTimeMin === null) return true;
-  const entryMin = entry.startedAt.getHours() * 60 + entry.startedAt.getMinutes();
-  // Allow entries to start anywhere from `windowMin` before the planned
-  // start to `totalMin + windowMin` after — i.e. inside the planned span
-  // plus a buffer on each side. Midnight-wrap kept the same way as the
-  // previous linker: shortest signed delta on a 24h dial.
-  const planStart = slot.startTimeMin;
-  const planEnd = (slot.startTimeMin + totalMin) % DAY_MINUTES;
-  if (planEnd >= planStart) {
-    // Non-wrapping span: entry must land within [start − w, end + w].
-    return (
-      entryMin >= planStart - windowMin && entryMin <= planEnd + windowMin
-    );
-  }
-  // Wrapping span (e.g. 23:30 + 60m = 00:30): split into two ranges.
-  return (
-    entryMin >= planStart - windowMin || entryMin <= planEnd + windowMin
-  );
 }
 
 function durationWithin(entry: WorkoutEntry, plannedMin: number): boolean {
