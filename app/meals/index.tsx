@@ -202,14 +202,12 @@ export default function MealsScreen() {
                   kcal {overBudget ? 'over' : 'left'}
                 </Text>
               </View>
-              <View style={{ alignItems: 'flex-end' }}>
-                <Text style={[styles.kickerSmall, textStyles.cap]}>
-                  deficit
-                </Text>
+              <Text style={styles.heroDeficitInline}>
                 <Text style={[styles.heroDeficit, textStyles.tnum]}>
                   {formatSignedKcal(mealPrefs.deficitKcal)}
                 </Text>
-              </View>
+                <Text style={styles.heroDeficitLabel}> deficit</Text>
+              </Text>
             </View>
 
             <View style={styles.progressTrack}>
@@ -716,14 +714,26 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'baseline',
-    marginTop: 8,
+    // Generous top padding so the big number's ascenders don't clip
+    // against the kicker row above; ample bottom so the progress
+    // bar gets breathing room without a stale gap.
+    marginTop: 10,
     gap: 12,
   },
+  heroDeficitInline: {
+    flexShrink: 0,
+  },
   heroDeficit: {
-    marginTop: 2,
     fontFamily: fonts.monoSemibold,
     fontSize: 16,
     color: '#1F7A3A',
+  },
+  heroDeficitLabel: {
+    fontFamily: fonts.mono,
+    fontSize: 11,
+    color: tokens.ink4,
+    letterSpacing: 1.76,
+    textTransform: 'uppercase',
   },
   sevenDayRow: {
     marginTop: 12,
@@ -750,7 +760,9 @@ const styles = StyleSheet.create({
     fontSize: 36,
     color: tokens.ink,
     letterSpacing: -1.26,
-    lineHeight: 36,
+    // Match natural line-height (~1.2×) so digit ascenders don't clip
+    // against the row above. Tight 1.0 was cutting the top edge.
+    lineHeight: 44,
   },
   heroNumberUnit: {
     fontFamily: fonts.mono,
