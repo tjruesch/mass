@@ -391,8 +391,8 @@ function SlotCard({
   meals: ReadonlyArray<Meal>;
   canLog: boolean;
   onLog: () => void;
-  /** Long-press handler — opens the drawer in edit mode for the
-   *  primary (first) meal in the slot. */
+  /** Tap handler for a populated slot — opens the drawer in edit
+   *  mode for the primary (first) meal in the slot. */
   onEditMeal: (mealId: number) => void;
 }) {
   if (meals.length === 0) {
@@ -439,12 +439,9 @@ function SlotCard({
 
   return (
     <Pressable
-      onPress={canLog ? onLog : undefined}
-      onLongPress={() => onEditMeal(primary.id)}
-      delayLongPress={350}
+      onPress={canLog ? () => onEditMeal(primary.id) : undefined}
       accessibilityRole="button"
-      accessibilityLabel={`${slot} · ${primaryName}`}
-      accessibilityHint="Long-press to edit"
+      accessibilityLabel={`Edit ${slot} · ${primaryName}`}
       style={({ pressed }) => [
         styles.slotCard,
         styles.slotCardFilled,
