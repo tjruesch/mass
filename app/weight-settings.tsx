@@ -367,9 +367,14 @@ function TargetEditSheet({
       } else {
         patch.targetDate = addDays(today, 28);
       }
-      // Also stamp startKg so the optimal trajectory has an anchor.
+      // Also stamp startKg + startDate so the optimal trajectory has a
+      // real anchor (rather than falling back to whenever the user
+      // first logged a weigh-in, which could be years ago).
       if (prefs.startKg === null && currentKg !== null) {
         patch.startKg = currentKg;
+      }
+      if (prefs.startDate === null) {
+        patch.startDate = today;
       }
     }
     onClose(patch);

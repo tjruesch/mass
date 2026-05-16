@@ -29,6 +29,7 @@ import {
   TabBar,
   WeightChart,
   WeightLogDrawer,
+  type ChartRange,
 } from '@/components/design';
 import {
   useLatestWeight,
@@ -47,6 +48,30 @@ import { fonts, textStyles, tokens } from '@/theme/tokens';
 
 const MONTH_DAY = new Intl.DateTimeFormat('en', { day: '2-digit', month: 'short' });
 
+// Chart range chip options. Window modes span [today-N+1, targetDate]
+// (past N days + future projection). `start` mode shows the full journey
+// from start anchor → target (the original goal-pursuit view).
+type ChartRangeKey = '7d' | '14d' | '30d' | 'start';
+const CHART_RANGE_OPTIONS: { key: ChartRangeKey; label: string }[] = [
+  { key: '7d', label: '7d' },
+  { key: '14d', label: '14d' },
+  { key: '30d', label: '30d' },
+  { key: 'start', label: 'start' },
+];
+
+function rangeFromKey(key: ChartRangeKey): ChartRange {
+  switch (key) {
+    case '7d':
+      return { mode: 'window', days: 7 };
+    case '14d':
+      return { mode: 'window', days: 14 };
+    case '30d':
+      return { mode: 'window', days: 30 };
+    case 'start':
+      return { mode: 'goal' };
+  }
+}
+
 // Chart fills the card minus padding (22px page + 8px card). iOS-portrait
 // only for v1; if we ever rotate or hit iPad, swap for an onLayout-based
 // width on the chart card.
@@ -58,11 +83,17 @@ export default function WeightScreen() {
   const router = useRouter();
   const prefs = useWeightPreferences();
   const latest = useLatestWeight();
+  // 90 days back is enough to feed the longest visible window (30d) plus
+  // ~2 months of buffer for accurate trailing MA at the window's start.
   const history = useWeightHistory({ days: 90 });
   const recent = useRecentWeightEntries(8);
   const auth = useHkAuthState(BODY_MASS_PERMISSIONS);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingEntry, setEditingEntry] = useState<WeightEntry | null>(null);
+  // Chart range chip selection. Local state — resets when the screen
+  // remounts, which is fine for v1; persisting would require yet another
+  // prefs column.
+  const [rangeKey, setRangeKey] = useState<ChartRangeKey>('14d');
 
   const openCreate = useCallback(() => {
     setEditingEntry(null);
@@ -102,12 +133,18 @@ export default function WeightScreen() {
 
         {prefs && (
           <View style={styles.chartOuter}>
+            <ChartRangeChips
+              selected={rangeKey}
+              onSelect={setRangeKey}
+              goalEnabled={prefs.targetKg !== null && prefs.targetDate !== null}
+            />
             <View style={styles.chartCard}>
               <WeightChart
                 history={history.points}
                 prefs={prefs}
                 width={CHART_WIDTH}
                 height={CHART_HEIGHT}
+                range={rangeFromKey(rangeKey)}
               />
             </View>
           </View>
@@ -239,6 +276,50 @@ function StatDot() {
 // status subline driven by auth state + last-sync time, dark button on the
 // right. The button currently stubs out the drawer (issue #53 ships it).
 // ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// ChartRangeChips — segmented control above the chart. `goal` hidden when
+// there's no target yet (nothing to anchor it).
+// ─────────────────────────────────────────────────────────────────────────────
+function ChartRangeChips({
+  selected,
+  onSelect,
+  goalEnabled,
+}: {
+  selected: ChartRangeKey;
+  onSelect: (next: ChartRangeKey) => void;
+  goalEnabled: boolean;
+}) {
+  const options = goalEnabled
+    ? CHART_RANGE_OPTIONS
+    : CHART_RANGE_OPTIONS.filter((o) => o.key !== 'start');
+  return (
+    <View style={styles.rangeChips}>
+      {options.map((o) => {
+        const active = selected === o.key;
+        return (
+          <Pressable
+            key={o.key}
+            onPress={() => onSelect(o.key)}
+            style={({ pressed }) => [
+              styles.rangeChip,
+              active ? styles.rangeChipActive : styles.rangeChipInactive,
+              pressed && !active && { opacity: 0.6 },
+            ]}>
+            <Text
+              style={[
+                styles.rangeChipText,
+                textStyles.cap,
+                active && { color: tokens.bg },
+              ]}>
+              {o.label}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
 function QuickLogRow({
   authGranted,
   onOpen,
@@ -323,9 +404,7 @@ function RecentEntries({
                 <Text style={[styles.recentDay, textStyles.cap]}>{shortWeekday(e.at)}</Text>
                 <Text style={styles.recentDate}>{formatRecentDate(e.at)}</Text>
               </View>
-              <Text style={[styles.recentSource, textStyles.cap]}>
-                {sourceLabel(e.source)}
-              </Text>
+              <View style={{ flex: 1 }} />
               {delta === null ? (
                 <Text style={[styles.recentDelta, textStyles.tnum, styles.recentDeltaMuted]}>—</Text>
               ) : (
@@ -361,11 +440,6 @@ function formatRecentDate(d: Date): string {
   return MONTH_DAY_FMT.format(d).toLowerCase();
 }
 
-function sourceLabel(source: WeightEntry['source']): string {
-  if (source === 'healthkit') return 'apple health';
-  if (source === 'scale') return 'scale';
-  return 'manual';
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // StreakSection — adherence + current/best streak above a binary heatmap.
@@ -595,6 +669,30 @@ const styles = StyleSheet.create({
     shadowRadius: 24,
     shadowOpacity: 0.04,
   },
+  rangeChips: {
+    flexDirection: 'row',
+    gap: 6,
+    marginBottom: 10,
+  },
+  rangeChip: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+  },
+  rangeChipActive: {
+    backgroundColor: tokens.ink,
+  },
+  rangeChipInactive: {
+    backgroundColor: tokens.bg2,
+    borderWidth: 1,
+    borderColor: tokens.line,
+  },
+  rangeChipText: {
+    fontFamily: fonts.monoSemibold,
+    fontSize: 9,
+    color: tokens.ink,
+    letterSpacing: 1.62,
+  },
 
   // Recent entries
   recentOuter: {
@@ -650,13 +748,6 @@ const styles = StyleSheet.create({
     color: tokens.ink4,
     fontStyle: 'italic',
     marginTop: 1,
-  },
-  recentSource: {
-    flex: 1,
-    fontFamily: fonts.mono,
-    fontSize: 8.5,
-    color: tokens.ink4,
-    letterSpacing: 1.53,
   },
   recentDelta: {
     fontFamily: fonts.monoMedium,

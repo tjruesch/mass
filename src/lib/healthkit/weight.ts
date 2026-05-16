@@ -76,7 +76,6 @@ export async function syncWeightFromHealthKit(): Promise<SyncQuantityResult> {
         {
           at: sample.startDate,
           kg: sample.quantity,
-          source: 'healthkit',
           healthkitUuid: sample.uuid,
         },
         tx,
@@ -103,7 +102,6 @@ export async function logWeight(opts: {
   const entry = await addWeightEntry({
     kg: opts.kg,
     at: opts.at,
-    source: 'manual',
   });
 
   const prefs = await getWeightPreferences();
@@ -117,7 +115,7 @@ export async function logWeight(opts: {
     const saved = await saveQuantitySample(BODY_MASS, 'kg', opts.kg, at, at);
     if (saved?.uuid) {
       await attachHealthKitUuid(entry.id, saved.uuid);
-      return { ...entry, healthkitUuid: saved.uuid, source: 'healthkit' };
+      return { ...entry, healthkitUuid: saved.uuid };
     }
     return entry;
   } catch (err) {

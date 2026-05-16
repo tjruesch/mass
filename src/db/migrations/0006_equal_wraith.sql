@@ -1,0 +1,1 @@
+ALTER TABLE `weight_preferences` ADD `start_date` integer;

@@ -19,6 +19,6 @@ export {
 export { SubHeader } from './sub-header';
 export { TabBar, type TabId } from './tab-bar';
 export { WaterLogDrawer } from './water-log-drawer';
-export { WeightChart } from './weight-chart';
+export { WeightChart, type ChartRange } from './weight-chart';
 export { WeightLogDrawer } from './weight-log-drawer';
 export { WindowStrip } from './window-strip';

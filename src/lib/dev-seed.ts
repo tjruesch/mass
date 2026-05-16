@@ -56,7 +56,7 @@ export async function seedWeightDataDev(): Promise<{ inserted: number }> {
   inserts[inserts.length - 1] = { at: today, kg: 79.0 };
 
   for (const e of inserts) {
-    await addWeightEntry({ at: e.at, kg: e.kg, source: 'manual' });
+    await addWeightEntry({ at: e.at, kg: e.kg });
   }
 
   // Set the goal so the optimal trajectory + goal line + projected dashed

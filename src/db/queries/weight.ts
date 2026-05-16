@@ -3,8 +3,11 @@
  *
  * Dedup strategy: when a row carries `healthkitUuid`, that UUID is the
  * canonical identifier — HK re-pulls update the same row rather than
- * inserting a duplicate. Manual entries have `healthkitUuid: null` and
- * are identified by their auto-increment `id`.
+ * inserting a duplicate. Locally-typed entries have `healthkitUuid: null`
+ * and are identified by their auto-increment `id`. There's no separate
+ * `source` column anymore: presence/absence of a UUID is enough to tell
+ * the origin apart, and the user doesn't care about the distinction
+ * beyond the dedup behavior.
  *
  * Storage is always kg. The display unit (`weight_preferences.unit`) is
  * a UI projection applied at render time.
@@ -23,7 +26,6 @@ export async function addWeightEntry(
   opts: {
     at?: Date;
     kg: number;
-    source?: NewWeightEntry['source'];
     healthkitUuid?: string;
   },
   client: DbClient = db,
@@ -39,7 +41,6 @@ export async function addWeightEntry(
       .values({
         at: opts.at ?? new Date(),
         kg: opts.kg,
-        source: opts.source ?? 'healthkit',
         healthkitUuid: opts.healthkitUuid,
       })
       .onConflictDoUpdate({
@@ -47,13 +48,12 @@ export async function addWeightEntry(
         set: {
           at: opts.at ?? new Date(),
           kg: opts.kg,
-          source: opts.source ?? 'healthkit',
         },
       })
       .returning();
     return row;
   }
-  // Manual / scale entries — straight insert. Multiple manual entries at
+  // Locally-typed entries — straight insert. Multiple null-UUID rows at
   // the same timestamp are allowed (the unique index only fires when
   // healthkitUuid is non-null).
   const [row] = await client
@@ -61,7 +61,6 @@ export async function addWeightEntry(
     .values({
       at: opts.at ?? new Date(),
       kg: opts.kg,
-      source: opts.source ?? 'manual',
       healthkitUuid: null,
     })
     .returning();
@@ -97,10 +96,7 @@ export async function deleteWeightEntryByHealthKitUuid(
 
 /** Backfill the HK UUID after a successful write to HealthKit. */
 export async function attachHealthKitUuid(id: number, uuid: string): Promise<void> {
-  await db
-    .update(weightEntries)
-    .set({ healthkitUuid: uuid, source: 'healthkit' })
-    .where(eq(weightEntries.id, id));
+  await db.update(weightEntries).set({ healthkitUuid: uuid }).where(eq(weightEntries.id, id));
 }
 
 export async function getLatest(): Promise<WeightEntry | null> {

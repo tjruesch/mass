@@ -7,6 +7,8 @@ import m0002 from './0002_lumpy_husk.sql';
 import m0003 from './0003_confused_goliath.sql';
 import m0004 from './0004_motionless_onslaught.sql';
 import m0005 from './0005_sturdy_shape.sql';
+import m0006 from './0006_equal_wraith.sql';
+import m0007 from './0007_kind_daredevil.sql';
 
   export default {
     journal,
@@ -16,7 +18,9 @@ m0001,
 m0002,
 m0003,
 m0004,
-m0005
+m0005,
+m0006,
+m0007
     }
   }
   

@@ -37,11 +37,25 @@ import { fonts, tokens } from '@/theme/tokens';
 
 const MONTH_DAY = new Intl.DateTimeFormat('en', { day: '2-digit', month: 'short' });
 
+/**
+ * `goal`: today's default — window runs from start anchor to target date,
+ * goal-pursuit layers (optimal trajectory, goal horizontal, projected MA)
+ * render on top of the actual MA.
+ *
+ * `window`: a recent-trend view ending today. Goal-pursuit layers are
+ * suppressed; just the MA + daily readings + today marker remain.
+ */
+export type ChartRange =
+  | { readonly mode: 'goal' }
+  | { readonly mode: 'window'; readonly days: number };
+
 type Props = {
   history: ReadonlyArray<WeightHistoryPoint>;
   prefs: WeightPreferences;
   width: number;
   height: number;
+  /** Defaults to goal-pursuit mode for back-compat with callers that don't ship a chip row. */
+  range?: ChartRange;
 };
 
 const PAD_L = 34;
@@ -49,8 +63,46 @@ const PAD_R = 16;
 const PAD_T = 36;
 const PAD_B = 28;
 
-export function WeightChart({ history, prefs, width, height }: Props) {
-  if (history.length < 2) {
+export function WeightChart({ history, prefs, width, height, range }: Props) {
+  const today = startOfDay(new Date());
+  const mode: ChartRange = range ?? { mode: 'goal' };
+
+  // The optimal trajectory's anchor — date + kg of the user committed-
+  // to-the-goal moment. Same in all chart modes; only the visible portion
+  // changes. We prefer `prefs.startDate` (stamped when the user sets the
+  // target) and fall back to the first weigh-in's date for accounts that
+  // pre-date the column. The kg side mirrors that fallback chain.
+  const trajectoryAnchorDate = prefs.startDate
+    ? startOfDay(prefs.startDate)
+    : history.length > 0
+    ? startOfDay(history[0].entry.at)
+    : addDays(today, -28);
+  const trajectoryAnchorKg = prefs.startKg ?? history[0]?.entry.kg ?? 70;
+  const targetKg = prefs.targetKg;
+  const targetDate = prefs.targetDate ? startOfDay(prefs.targetDate) : null;
+
+  // ── Domain bounds ────────────────────────────────────────────────
+  // window mode: pin the LEFT edge N days back from today; let the RIGHT
+  //              edge run all the way to the target so the goal endpoint
+  //              and projected MA stay visible. No target → just `today`.
+  // goal mode  : trajectory anchor → target (or +28d when no target).
+  let startDate: Date;
+  let endDate: Date;
+  if (mode.mode === 'window') {
+    startDate = addDays(today, -(mode.days - 1));
+    endDate = targetDate && targetDate.getTime() > today.getTime() ? targetDate : today;
+  } else {
+    startDate = trajectoryAnchorDate;
+    endDate = targetDate ?? addDays(startDate, 28);
+  }
+
+  // Past portion only — MA path + daily readings live here.
+  const visiblePoints = history.filter((p) => {
+    const t = startOfDay(p.entry.at).getTime();
+    return t >= startDate.getTime() && t <= today.getTime();
+  });
+
+  if (visiblePoints.length < 2) {
     return (
       <View
         style={{
@@ -69,36 +121,47 @@ export function WeightChart({ history, prefs, width, height }: Props) {
             fontStyle: 'italic',
             letterSpacing: 0.44,
           }}>
-          log a few weigh-ins to see the trend
+          {mode.mode === 'window'
+            ? `no weigh-ins in the last ${mode.days} days`
+            : 'log a few weigh-ins to see the trend'}
         </Text>
       </View>
     );
   }
 
-  // ── Domain bounds ────────────────────────────────────────────────
-  const today = startOfDay(new Date());
-  const firstEntry = history[0];
-  const lastEntry = history[history.length - 1];
-
-  const startDate = startOfDay(firstEntry.entry.at);
-  const endDate = prefs.targetDate
-    ? startOfDay(prefs.targetDate)
-    : addDays(startDate, 28);
-
-  const startKg = prefs.startKg ?? firstEntry.entry.kg;
-  const targetKg = prefs.targetKg;
+  const lastEntry = visiblePoints[visiblePoints.length - 1];
   const latestMa = lastEntry.ma;
 
-  // Y axis — see file header.
+  // Optimal trajectory: linear from (anchorDate, anchorKg) → (targetDate,
+  // targetKg). Evaluated at any date for clipping.
+  const trajectoryY = (date: Date): number | null => {
+    if (targetKg === null || targetDate === null) return null;
+    const t = date.getTime();
+    const a = trajectoryAnchorDate.getTime();
+    const b = targetDate.getTime();
+    if (b === a) return targetKg;
+    return (
+      trajectoryAnchorKg +
+      ((targetKg - trajectoryAnchorKg) * (t - a)) / (b - a)
+    );
+  };
+
+  // Y axis — include visible points, the latest MA, target, and the
+  // trajectory's value at both chart edges (so a clipped-in trajectory
+  // entering from off-screen still fits the y-bounds).
   let yMin: number;
   let yMax: number;
   if (prefs.snapToGoalRange) {
     yMin = latestMa - 5;
     yMax = latestMa + 5;
   } else {
-    const candidates: number[] = [latestMa, startKg];
+    const candidates: number[] = [latestMa];
     if (targetKg !== null) candidates.push(targetKg);
-    for (const p of history) candidates.push(p.entry.kg);
+    const tyStart = trajectoryY(startDate);
+    const tyEnd = trajectoryY(endDate);
+    if (tyStart !== null) candidates.push(tyStart);
+    if (tyEnd !== null) candidates.push(tyEnd);
+    for (const p of visiblePoints) candidates.push(p.entry.kg);
     yMin = Math.min(...candidates) - 2;
     yMax = Math.max(...candidates) + 1;
   }
@@ -135,18 +198,20 @@ export function WeightChart({ history, prefs, width, height }: Props) {
   const yTickValues = computeYTicks(yMin, yMax, 4);
 
   // ── Path strings ─────────────────────────────────────────────────
-  const maPath = history
+  const maPath = visiblePoints
     .map(
       (p, i) =>
         `${i === 0 ? 'M' : 'L'}${sx(p.entry.at).toFixed(1)},${sy(p.ma).toFixed(1)}`,
     )
     .join(' ');
 
-  // Projected MA: from today's MA (which is `latestMa`, anchored at the
-  // last entry's date) toward (endDate, targetKg). Skip when no target.
+  // Projected MA: from today's MA toward (targetDate, targetKg). Visible
+  // when the chart's right edge extends to the target — which is true in
+  // both goal mode and window mode (we now always extend to targetDate
+  // when one exists in the future).
   const projectedPath =
-    targetKg !== null
-      ? `M${sx(lastEntry.entry.at).toFixed(1)},${sy(latestMa).toFixed(1)} L${sx(endDate).toFixed(1)},${sy(targetKg).toFixed(1)}`
+    targetKg !== null && targetDate !== null
+      ? `M${sx(lastEntry.entry.at).toFixed(1)},${sy(latestMa).toFixed(1)} L${sx(targetDate).toFixed(1)},${sy(targetKg).toFixed(1)}`
       : null;
 
   // ── Render ───────────────────────────────────────────────────────
@@ -156,7 +221,7 @@ export function WeightChart({ history, prefs, width, height }: Props) {
         {/* Top legend */}
         <G transform={`translate(${PAD_L}, 14)`}>
           <LegendEntry x={0} swatchColor={tokens.ink} label="actual μ" dashed={false} />
-          {prefs.showOptimal && (
+          {prefs.showOptimal && targetKg !== null && (
             <LegendEntry
               x={70}
               swatchColor={tokens.accentInk}
@@ -168,7 +233,7 @@ export function WeightChart({ history, prefs, width, height }: Props) {
             <LegendEntry
               x={130}
               swatchColor={tokens.warn}
-              label={`goal ${Math.round(targetKg)}`}
+              label={`goal ${targetKg.toFixed(1)}`}
               dashed
               thin
             />
@@ -253,19 +318,26 @@ export function WeightChart({ history, prefs, width, height }: Props) {
           </G>
         ))}
 
-        {/* Optimal line (start → goal) — only when goal + toggle on */}
-        {prefs.showOptimal && targetKg !== null && (
-          <Line
-            x1={sx(startDate)}
-            y1={sy(startKg)}
-            x2={sx(endDate)}
-            y2={sy(targetKg)}
-            stroke={tokens.accentInk}
-            strokeWidth={1.2}
-            strokeDasharray="3 2.5"
-            opacity={0.85}
-          />
-        )}
+        {/* Optimal line — anchor → target evaluated at the chart edges so it
+            clips cleanly into a window-mode view where the anchor sits
+            before startDate. */}
+        {prefs.showOptimal && targetKg !== null && targetDate !== null && (() => {
+          const tyStart = trajectoryY(startDate);
+          const tyEnd = trajectoryY(endDate);
+          if (tyStart === null || tyEnd === null) return null;
+          return (
+            <Line
+              x1={sx(startDate)}
+              y1={sy(tyStart)}
+              x2={sx(endDate)}
+              y2={sy(tyEnd)}
+              stroke={tokens.accentInk}
+              strokeWidth={1.2}
+              strokeDasharray="3 2.5"
+              opacity={0.85}
+            />
+          );
+        })()}
 
         {/* Goal horizontal target line */}
         {targetKg !== null && (
@@ -287,7 +359,7 @@ export function WeightChart({ history, prefs, width, height }: Props) {
               fontFamily={fonts.mono}
               fill={tokens.warn}
               textAnchor="end">
-              {`goal ${Math.round(targetKg)}`}
+              {`goal ${targetKg.toFixed(1)}`}
             </SvgText>
           </>
         )}
@@ -317,7 +389,7 @@ export function WeightChart({ history, prefs, width, height }: Props) {
         )}
 
         {/* Daily reading circles */}
-        {history.map((p, i) => (
+        {visiblePoints.map((p, i) => (
           <Circle
             key={i}
             cx={sx(p.entry.at)}

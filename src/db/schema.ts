@@ -138,10 +138,7 @@ export const weightEntries = sqliteTable(
     id: id(),
     at: integer('at', { mode: 'timestamp_ms' }).notNull(),
     kg: real('kg').notNull(),
-    source: text('source', { enum: ['healthkit', 'manual', 'scale'] })
-      .notNull()
-      .default('manual'),
-    /** HealthKit sample UUID — set when source='healthkit', null otherwise. */
+    /** HealthKit sample UUID — non-null when this row mirrors an HK sample. */
     healthkitUuid: text('healthkit_uuid'),
     createdAt: createdAt(),
   },
@@ -238,6 +235,13 @@ export const weightPreferences = sqliteTable('weight_preferences', {
    * entry's weight as the implicit start.
    */
   startKg: real('start_kg'),
+  /**
+   * The date the user committed to this goal. Drives the optimal-trajectory
+   * anchor — distinct from the first-weigh-in date because the user may
+   * have been logging long before setting a goal. Null when no goal exists;
+   * stamped to today when the user first sets a target.
+   */
+  startDate: integer('start_date', { mode: 'timestamp_ms' }),
   /** Target weight. Null = no active goal (display falls back to maintain). */
   targetKg: real('target_kg'),
   /** Goal date (timestamp). Null = no active goal. */
