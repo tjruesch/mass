@@ -25,7 +25,6 @@ import {
   PlanDayDrawer,
   SubHeader,
   TabBar,
-  WorkoutTypeEditorDrawer,
   type PlanDayPatch,
 } from '@/components/design';
 import { WorkoutGlyph, toneColor } from '@/components/design/plan-day-drawer';
@@ -80,9 +79,6 @@ export default function WorkoutsSettingsScreen() {
   const lastSyncAt = useLastWorkoutSyncAt();
 
   const [planKey, setPlanKey] = useState<WeekdayKey | null>(null);
-  const [typeEditor, setTypeEditor] = useState<
-    { mode: 'create' } | { mode: 'edit'; type: WorkoutTypeDef } | null
-  >(null);
 
   if (!prefs) return <View style={{ flex: 1, backgroundColor: tokens.bg }} />;
 
@@ -174,7 +170,7 @@ export default function WorkoutsSettingsScreen() {
             {types.map((t, i) => (
               <Pressable
                 key={t.key}
-                onPress={() => setTypeEditor({ mode: 'edit', type: t })}
+                onPress={() => router.push(`/workout-type/${t.id}` as never)}
                 accessibilityRole="button"
                 accessibilityLabel={`Edit ${t.label}`}
                 style={({ pressed }) => [
@@ -205,7 +201,7 @@ export default function WorkoutsSettingsScreen() {
             ))}
           </View>
           <Pressable
-            onPress={() => setTypeEditor({ mode: 'create' })}
+            onPress={() => router.push('/workout-type/new' as never)}
             style={({ pressed }) => [
               styles.newTypeBtn,
               pressed && { opacity: 0.55 },
@@ -308,12 +304,6 @@ export default function WorkoutsSettingsScreen() {
         onCommit={(patch) => {
           if (planKey) onCommitPlan(planKey, patch);
         }}
-      />
-
-      <WorkoutTypeEditorDrawer
-        open={typeEditor !== null}
-        onClose={() => setTypeEditor(null)}
-        type={typeEditor?.mode === 'edit' ? typeEditor.type : null}
       />
     </View>
   );

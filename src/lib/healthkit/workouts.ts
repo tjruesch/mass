@@ -32,10 +32,7 @@ import {
   type WorkoutTypeDef,
 } from '@/src/db/queries/workout-types';
 import type { WorkoutEntry } from '@/src/db/schema';
-import {
-  WorkoutActivityKey,
-  type WorkoutActivityKeyName,
-} from '@/src/lib/workouts/types';
+import { hkActivityKeyForValue, hkActivityValueForKey } from '@/src/lib/workouts/types';
 
 import { getHkAuthState, type HkPermissionRequest } from './auth';
 import { syncWorkoutType, type SyncQuantityResult } from './sync';
@@ -57,16 +54,11 @@ export const WORKOUT_PERMISSIONS: HkPermissionRequest = {
  */
 const INITIAL_PULL_YEARS_BACK = 2;
 
-/**
- * Inverse of `WorkoutActivityKey`: numeric HK enum value → string key.
- * Built once at module load.
- */
-const HK_KEY_BY_VALUE: Record<number, string> = Object.fromEntries(
-  Object.entries(WorkoutActivityKey).map(([k, v]) => [v as number, k]),
-);
-
 function hkKeyFromActivity(activityType: WorkoutActivityType): string {
-  return HK_KEY_BY_VALUE[activityType as unknown as number] ?? `activity_${activityType}`;
+  return (
+    hkActivityKeyForValue(activityType as unknown as number) ??
+    `activity_${activityType}`
+  );
 }
 
 /**
@@ -164,9 +156,8 @@ export async function logWorkout(opts: {
   for (let i = 0; i < typeDef.steps.length; i++) {
     const step = typeDef.steps[i];
     const [stepStart, stepEnd] = stepStartEnds[i];
-    const activityValue =
-      WorkoutActivityKey[step.hkActivityKey as WorkoutActivityKeyName];
-    if (activityValue === undefined) {
+    const activityValue = hkActivityValueForKey(step.hkActivityKey);
+    if (activityValue === null) {
       console.warn(
         `Skipping HK push for unknown activity key: ${step.hkActivityKey}`,
       );

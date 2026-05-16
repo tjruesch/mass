@@ -16,7 +16,7 @@
  *     "unlinked / raw" rendering path.
  */
 
-import type { WorkoutActivityType } from '@kingstinct/react-native-healthkit';
+import { WorkoutActivityType } from '@kingstinct/react-native-healthkit';
 
 /** Type-key alias. After #82 a key is any string (no compile-time enum). */
 export type WorkoutTypeId = string;
@@ -24,21 +24,35 @@ export type WorkoutTypeId = string;
 export type WorkoutTypeTone = 'ink' | 'cool' | 'accent' | 'mute';
 
 /**
- * Subset of the HK enum keys we read / write. Extend as new step
- * activities arrive in the seeded library or user-defined types.
+ * Full HKWorkoutActivityType enum re-exported as a numeric map keyed by
+ * the activity name. The kingstinct package generates this as a TS
+ * numeric enum, so it already has bidirectional mappings — we just
+ * read it directly instead of maintaining a hand-curated subset.
  */
-export const WorkoutActivityKey = {
-  functionalStrengthTraining: 20,
-  traditionalStrengthTraining: 50,
-  tennis: 48,
-  walking: 52,
-  running: 37,
-  cycling: 13,
-} as const satisfies Record<string, WorkoutActivityType>;
+export { WorkoutActivityType };
 
-export type WorkoutActivityKeyName = keyof typeof WorkoutActivityKey;
+/**
+ * All HK activity *string* keys we know about — the values in
+ * WorkoutActivityType excluding the reverse-mapping number → name
+ * entries. Used by the editor's activity picker.
+ */
+export const HK_ACTIVITY_KEYS: ReadonlyArray<string> = Object.keys(
+  WorkoutActivityType,
+).filter((k) => Number.isNaN(Number(k))).sort();
 
-/** Best-guess display label for an HK activity that didn't link to a type. */
+/** Convert a numeric HK activity value back to its string key. */
+export function hkActivityKeyForValue(value: number): string | null {
+  const k = (WorkoutActivityType as unknown as Record<number, string>)[value];
+  return typeof k === 'string' ? k : null;
+}
+
+/** Convert a string key to its numeric value (for HK writes). */
+export function hkActivityValueForKey(key: string): number | null {
+  const v = (WorkoutActivityType as unknown as Record<string, number>)[key];
+  return typeof v === 'number' ? v : null;
+}
+
+/** Best-guess display label for an HK activity key. */
 export function fallbackLabelForHkActivity(hkActivityKey: string): string {
   // Lowercase first letter, split camelCase to spaces, capitalize first.
   // e.g. functionalStrengthTraining → "Functional strength training"

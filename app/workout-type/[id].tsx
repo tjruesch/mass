@@ -1,27 +1,31 @@
 /**
- * Drawer for creating + editing a custom workout type (#72).
+ * Workout type editor — full page (#72, post-drawer).
+ *
+ * Route: /workout-type/new (create) or /workout-type/<numeric id> (edit).
+ *
+ * Replaces the drawer-based editor. The drawer ran out of room once the
+ * step-builder + HK activity picker needed search + scroll; nesting a
+ * second react-native `Modal` for the picker also caused iOS touch
+ * events to drop on the upper layer. A full page sidesteps both:
+ *   - one navigation stack frame, no nested modal at all
+ *   - room for the long HK activity list with a search field
+ *   - back gesture / hardware back behaves naturally
  *
  * Sections:
- *   1. name     — free text, drives the auto-derived key below it
- *   2. key      — kebab-case identifier, auto unless touched
- *   3. tone     — 4 tone chips (ink / cool / accent / mute)
- *   4. icon     — 4 icon tiles matching the WorkoutGlyph set
- *   5. steps    — repeating rows: duration stepper + HK activity pick +
- *                 up/down/delete buttons; "+ add step" row at the bottom
- *   6. delete   — destructive, edit mode only, custom types only
- *
- * Save commits a single transaction via the workout-types queries:
- * `createWorkoutType` for new, `updateWorkoutType` + `replaceWorkoutTypeSteps`
- * for edits. The editor uses replace-on-save rather than diff-apply.
- *
- * Built-in types route to a read-only mode (the parent gates this — the
- * lock badge + chevron behavior live in `/workouts-settings`).
+ *   1. name + auto-derived kebab key (override-able, uniqueness checked)
+ *   2. tone — 4 chips with color swatches
+ *   3. icon — 4 tiles
+ *   4. steps — repeating rows; tap activity opens an inline picker
+ *              with a search input above the chip grid
+ *   5. delete — destructive at the bottom (edit mode only)
  */
 
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -29,27 +33,24 @@ import {
 } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 
+import { Glyph, SubHeader } from '@/components/design';
+import { WorkoutGlyph, toneColor } from '@/components/design/plan-day-drawer';
 import {
   createWorkoutType,
   deleteWorkoutType,
   replaceWorkoutTypeSteps,
   slugifyKey,
-  totalPlannedMinutes,
   updateWorkoutType,
   type WorkoutStepInput,
   type WorkoutTypeDef,
 } from '@/src/db/queries/workout-types';
 import { useWorkoutTypes } from '@/src/hooks/use-workout-types';
 import {
-  WorkoutActivityKey,
+  HK_ACTIVITY_KEYS,
+  fallbackLabelForHkActivity,
   type WorkoutTypeTone,
 } from '@/src/lib/workouts/types';
 import { fonts, textStyles, tokens } from '@/theme/tokens';
-
-import { Drawer, DrawerSection } from './drawer';
-import { Glyph } from './glyph';
-import { PrimaryButton } from './primary-button';
-import { WorkoutGlyph, toneColor } from './plan-day-drawer';
 
 const TONES: ReadonlyArray<{ value: WorkoutTypeTone; label: string }> = [
   { value: 'ink', label: 'Default' },
@@ -65,10 +66,6 @@ const ICONS: ReadonlyArray<{ value: 'lift' | 'tennis' | 'walk' | 'rest'; label: 
   { value: 'rest', label: 'Calm' },
 ];
 
-const HK_ACTIVITY_KEYS = Object.keys(WorkoutActivityKey) as ReadonlyArray<
-  keyof typeof WorkoutActivityKey
->;
-
 const DURATION_STEP = 5;
 const DURATION_MIN = 5;
 const DURATION_MAX = 180;
@@ -82,22 +79,18 @@ type StepDraft = {
   hkActivityKey: string;
 };
 
-type Props = {
-  open: boolean;
-  onClose: () => void;
-  /** When set, drawer enters edit mode pre-filled from this type. */
-  type?: WorkoutTypeDef | null;
-};
-
-export function WorkoutTypeEditorDrawer({ open, onClose, type }: Props) {
+export default function WorkoutTypeEditorScreen() {
+  const router = useRouter();
+  const { id } = useLocalSearchParams<{ id: string }>();
   const types = useWorkoutTypes();
-  const mode: 'create' | 'edit' = type ? 'edit' : 'create';
-  // `is_builtin` survives as metadata for the seeder (so it doesn't
-  // overwrite user-customized starter types on next boot), but it no
-  // longer gates the editor. Originally we blocked editing entirely;
-  // that broke the "5 starters you can tweak" expectation on a fresh
-  // install — there were no editable types until you'd built one from
-  // scratch.
+
+  const numericId = id && id !== 'new' ? Number(id) : null;
+  const isCreate = id === 'new';
+  const type: WorkoutTypeDef | null = useMemo(() => {
+    if (numericId === null) return null;
+    return types.find((t) => t.id === numericId) ?? null;
+  }, [types, numericId]);
+  const mode: 'create' | 'edit' = isCreate ? 'create' : 'edit';
 
   const [name, setName] = useState('');
   const [key, setKey] = useState('');
@@ -106,27 +99,16 @@ export function WorkoutTypeEditorDrawer({ open, onClose, type }: Props) {
   const [icon, setIcon] = useState<'lift' | 'tennis' | 'walk' | 'rest'>('lift');
   const [steps, setSteps] = useState<StepDraft[]>([]);
   const [saving, setSaving] = useState(false);
-  const [activityPickerStepId, setActivityPickerStepId] = useState<string | null>(null);
+  const [pickerStepId, setPickerStepId] = useState<string | null>(null);
+  const [pickerSearch, setPickerSearch] = useState('');
+  /** Tracks whether we've hydrated from the loaded type yet (edit only). */
+  const [hydrated, setHydrated] = useState(false);
 
-  // Reset every time the drawer opens for a (possibly different) type.
+  // Initial seed: create-mode is immediate; edit-mode waits for the live
+  // types query to resolve before populating fields.
   useEffect(() => {
-    if (!open) return;
-    setSaving(false);
-    setActivityPickerStepId(null);
-    if (type) {
-      setName(type.label);
-      setKey(type.key);
-      setKeyTouched(true);
-      setTone(type.tone);
-      setIcon(type.icon);
-      setSteps(
-        type.steps.map((s, i) => ({
-          tempId: `s-${i}-${s.position}`,
-          durationMin: s.durationMin,
-          hkActivityKey: s.hkActivityKey,
-        })),
-      );
-    } else {
+    if (isCreate) {
+      if (hydrated) return;
       setName('');
       setKey('');
       setKeyTouched(false);
@@ -139,8 +121,24 @@ export function WorkoutTypeEditorDrawer({ open, onClose, type }: Props) {
           hkActivityKey: 'functionalStrengthTraining',
         },
       ]);
+      setHydrated(true);
+      return;
     }
-  }, [open, type?.id]);
+    if (!type || hydrated) return;
+    setName(type.label);
+    setKey(type.key);
+    setKeyTouched(true);
+    setTone(type.tone);
+    setIcon(type.icon);
+    setSteps(
+      type.steps.map((s, i) => ({
+        tempId: `s-${i}-${s.position}`,
+        durationMin: s.durationMin,
+        hkActivityKey: s.hkActivityKey,
+      })),
+    );
+    setHydrated(true);
+  }, [isCreate, type, hydrated]);
 
   // Auto-derive key from name until the user edits the key field.
   useEffect(() => {
@@ -166,14 +164,14 @@ export function WorkoutTypeEditorDrawer({ open, onClose, type }: Props) {
 
   // ─── Step editing ────────────────────────────────────────────────────────
 
-  const updateStep = (id: string, patch: Partial<StepDraft>) =>
+  const updateStep = (stepId: string, patch: Partial<StepDraft>) =>
     setSteps((prev) =>
-      prev.map((s) => (s.tempId === id ? { ...s, ...patch } : s)),
+      prev.map((s) => (s.tempId === stepId ? { ...s, ...patch } : s)),
     );
 
-  const moveStep = (id: string, dir: -1 | 1) =>
+  const moveStep = (stepId: string, dir: -1 | 1) =>
     setSteps((prev) => {
-      const idx = prev.findIndex((s) => s.tempId === id);
+      const idx = prev.findIndex((s) => s.tempId === stepId);
       if (idx < 0) return prev;
       const next = idx + dir;
       if (next < 0 || next >= prev.length) return prev;
@@ -182,8 +180,10 @@ export function WorkoutTypeEditorDrawer({ open, onClose, type }: Props) {
       return copy;
     });
 
-  const deleteStep = (id: string) =>
-    setSteps((prev) => (prev.length <= 1 ? prev : prev.filter((s) => s.tempId !== id)));
+  const deleteStep = (stepId: string) =>
+    setSteps((prev) =>
+      prev.length <= 1 ? prev : prev.filter((s) => s.tempId !== stepId),
+    );
 
   const addStep = () =>
     setSteps((prev) => [
@@ -195,6 +195,17 @@ export function WorkoutTypeEditorDrawer({ open, onClose, type }: Props) {
       },
     ]);
 
+  const togglePicker = (stepId: string) => {
+    setPickerStepId((cur) => (cur === stepId ? null : stepId));
+    setPickerSearch('');
+  };
+
+  const onSelectActivity = (stepId: string, activityKey: string) => {
+    updateStep(stepId, { hkActivityKey: activityKey });
+    setPickerStepId(null);
+    setPickerSearch('');
+  };
+
   // ─── Save / Delete ───────────────────────────────────────────────────────
 
   const handleSave = useCallback(() => {
@@ -203,8 +214,6 @@ export function WorkoutTypeEditorDrawer({ open, onClose, type }: Props) {
     const stepInputs: ReadonlyArray<WorkoutStepInput> = steps.map((s) => ({
       durationMin: s.durationMin,
       hkActivityKey: s.hkActivityKey,
-      // v1: candidate keys = [primary]. Broader matching arrives when
-      // the editor gets a multi-select chip row (follow-up).
       hkCandidateKeys: [s.hkActivityKey],
     }));
 
@@ -228,7 +237,7 @@ export function WorkoutTypeEditorDrawer({ open, onClose, type }: Props) {
           });
 
     op
-      .then(() => onClose())
+      .then(() => router.back())
       .catch((err) => {
         Alert.alert(
           type ? 'Could not save type' : 'Could not create type',
@@ -236,7 +245,7 @@ export function WorkoutTypeEditorDrawer({ open, onClose, type }: Props) {
         );
         setSaving(false);
       });
-  }, [valid, saving, type, trimmedKey, trimmedName, tone, icon, steps, onClose]);
+  }, [valid, saving, type, trimmedKey, trimmedName, tone, icon, steps, router]);
 
   const handleDelete = useCallback(() => {
     if (!type || saving) return;
@@ -251,7 +260,7 @@ export function WorkoutTypeEditorDrawer({ open, onClose, type }: Props) {
           onPress: () => {
             setSaving(true);
             deleteWorkoutType(type.id)
-              .then(() => onClose())
+              .then(() => router.back())
               .catch((err) => {
                 Alert.alert(
                   'Could not delete',
@@ -263,31 +272,54 @@ export function WorkoutTypeEditorDrawer({ open, onClose, type }: Props) {
         },
       ],
     );
-  }, [type, saving, onClose]);
+  }, [type, saving, router]);
+
+  // Edit mode but the type hasn't loaded yet — show a blank canvas.
+  if (mode === 'edit' && !type) {
+    return <View style={{ flex: 1, backgroundColor: tokens.bg }} />;
+  }
+
+  // Filter HK activity list by lowercase substring across keys + humanized.
+  const filteredActivities = useMemo(() => {
+    const q = pickerSearch.trim().toLowerCase();
+    if (q === '') return HK_ACTIVITY_KEYS;
+    return HK_ACTIVITY_KEYS.filter(
+      (k) =>
+        k.toLowerCase().includes(q) ||
+        fallbackLabelForHkActivity(k).toLowerCase().includes(q),
+    );
+  }, [pickerSearch]);
 
   return (
-    <Drawer
-        open={open}
-        onClose={onClose}
-        kicker={mode === 'edit' ? 'WORKOUT TYPE · EDIT' : 'WORKOUT TYPE · NEW'}
-        title={mode === 'edit' ? 'Edit type' : 'New type'}
-        cta={
-          <PrimaryButton
-            label={
-              saving
-                ? 'saving…'
-                : valid
-                ? `save · ${totalMin}m total`
-                : keyConflict
-                ? 'key already taken'
-                : 'fill name + at least one step'
-            }
-            onPress={handleSave}
-            disabled={!valid || saving}
-          />
-        }>
+    <View style={{ flex: 1, backgroundColor: tokens.bg }}>
+      <ScrollView
+        contentContainerStyle={styles.scroll}
+        keyboardShouldPersistTaps="handled">
+        <SubHeader
+          title={mode === 'edit' ? 'Edit type' : 'New type'}
+          back="Settings"
+          onBack={() => router.back()}
+          trailing={
+            <Pressable
+              onPress={handleSave}
+              disabled={!valid || saving}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel="Save type"
+              style={({ pressed }) => [
+                styles.saveBtn,
+                (!valid || saving) && { opacity: 0.35 },
+                pressed && valid && !saving && { opacity: 0.7 },
+              ]}>
+              <Text style={[styles.saveBtnText, textStyles.cap]}>
+                {saving ? 'saving' : 'save'}
+              </Text>
+            </Pressable>
+          }
+        />
+
         {/* NAME + KEY */}
-        <DrawerSection label="name" marginTop={8}>
+        <Section label="name" marginTop={12}>
           <View style={styles.textRow}>
             <TextInput
               value={name}
@@ -297,9 +329,9 @@ export function WorkoutTypeEditorDrawer({ open, onClose, type }: Props) {
               style={styles.textInput}
             />
           </View>
-        </DrawerSection>
+        </Section>
 
-        <DrawerSection label="key" sub="kebab-case · unique">
+        <Section label="key" sub="kebab-case · unique">
           <View style={styles.textRow}>
             <TextInput
               value={key}
@@ -319,10 +351,10 @@ export function WorkoutTypeEditorDrawer({ open, onClose, type }: Props) {
               key already in use by another type
             </Text>
           )}
-        </DrawerSection>
+        </Section>
 
         {/* TONE */}
-        <DrawerSection label="tone">
+        <Section label="tone">
           <View style={styles.chipRow}>
             {TONES.map((t) => {
               const active = tone === t.value;
@@ -352,10 +384,10 @@ export function WorkoutTypeEditorDrawer({ open, onClose, type }: Props) {
               );
             })}
           </View>
-        </DrawerSection>
+        </Section>
 
         {/* ICON */}
-        <DrawerSection label="icon">
+        <Section label="icon">
           <View style={styles.iconGrid}>
             {ICONS.map((i) => {
               const active = icon === i.value;
@@ -384,12 +416,10 @@ export function WorkoutTypeEditorDrawer({ open, onClose, type }: Props) {
               );
             })}
           </View>
-        </DrawerSection>
+        </Section>
 
         {/* STEPS */}
-        <DrawerSection
-          label="steps"
-          sub={`${steps.length} · ${totalMin}m total`}>
+        <Section label="steps" sub={`${steps.length} · ${totalMin}m total`}>
           <View style={styles.stepList}>
             {steps.map((s, idx) => (
               <StepRow
@@ -397,18 +427,15 @@ export function WorkoutTypeEditorDrawer({ open, onClose, type }: Props) {
                 index={idx}
                 total={steps.length}
                 step={s}
-                disabled={false}
-                pickerOpen={activityPickerStepId === s.tempId}
-                onChangeDuration={(d) => updateStep(s.tempId, { durationMin: d })}
-                onPickActivity={() =>
-                  setActivityPickerStepId(
-                    activityPickerStepId === s.tempId ? null : s.tempId,
-                  )
+                pickerOpen={pickerStepId === s.tempId}
+                searchValue={pickerStepId === s.tempId ? pickerSearch : ''}
+                filteredActivities={
+                  pickerStepId === s.tempId ? filteredActivities : []
                 }
-                onSelectActivity={(key) => {
-                  updateStep(s.tempId, { hkActivityKey: key });
-                  setActivityPickerStepId(null);
-                }}
+                onChangeDuration={(d) => updateStep(s.tempId, { durationMin: d })}
+                onTogglePicker={() => togglePicker(s.tempId)}
+                onSearchChange={setPickerSearch}
+                onSelectActivity={(key) => onSelectActivity(s.tempId, key)}
                 onMoveUp={() => moveStep(s.tempId, -1)}
                 onMoveDown={() => moveStep(s.tempId, 1)}
                 onDelete={() => deleteStep(s.tempId)}
@@ -424,7 +451,7 @@ export function WorkoutTypeEditorDrawer({ open, onClose, type }: Props) {
             <Glyph name="plus" color={tokens.ink3} size={10} />
             <Text style={[styles.addStepText, textStyles.cap]}>add step</Text>
           </Pressable>
-        </DrawerSection>
+        </Section>
 
         {mode === 'edit' && (
           <Pressable
@@ -440,22 +467,63 @@ export function WorkoutTypeEditorDrawer({ open, onClose, type }: Props) {
           </Pressable>
         )}
 
-        <View style={{ height: 12 }} />
-      </Drawer>
+        {!valid && (
+          <Text style={styles.bottomHint}>
+            {keyConflict
+              ? 'pick another key to save'
+              : 'name + at least one step required'}
+          </Text>
+        )}
+
+        <View style={{ height: 36 }} />
+      </ScrollView>
+    </View>
   );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// StepRow — one row in the step builder.
+// Section — local helper, copied from plan-day-drawer's pattern.
+// ─────────────────────────────────────────────────────────────────────────────
+function Section({
+  label,
+  sub,
+  marginTop = 18,
+  children,
+}: {
+  label: string;
+  sub?: string;
+  marginTop?: number;
+  children: React.ReactNode;
+}) {
+  return (
+    <View style={{ paddingHorizontal: 22, marginTop }}>
+      <View style={styles.sectionHeader}>
+        <Text style={[styles.sectionLabel, textStyles.cap]}>{label}</Text>
+        {sub && (
+          <Text style={styles.sectionSub} numberOfLines={1}>
+            {sub}
+          </Text>
+        )}
+      </View>
+      {children}
+    </View>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// StepRow — duration controls + activity chip; inline picker expands below
+// with a search input and the full HK activity catalog.
 // ─────────────────────────────────────────────────────────────────────────────
 function StepRow({
   index,
   total,
   step,
-  disabled,
   pickerOpen,
+  searchValue,
+  filteredActivities,
   onChangeDuration,
-  onPickActivity,
+  onTogglePicker,
+  onSearchChange,
   onSelectActivity,
   onMoveUp,
   onMoveDown,
@@ -464,13 +532,12 @@ function StepRow({
   index: number;
   total: number;
   step: StepDraft;
-  disabled: boolean;
-  /** True when this row's inline activity picker is expanded. */
   pickerOpen: boolean;
+  searchValue: string;
+  filteredActivities: ReadonlyArray<string>;
   onChangeDuration: (d: number) => void;
-  /** Tap on the activity chip — parent toggles the inline expansion. */
-  onPickActivity: () => void;
-  /** Tap on an activity inside the inline picker. */
+  onTogglePicker: () => void;
+  onSearchChange: (s: string) => void;
   onSelectActivity: (key: string) => void;
   onMoveUp: () => void;
   onMoveDown: () => void;
@@ -486,28 +553,32 @@ function StepRow({
         <Text style={[styles.stepIdx, textStyles.tnum]}>{index + 1}</Text>
         <View style={styles.stepBody}>
           <Pressable
-            onPress={onPickActivity}
-            disabled={disabled}
+            onPress={onTogglePicker}
             accessibilityRole="button"
             accessibilityLabel={`Pick activity for step ${index + 1}`}
             style={({ pressed }) => [
               styles.activityBtn,
               pickerOpen && styles.activityBtnOpen,
-              pressed && !disabled && { opacity: 0.7 },
+              pressed && { opacity: 0.7 },
             ]}>
-            <Text numberOfLines={1} style={styles.activityLabel}>
-              {humanizeActivity(step.hkActivityKey)}
+            <Text
+              numberOfLines={1}
+              style={[
+                styles.activityLabel,
+                pickerOpen && { color: tokens.bg },
+              ]}>
+              {fallbackLabelForHkActivity(step.hkActivityKey).toLowerCase()}
             </Text>
-            <Glyph name="chev" color={tokens.ink3} />
+            <Glyph name="chev" color={pickerOpen ? tokens.bg : tokens.ink3} />
           </Pressable>
           <View style={styles.durRow}>
             <Pressable
               onPress={decrement}
-              disabled={disabled || step.durationMin <= DURATION_MIN}
+              disabled={step.durationMin <= DURATION_MIN}
               hitSlop={4}
               style={({ pressed }) => [
                 styles.durStepBtn,
-                (disabled || step.durationMin <= DURATION_MIN) && { opacity: 0.35 },
+                step.durationMin <= DURATION_MIN && { opacity: 0.35 },
                 pressed && { opacity: 0.6 },
               ]}>
               <Text style={styles.durStepLabel}>−</Text>
@@ -517,11 +588,11 @@ function StepRow({
             </Text>
             <Pressable
               onPress={increment}
-              disabled={disabled || step.durationMin >= DURATION_MAX}
+              disabled={step.durationMin >= DURATION_MAX}
               hitSlop={4}
               style={({ pressed }) => [
                 styles.durStepBtn,
-                (disabled || step.durationMin >= DURATION_MAX) && { opacity: 0.35 },
+                step.durationMin >= DURATION_MAX && { opacity: 0.35 },
                 pressed && { opacity: 0.6 },
               ]}>
               <Text style={styles.durStepLabel}>+</Text>
@@ -531,21 +602,21 @@ function StepRow({
         <View style={styles.stepCtrls}>
           <ArrowBtn
             dir="up"
-            disabled={disabled || index === 0}
+            disabled={index === 0}
             onPress={onMoveUp}
           />
           <ArrowBtn
             dir="down"
-            disabled={disabled || index === total - 1}
+            disabled={index === total - 1}
             onPress={onMoveDown}
           />
           <Pressable
             onPress={onDelete}
-            disabled={disabled || total <= 1}
+            disabled={total <= 1}
             hitSlop={4}
             style={({ pressed }) => [
               styles.delBtn,
-              (disabled || total <= 1) && { opacity: 0.35 },
+              total <= 1 && { opacity: 0.35 },
               pressed && { opacity: 0.6 },
             ]}>
             <Svg width={10} height={10} viewBox="0 0 12 12">
@@ -560,33 +631,47 @@ function StepRow({
         </View>
       </View>
 
-      {/* Inline activity picker — expands within this step row instead of a
-          nested modal. Nested react-native Modals on iOS swallow touches on
-          the upper layer; rendering inline keeps everything in one Modal. */}
       {pickerOpen && (
         <View style={styles.inlinePicker}>
-          {HK_ACTIVITY_KEYS.map((k) => {
-            const active = step.hkActivityKey === k;
-            return (
-              <Pressable
-                key={k}
-                onPress={() => onSelectActivity(k)}
-                style={({ pressed }) => [
-                  styles.inlinePickerChip,
-                  active && styles.inlinePickerChipActive,
-                  pressed && !active && { opacity: 0.7 },
-                ]}>
-                <Text
-                  numberOfLines={1}
-                  style={[
-                    styles.inlinePickerLabel,
-                    active && { color: tokens.bg },
-                  ]}>
-                  {humanizeActivity(k)}
-                </Text>
-              </Pressable>
-            );
-          })}
+          <View style={styles.searchRow}>
+            <TextInput
+              value={searchValue}
+              onChangeText={onSearchChange}
+              placeholder="search activity"
+              placeholderTextColor={tokens.ink4}
+              autoCapitalize="none"
+              autoCorrect={false}
+              style={styles.searchInput}
+            />
+          </View>
+          {filteredActivities.length === 0 ? (
+            <Text style={styles.searchEmpty}>no match</Text>
+          ) : (
+            <View style={styles.pickerGrid}>
+              {filteredActivities.map((k) => {
+                const active = step.hkActivityKey === k;
+                return (
+                  <Pressable
+                    key={k}
+                    onPress={() => onSelectActivity(k)}
+                    style={({ pressed }) => [
+                      styles.pickerChip,
+                      active && styles.pickerChipActive,
+                      pressed && !active && { opacity: 0.7 },
+                    ]}>
+                    <Text
+                      numberOfLines={1}
+                      style={[
+                        styles.pickerChipLabel,
+                        active && { color: tokens.bg },
+                      ]}>
+                      {fallbackLabelForHkActivity(k).toLowerCase()}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          )}
         </View>
       )}
     </View>
@@ -617,15 +702,50 @@ function ArrowBtn({
   );
 }
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
-
-function humanizeActivity(hkKey: string): string {
-  return hkKey.replace(/([A-Z])/g, ' $1').toLowerCase().trim();
-}
-
 // ─── Styles ────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
+  scroll: {
+    paddingTop: 54,
+    paddingBottom: 80,
+  },
+
+  saveBtn: {
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    backgroundColor: tokens.ink,
+  },
+  saveBtnText: {
+    fontFamily: fonts.monoSemibold,
+    fontSize: 10,
+    color: tokens.bg,
+    letterSpacing: 1.6,
+  },
+
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
+    marginBottom: 8,
+    gap: 12,
+  },
+  sectionLabel: {
+    fontFamily: fonts.mono,
+    fontSize: 9,
+    color: tokens.ink4,
+    letterSpacing: 1.98,
+  },
+  sectionSub: {
+    flex: 1,
+    fontFamily: fonts.mono,
+    fontSize: 9,
+    color: tokens.ink3,
+    fontStyle: 'italic',
+    textAlign: 'right',
+    letterSpacing: 0.36,
+  },
+
   textRow: {
     backgroundColor: tokens.card,
     borderWidth: 1,
@@ -754,37 +874,6 @@ const styles = StyleSheet.create({
     backgroundColor: tokens.ink,
     borderColor: tokens.ink,
   },
-  inlinePicker: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
-    marginTop: 10,
-    paddingTop: 10,
-    borderTopWidth: 1,
-    borderTopColor: tokens.line,
-  },
-  inlinePickerChip: {
-    flexGrow: 1,
-    flexBasis: '30%',
-    paddingVertical: 10,
-    paddingHorizontal: 8,
-    borderRadius: 8,
-    backgroundColor: tokens.bg2,
-    borderWidth: 1,
-    borderColor: tokens.line,
-    alignItems: 'center',
-  },
-  inlinePickerChipActive: {
-    backgroundColor: tokens.ink,
-    borderColor: tokens.ink,
-  },
-  inlinePickerLabel: {
-    fontFamily: fonts.mono,
-    fontSize: 11,
-    color: tokens.ink,
-    letterSpacing: 0.22,
-    textTransform: 'lowercase',
-  },
   activityLabel: {
     flex: 1,
     fontFamily: fonts.mono,
@@ -866,8 +955,66 @@ const styles = StyleSheet.create({
     letterSpacing: 1.71,
   },
 
+  // Inline picker
+  inlinePicker: {
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: tokens.line,
+  },
+  searchRow: {
+    backgroundColor: tokens.bg2,
+    borderWidth: 1,
+    borderColor: tokens.line,
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    marginBottom: 8,
+  },
+  searchInput: {
+    fontFamily: fonts.mono,
+    fontSize: 12,
+    color: tokens.ink,
+    paddingVertical: 0,
+  },
+  searchEmpty: {
+    fontFamily: fonts.mono,
+    fontSize: 10,
+    color: tokens.ink4,
+    fontStyle: 'italic',
+    textAlign: 'center',
+    paddingVertical: 14,
+  },
+  pickerGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  pickerChip: {
+    flexGrow: 1,
+    flexBasis: '30%',
+    paddingVertical: 9,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+    backgroundColor: tokens.bg2,
+    borderWidth: 1,
+    borderColor: tokens.line,
+    alignItems: 'center',
+  },
+  pickerChipActive: {
+    backgroundColor: tokens.ink,
+    borderColor: tokens.ink,
+  },
+  pickerChipLabel: {
+    fontFamily: fonts.mono,
+    fontSize: 10.5,
+    color: tokens.ink,
+    letterSpacing: 0.21,
+    textTransform: 'lowercase',
+  },
+
   deleteBtn: {
-    marginTop: 22,
+    marginTop: 28,
     alignSelf: 'center',
     paddingVertical: 10,
     paddingHorizontal: 20,
@@ -878,5 +1025,13 @@ const styles = StyleSheet.create({
     color: tokens.accentInk,
     letterSpacing: 1.6,
   },
+  bottomHint: {
+    marginTop: 16,
+    fontFamily: fonts.mono,
+    fontSize: 9.5,
+    color: tokens.ink4,
+    fontStyle: 'italic',
+    textAlign: 'center',
+    letterSpacing: 0.38,
+  },
 });
-
