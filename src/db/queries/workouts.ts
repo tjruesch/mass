@@ -6,7 +6,7 @@
  * separate `source` column (lesson learned from #62).
  */
 
-import { and, desc, eq, gte, lt } from 'drizzle-orm';
+import { and, desc, eq, gte, like, lt } from 'drizzle-orm';
 
 import { db, type DbClient } from '@/src/db';
 import {
@@ -14,6 +14,7 @@ import {
   type NewWorkoutEntry,
   type WorkoutEntry,
 } from '@/src/db/schema';
+import { hkActivityKeyForValue } from '@/src/lib/workouts/types';
 
 export async function addWorkoutEntry(
   opts: {
@@ -131,4 +132,39 @@ export async function listInRange(start: Date, end: Date): Promise<WorkoutEntry[
     .from(workoutEntries)
     .where(and(gte(workoutEntries.startedAt, start), lt(workoutEntries.startedAt, end)))
     .orderBy(desc(workoutEntries.startedAt));
+}
+
+/**
+ * Rewrites legacy `activity_<N>` fallback types to their real HK enum
+ * key. Slice 4 shipped with a hand-curated 6-entry HK activity map; any
+ * pulled workout outside that set was stored as `activity_<num>` (e.g.
+ * `activity_57` for yoga). #82 expanded the catalog to the full HK enum,
+ * but those legacy rows kept their stale type — which both rendered
+ * poorly and broke linker candidate matching.
+ *
+ * Idempotent: rows whose type doesn't match the pattern are skipped.
+ * Runs once at app boot from `_layout.tsx` alongside the other seeders.
+ */
+export async function backfillLegacyActivityKeys(): Promise<number> {
+  const stale = await db
+    .select()
+    .from(workoutEntries)
+    .where(like(workoutEntries.type, 'activity_%'));
+  if (stale.length === 0) return 0;
+  let updated = 0;
+  await db.transaction(async (tx) => {
+    for (const row of stale) {
+      const m = row.type.match(/^activity_(\d+)$/);
+      if (!m) continue;
+      const num = Number.parseInt(m[1], 10);
+      const key = hkActivityKeyForValue(num);
+      if (!key) continue;
+      await tx
+        .update(workoutEntries)
+        .set({ type: key })
+        .where(eq(workoutEntries.id, row.id));
+      updated++;
+    }
+  });
+  return updated;
 }
