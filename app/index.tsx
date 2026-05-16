@@ -42,6 +42,7 @@ function greetingFor(d: Date): string {
 }
 
 import { TabBar, WindowStrip } from '@/components/design';
+import { useTodayExerciseMinutes } from '@/src/hooks/use-exercise';
 import { useFasting, type FastingState } from '@/src/hooks/use-fasting';
 import { useFastingPreferences } from '@/src/hooks/use-fasting-preferences';
 import { useWaterToday } from '@/src/hooks/use-water';
@@ -64,12 +65,16 @@ import { fonts, textStyles, tokens } from '@/theme/tokens';
 function Concentric({
   size = 138,
   h2oPct,
+  movePct,
 }: {
   size?: number;
   /** 0..1+ — middle ring (cool). Arc clamps at 1; the head puck keeps going past it. */
   h2oPct?: number;
+  /** 0..1+ — inner ring (accent). Driven by HK exercise minutes / target. */
+  movePct?: number;
 }) {
   const h2oRaw = h2oPct === undefined ? 0.617 : Math.max(0, h2oPct);
+  const moveRaw = movePct === undefined ? 0 : Math.max(0, movePct);
   const cx = size / 2;
   const cy = size / 2;
   const rings = [
@@ -80,7 +85,7 @@ function Concentric({
     // outer or inner ring size; gap simply shrinks.
     { rOff: 0, target: 0.264, c: tokens.ink, sw: 16 },
     { rOff: 24, target: h2oRaw, c: tokens.cool, sw: 16 },
-    { rOff: 48, target: 0.42, c: tokens.accentInk, sw: 16 },
+    { rOff: 48, target: moveRaw, c: tokens.accentInk, sw: 16 },
   ];
 
   return (
@@ -416,6 +421,14 @@ export default function HomeScreen() {
   const waterPctLabel = `${Math.round(waterPctValue * 100)}%`;
   const waterValueLabel = (waterToday.totalMl / 1000).toFixed(2);
   const waterTargetLabel = `of ${(waterTargetMl / 1000).toFixed(1)}`;
+
+  // Live move ring — exercise minutes from HK. Returns null while HK
+  // auth is pending; the ring + legend gracefully show 0/—.
+  const exercise = useTodayExerciseMinutes();
+  const moveValueLabel = exercise.minutes === null ? '—' : Math.round(exercise.minutes).toString();
+  const moveTargetLabel = `of ${exercise.target}`;
+  const movePctLabel =
+    exercise.minutes === null ? '—' : `${Math.round(exercise.pct * 100)}%`;
   // Dateline ticks every 60s so the displayed minute stays current. Day +
   // weekday update on the next tick after midnight, which is good enough
   // for an app you only have open in short bursts.
@@ -466,12 +479,12 @@ export default function HomeScreen() {
         {/* ── 2. Hero rings — inline, flows directly under the greeting ── */}
         <View style={styles.heroSection}>
           <View style={styles.heroBody}>
-            <Concentric size={184} h2oPct={waterPctValue} />
+            <Concentric size={184} h2oPct={waterPctValue} movePct={exercise.pct} />
             <View style={styles.heroLegendCol}>
               <Legend swatch={tokens.ink} label="kcal" value="480" target="of 1820" pct="26%" />
               <View style={styles.legendDivider} />
-              {/* Tappable legend row — only h2o is live; kcal + move come
-                  online in their own slices (meals, workouts). */}
+              {/* Tappable legend row — kcal still hardcoded (meals slice).
+                  h2o + move are live (water hook + HK exercise time). */}
               <Pressable onPress={() => router.push('/water')}>
                 {({ pressed }) => (
                   <View style={pressed && { opacity: 0.6 }}>
@@ -487,7 +500,14 @@ export default function HomeScreen() {
                 )}
               </Pressable>
               <View style={styles.legendDivider} />
-              <Legend swatch={tokens.accentInk} label="move" value="42" unit="min" target="of 100" pct="42%" />
+              <Legend
+                swatch={tokens.accentInk}
+                label="move"
+                value={moveValueLabel}
+                unit="min"
+                target={moveTargetLabel}
+                pct={movePctLabel}
+              />
             </View>
           </View>
         </View>
