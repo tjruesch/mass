@@ -16,6 +16,11 @@
  * The helper loops until a partial batch is returned (i.e. we've drained
  * the backlog), updating the in-memory cursor between batches but only
  * persisting the final anchor on success.
+ *
+ * Each batch (samples + deletes + the cursor upsert at the end of the
+ * loop) runs inside a single `db.transaction` so a 500-row pull is one
+ * fsync instead of 500. Callbacks receive the tx as a second argument
+ * and inner DB writes should route through it.
  */
 
 import { eq } from 'drizzle-orm';
@@ -28,7 +33,7 @@ import {
   type UnitForIdentifier,
 } from '@kingstinct/react-native-healthkit';
 
-import { db } from '@/src/db';
+import { db, type DbClient } from '@/src/db';
 import { hkSyncCursor } from '@/src/db/schema';
 
 export type SyncQuantityResult = {
@@ -51,15 +56,24 @@ export type SyncQuantityTypeOptions<T extends QuantityTypeIdentifier> = {
    */
   batchSize?: number;
   /**
-   * Invoked for each new or updated sample HK returns. Caller maps to a
-   * row and persists. Awaited — keep it cheap, this runs once per sample.
+   * Initial-pull lower bound. Only applied when no anchor exists yet
+   * (first sync). Anchored deltas after that always return everything
+   * HK considers new, regardless of how old. Bounds protect against a
+   * multi-thousand-sample blast on first auth grant.
    */
-  onSample: (sample: QuantitySampleTyped<T>) => Promise<void> | void;
+  since?: Date;
+  /**
+   * Invoked for each new or updated sample HK returns. Caller maps to a
+   * row and persists. The `tx` is the current batch's drizzle
+   * transaction — pass it to write functions so they route through the
+   * same write. Awaited — keep it cheap, this runs once per sample.
+   */
+  onSample: (sample: QuantitySampleTyped<T>, tx: DbClient) => Promise<void> | void;
   /**
    * Invoked for each deletion in the delta. UUID only; caller deletes the
-   * mirrored row by `healthkit_uuid`.
+   * mirrored row by `healthkit_uuid`. Same `tx` contract as `onSample`.
    */
-  onDelete: (uuid: string) => Promise<void> | void;
+  onDelete: (uuid: string, tx: DbClient) => Promise<void> | void;
   /**
    * Dry run: invoke callbacks but skip cursor advancement so a follow-up
    * real run replays the same set. Useful for on-device debugging.
@@ -97,7 +111,9 @@ async function runSync<T extends QuantityTypeIdentifier>(
     .where(eq(hkSyncCursor.type, opts.identifier))
     .limit(1);
 
-  // anchor=undefined on first run pulls all existing samples.
+  // anchor=undefined on first run pulls all existing samples — bounded
+  // by `opts.since` when provided.
+  const isFirstRun = !cursorRow[0]?.lastAnchor;
   let anchor: string | undefined = cursorRow[0]?.lastAnchor ?? undefined;
   let inserted = 0;
   let deleted = 0;
@@ -110,32 +126,41 @@ async function runSync<T extends QuantityTypeIdentifier>(
       unit: opts.unit,
       anchor,
       limit,
+      // DateFilter applied on first-run only. Anchored deltas after that
+      // don't filter by date — HK chooses what's new since the anchor.
+      filter:
+        isFirstRun && opts.since
+          ? { date: { startDate: opts.since } }
+          : undefined,
     });
 
-    for (const sample of response.samples) {
-      await opts.onSample(sample);
-      inserted++;
-    }
-    for (const del of response.deletedSamples) {
-      await opts.onDelete(del.uuid);
-      deleted++;
-    }
+    // Each batch runs in a single transaction: callbacks + the cursor
+    // upsert at the end go through the same `tx`. Drains the fsync cost.
+    await db.transaction(async (tx) => {
+      for (const sample of response.samples) {
+        await opts.onSample(sample, tx);
+        inserted++;
+      }
+      for (const del of response.deletedSamples) {
+        await opts.onDelete(del.uuid, tx);
+        deleted++;
+      }
+      if (!opts.dryRun) {
+        const now = new Date();
+        await tx
+          .insert(hkSyncCursor)
+          .values({ type: opts.identifier, lastAnchor: response.newAnchor, lastSyncedAt: now })
+          .onConflictDoUpdate({
+            target: hkSyncCursor.type,
+            set: { lastAnchor: response.newAnchor, lastSyncedAt: now },
+          });
+      }
+    });
 
     anchor = response.newAnchor;
     if (response.samples.length < limit && response.deletedSamples.length < limit) {
       break;
     }
-  }
-
-  if (!opts.dryRun && anchor !== undefined) {
-    const now = new Date();
-    await db
-      .insert(hkSyncCursor)
-      .values({ type: opts.identifier, lastAnchor: anchor, lastSyncedAt: now })
-      .onConflictDoUpdate({
-        target: hkSyncCursor.type,
-        set: { lastAnchor: anchor, lastSyncedAt: now },
-      });
   }
 
   return { inserted, deleted, skipped: false, dryRun: !!opts.dryRun };

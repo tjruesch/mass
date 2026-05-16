@@ -12,26 +12,29 @@
 
 import { and, desc, eq, gte, isNotNull } from 'drizzle-orm';
 
-import { db } from '@/src/db';
+import { db, type DbClient } from '@/src/db';
 import {
   weightEntries,
   type NewWeightEntry,
   type WeightEntry,
 } from '@/src/db/schema';
 
-export async function addWeightEntry(opts: {
-  at?: Date;
-  kg: number;
-  source?: NewWeightEntry['source'];
-  healthkitUuid?: string;
-}): Promise<WeightEntry> {
+export async function addWeightEntry(
+  opts: {
+    at?: Date;
+    kg: number;
+    source?: NewWeightEntry['source'];
+    healthkitUuid?: string;
+  },
+  client: DbClient = db,
+): Promise<WeightEntry> {
   if (!Number.isFinite(opts.kg) || opts.kg <= 0) {
     throw new Error('Weight must be a positive number.');
   }
   // HK-sourced rows dedupe on UUID. Onconflict-update keeps the row but
   // refreshes its at/kg in case HK delivered a corrected version.
   if (opts.healthkitUuid) {
-    const [row] = await db
+    const [row] = await client
       .insert(weightEntries)
       .values({
         at: opts.at ?? new Date(),
@@ -53,7 +56,7 @@ export async function addWeightEntry(opts: {
   // Manual / scale entries — straight insert. Multiple manual entries at
   // the same timestamp are allowed (the unique index only fires when
   // healthkitUuid is non-null).
-  const [row] = await db
+  const [row] = await client
     .insert(weightEntries)
     .values({
       at: opts.at ?? new Date(),
@@ -85,8 +88,11 @@ export async function deleteWeightEntry(id: number): Promise<void> {
 }
 
 /** Used by the HK pull path on `deletedSamples`. No-op if no row matches. */
-export async function deleteWeightEntryByHealthKitUuid(uuid: string): Promise<void> {
-  await db.delete(weightEntries).where(eq(weightEntries.healthkitUuid, uuid));
+export async function deleteWeightEntryByHealthKitUuid(
+  uuid: string,
+  client: DbClient = db,
+): Promise<void> {
+  await client.delete(weightEntries).where(eq(weightEntries.healthkitUuid, uuid));
 }
 
 /** Backfill the HK UUID after a successful write to HealthKit. */

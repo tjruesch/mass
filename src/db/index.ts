@@ -18,5 +18,12 @@ const expoDb = openDatabaseSync('mass.db', { enableChangeListener: true });
 export const db = drizzle(expoDb, { schema, casing: 'snake_case' });
 
 export type Db = typeof db;
+/**
+ * The transaction-scoped client drizzle hands to `db.transaction((tx) => …)`.
+ * Has the same select/insert/update/delete surface as `Db` so functions that
+ * accept `DbClient` can run inside or outside a transaction.
+ */
+export type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
+export type DbClient = Db | Tx;
 
 export { migrations, useMigrations };

@@ -34,6 +34,15 @@ import { syncQuantityType, type SyncQuantityResult } from './sync';
 const BODY_MASS = 'HKQuantityTypeIdentifierBodyMass' as const;
 
 /**
+ * First-time pull bound. HK can hold years of body-mass history; pulling
+ * all of it on the very first auth grant would be a multi-second blast on
+ * the JS thread. Two years covers anyone's recent weight journey while
+ * keeping the initial sync snappy. Anchored deltas after that aren't
+ * date-bounded — the user gets every future sample regardless.
+ */
+const INITIAL_PULL_YEARS_BACK = 2;
+
+/**
  * Permission set for body-mass read + write. Defined at module level so
  * `useHkAuthState(BODY_MASS_PERMISSIONS)` doesn't trigger a re-subscribe
  * on every render (the hook keys off identifier strings, but a stable
@@ -55,19 +64,26 @@ export async function syncWeightFromHealthKit(): Promise<SyncQuantityResult> {
     return { inserted: 0, deleted: 0, skipped: true, dryRun: false };
   }
 
+  const since = new Date();
+  since.setFullYear(since.getFullYear() - INITIAL_PULL_YEARS_BACK);
+
   return syncQuantityType({
     identifier: BODY_MASS,
     unit: 'kg',
-    onSample: async (sample) => {
-      await addWeightEntry({
-        at: sample.startDate,
-        kg: sample.quantity,
-        source: 'healthkit',
-        healthkitUuid: sample.uuid,
-      });
+    since,
+    onSample: async (sample, tx) => {
+      await addWeightEntry(
+        {
+          at: sample.startDate,
+          kg: sample.quantity,
+          source: 'healthkit',
+          healthkitUuid: sample.uuid,
+        },
+        tx,
+      );
     },
-    onDelete: async (uuid) => {
-      await deleteWeightEntryByHealthKitUuid(uuid);
+    onDelete: async (uuid, tx) => {
+      await deleteWeightEntryByHealthKitUuid(uuid, tx);
     },
   });
 }
