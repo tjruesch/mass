@@ -469,9 +469,18 @@ type HeroRingProps = {
 };
 
 function HeroRing({ size, targetHours, active, onStartFast, startDisabled, onEndFast }: HeroRingProps) {
-  const sw = 9;
-  const r = (size - sw) / 2 - 6;
+  // Stroke + puck dimensions chosen to match the home-screen rings
+  // (Concentric in app/index.tsx). Same visual weight so the fasting
+  // hero reads as part of the same ring family.
+  const sw = 16;
+  // Outer inset has to clear the ring stroke (sw/2 = 8) AND leave room
+  // for the hour ticks to sit just outside the ring without overflowing
+  // the SVG viewport. 14 puts the ring centerline at r=size/2-14 = 104
+  // for size=236, with ticks at r+12 = 116 (inside the 118 half-edge).
+  const outerInset = 14;
+  const r = size / 2 - outerInset;
   const c = 2 * Math.PI * r;
+  const puckR = sw / 2 - 1;
   const elapsedHours = active?.elapsedHours ?? 0;
   const elapsedMs = active?.elapsedMs ?? 0;
   const elapsedFrac = Math.min(1, elapsedHours / 24);
@@ -497,12 +506,15 @@ function HeroRing({ size, targetHours, active, onStartFast, startDisabled, onEnd
   return (
     <View style={{ position: 'relative', width: size, height: size }}>
       <Svg width={size} height={size}>
-        {/* hour ticks */}
+        {/* hour ticks — pushed outside the ring stroke so they read as
+            chrome around the ring, not interference with the arc. */}
         <G>
           {Array.from({ length: 24 }).map((_, i) => {
             const tickAng = (i / 24) * Math.PI * 2 - Math.PI / 2;
-            const rO = r + 9;
-            const rI = r + (i % 6 === 0 ? 3 : 5);
+            const tickOuterOffset = sw / 2 + 4;
+            const tickLen = i % 6 === 0 ? 4 : 2;
+            const rO = r + tickOuterOffset;
+            const rI = rO - tickLen;
             const x1 = size / 2 + Math.cos(tickAng) * rI;
             const y1 = size / 2 + Math.sin(tickAng) * rI;
             const x2 = size / 2 + Math.cos(tickAng) * rO;
@@ -566,21 +578,17 @@ function HeroRing({ size, targetHours, active, onStartFast, startDisabled, onEnd
                 strokeLinecap="round"
               />
             )}
-            {/* current head dot — accent fill when riding the overrun segment
-                so it reads as a single continuous motion past target. */}
+            {/* current head puck — donut style matching the home rings:
+                card-filled disc with a colored 1.5px ring. Accent ink while
+                inside target; switches to accent for the overrun segment so
+                the puck reads continuous with the recolored arc. */}
             <Circle
               cx={headX}
               cy={headY}
-              r={5}
+              r={puckR}
               fill={tokens.card}
               stroke={headInOverrun ? tokens.accent : tokens.accentInk}
-              strokeWidth={2}
-            />
-            <Circle
-              cx={headX}
-              cy={headY}
-              r={1.6}
-              fill={headInOverrun ? tokens.accent : tokens.accentInk}
+              strokeWidth={1.5}
             />
           </>
         )}
