@@ -710,7 +710,7 @@ const styles = StyleSheet.create({
   },
   recentEmptyText: {
     fontFamily: fonts.mono,
-    fontSize: 11,
+    fontSize: 13,
     color: tokens.ink4,
     fontStyle: 'italic',
     letterSpacing: 0.22,
@@ -727,7 +727,7 @@ const styles = StyleSheet.create({
   recentRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 11,
+    paddingVertical: 14,
     paddingHorizontal: 14,
     gap: 12,
   },
@@ -736,20 +736,20 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
   },
   recentDayCol: {
-    width: 60,
+    width: 70,
   },
   recentDay: {
     fontFamily: fonts.monoSemibold,
-    fontSize: 8.5,
+    fontSize: 11,
     color: tokens.ink,
-    letterSpacing: 1.53,
+    letterSpacing: 1.65,
   },
   recentDate: {
     fontFamily: fonts.mono,
-    fontSize: 8.5,
+    fontSize: 11,
     color: tokens.ink4,
     fontStyle: 'italic',
-    marginTop: 1,
+    marginTop: 2,
   },
   recentTypeCol: {
     flex: 1,
@@ -757,20 +757,20 @@ const styles = StyleSheet.create({
   },
   recentTypeLinked: {
     fontFamily: fonts.monoSemibold,
-    fontSize: 11,
+    fontSize: 14,
     color: tokens.ink,
-    letterSpacing: 0.44,
+    letterSpacing: 0.42,
   },
   recentTypeUnlinked: {
     fontFamily: fonts.mono,
-    fontSize: 10.5,
+    fontSize: 13,
     color: tokens.ink3,
     fontStyle: 'italic',
-    letterSpacing: 0.42,
+    letterSpacing: 0.4,
   },
   recentTimeSub: {
     fontFamily: fonts.mono,
-    fontSize: 8.5,
+    fontSize: 11,
     color: tokens.ink4,
     marginTop: 1,
     letterSpacing: 0.34,
@@ -780,13 +780,13 @@ const styles = StyleSheet.create({
   },
   recentMetricBig: {
     fontFamily: fonts.monoSemibold,
-    fontSize: 13,
+    fontSize: 16,
     color: tokens.ink,
   },
   recentMetricSmall: {
     fontFamily: fonts.mono,
-    fontSize: 9,
+    fontSize: 11,
     color: tokens.ink4,
-    marginTop: 1,
+    marginTop: 2,
   },
 });
