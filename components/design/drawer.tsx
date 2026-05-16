@@ -65,7 +65,8 @@ export function Drawer({ open, onClose, kicker, title, titleNode, cta, children 
       <ScrollView
         style={styles.body}
         contentContainerStyle={styles.bodyContent}
-        keyboardShouldPersistTaps="handled">
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}>
         {children}
       </ScrollView>
 

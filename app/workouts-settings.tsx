@@ -104,7 +104,7 @@ export default function WorkoutsSettingsScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: tokens.bg }}>
-      <ScrollView contentContainerStyle={styles.scroll}>
+      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         <SubHeader title="Workouts · settings" back="Workouts" onBack={() => router.back()} />
 
         {/* WEEKLY TEMPLATE */}

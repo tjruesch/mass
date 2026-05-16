@@ -425,7 +425,7 @@ export default function HomeScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: tokens.bg }}>
-      <ScrollView contentContainerStyle={styles.scroll}>
+      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         {/* ── 1. Greeting block ─────────────────────────────────── */}
         <View style={styles.greetingWrap}>
           <View style={styles.greetingTopRow}>

@@ -134,7 +134,7 @@ export default function WeightSettingsScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: tokens.bg }}>
-      <ScrollView contentContainerStyle={styles.scroll}>
+      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         <SubHeader title="Weight · settings" back="Weight" onBack={() => router.back()} />
 
         {/* GOAL */}

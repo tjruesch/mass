@@ -327,7 +327,8 @@ export default function WorkoutTypeEditorScreen() {
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="interactive"
         automaticallyAdjustKeyboardInsets
-        automaticallyAdjustsScrollIndicatorInsets>
+        automaticallyAdjustsScrollIndicatorInsets
+        showsVerticalScrollIndicator={false}>
         <SubHeader
           title={mode === 'edit' ? 'Edit type' : 'New type'}
           back="Settings"

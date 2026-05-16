@@ -42,7 +42,7 @@ export default function FastingScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: tokens.bg }}>
-      <ScrollView contentContainerStyle={styles.scroll}>
+      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         <SubHeader
           title="Fasting"
           back="Home"

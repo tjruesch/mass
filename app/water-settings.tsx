@@ -110,7 +110,7 @@ export default function WaterSettingsScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: tokens.bg }}>
-      <ScrollView contentContainerStyle={styles.scroll}>
+      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         <SubHeader title="Water · settings" back="Water" onBack={() => router.back()} />
 
         {/* DAILY TARGET */}

@@ -110,7 +110,7 @@ export default function WeightScreen() {
   // hero with placeholders.
   return (
     <View style={{ flex: 1, backgroundColor: tokens.bg }}>
-      <ScrollView contentContainerStyle={styles.scroll}>
+      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         <SubHeader
           title="Weight"
           back="Home"
