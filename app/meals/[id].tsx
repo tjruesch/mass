@@ -40,6 +40,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
+  Keyboard,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -609,6 +610,26 @@ function PantryPickerSheet({
     if (open) setSearch('');
   }, [open]);
 
+  // Lift the sheet above the keyboard so the search field's results stay
+  // visible while the user is typing. BottomSheet anchors the sheet at
+  // `bottom: 0`; we override that with the keyboard height while it's
+  // showing so the sheet's bottom edge sits flush with the keyboard's top.
+  const [kbHeight, setKbHeight] = useState(0);
+  useEffect(() => {
+    // `keyboardWillShow` fires earlier than `keyboardDidShow` on iOS,
+    // letting us animate alongside the keyboard slide.
+    const sShow = Keyboard.addListener('keyboardWillShow', (e) => {
+      setKbHeight(e.endCoordinates.height);
+    });
+    const sHide = Keyboard.addListener('keyboardWillHide', () => {
+      setKbHeight(0);
+    });
+    return () => {
+      sShow.remove();
+      sHide.remove();
+    };
+  }, []);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (q === '') return pantry;
@@ -620,7 +641,10 @@ function PantryPickerSheet({
   }, [pantry, search]);
 
   return (
-    <BottomSheet open={open} onClose={onClose} sheetStyle={styles.sheet}>
+    <BottomSheet
+      open={open}
+      onClose={onClose}
+      sheetStyle={[styles.sheet, kbHeight > 0 && { bottom: kbHeight }]}>
       <View style={styles.sheetHandleWrap}>
         <View style={styles.sheetHandle} />
       </View>
