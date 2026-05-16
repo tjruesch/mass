@@ -17,6 +17,7 @@ import {
   type NewPantryItem,
   type PantryItem,
 } from '@/src/db/schema';
+import { inferFoodMacros } from '@/src/lib/food-llm';
 
 export async function addPantryItem(
   opts: Omit<NewPantryItem, 'id' | 'createdAt' | 'lastUsedAt'>,
@@ -100,6 +101,59 @@ export async function getPantryItemById(
 ): Promise<PantryItem | null> {
   const rows = await client.select().from(pantryItems).where(eq(pantryItems.id, id)).limit(1);
   return rows[0] ?? null;
+}
+
+/**
+ * Create a pantry item from just a name, then kick off the LLM
+ * autofill in the background. The item is inserted immediately with
+ * placeholder macros so the caller (e.g. new-meal composer) can wire
+ * it into the UI right away; the macros populate a moment later when
+ * the Claude call lands, and `useLiveQuery` propagates the change.
+ *
+ * Falls back gracefully when the LLM is disabled or the call fails —
+ * the item just stays with zeroed macros, which the user can fix on
+ * the pantry editor.
+ */
+export async function addPantryItemFromName(
+  rawName: string,
+): Promise<PantryItem> {
+  const name = rawName.trim();
+  if (name === '') throw new Error('Pantry item name is required.');
+
+  const item = await addPantryItem({
+    name,
+    brand: null,
+    defaultServingQty: 100,
+    defaultServingUnit: 'g',
+    kcalPerServing: 0,
+    proteinG: 0,
+    carbsG: 0,
+    fatG: 0,
+    category: 'pantry',
+    currentQty: null,
+    stockUnit: null,
+    lowThreshold: null,
+    restockedAt: null,
+  });
+
+  // Fire-and-forget. Errors land in the dev console; the row stays at
+  // 0-macros until the user edits it manually.
+  inferFoodMacros(name)
+    .then((inferred) => {
+      if (inferred === null) return;
+      return updatePantryItem(item.id, {
+        kcalPerServing: inferred.kcal,
+        proteinG: inferred.proteinG,
+        carbsG: inferred.carbsG,
+        fatG: inferred.fatG,
+        category: inferred.category,
+      });
+    })
+    .catch((err) => {
+      console.warn('[pantry] LLM autofill failed:', err);
+    });
+
+  return item;
 }
 
 /**

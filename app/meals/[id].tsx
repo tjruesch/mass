@@ -58,6 +58,7 @@ import {
   updateMeal,
   type MealItemInput,
 } from '@/src/db/queries/meals';
+import { addPantryItemFromName } from '@/src/db/queries/pantry';
 import type { PantryItem } from '@/src/db/schema';
 import { usePantryItems, useRecentPantryItems } from '@/src/hooks/use-pantry';
 import { fonts, textStyles, tokens } from '@/theme/tokens';
@@ -184,6 +185,24 @@ export default function MealComposerScreen() {
       updateIngredient(picker.tempId, { pantryItemId });
     }
     setPicker({ kind: 'closed' });
+  };
+
+  /**
+   * Creates a pantry item from the picker's search query and assigns
+   * it to the current ingredient row. The LLM autofill runs in the
+   * background — the row appears immediately at 0-macros, then the
+   * rollup card updates when the inference lands (via useLiveQuery).
+   */
+  const handlePickerAddNew = async (name: string) => {
+    try {
+      const item = await addPantryItemFromName(name);
+      handlePickerSelect(item.id);
+    } catch (err) {
+      Alert.alert(
+        'Could not add pantry item',
+        err instanceof Error ? err.message : String(err),
+      );
+    }
   };
 
   // ─── Save ────────────────────────────────────────────────────────────────
@@ -424,6 +443,7 @@ export default function MealComposerScreen() {
             : null
         }
         onSelect={handlePickerSelect}
+        onAddNew={handlePickerAddNew}
       />
     </View>
   );
@@ -595,6 +615,7 @@ function PantryPickerSheet({
   recent,
   selectedId,
   onSelect,
+  onAddNew,
 }: {
   open: boolean;
   onClose: () => void;
@@ -602,12 +623,19 @@ function PantryPickerSheet({
   recent: ReadonlyArray<PantryItem>;
   selectedId: number | null;
   onSelect: (pantryItemId: number) => void;
+  /** Caller creates a pantry item from the typed name + fires LLM
+   *  autofill in the background, then selects the new row. */
+  onAddNew: (name: string) => Promise<void>;
 }) {
   const [search, setSearch] = useState('');
+  const [addingNew, setAddingNew] = useState(false);
   // Clear search on each open so a stale filter from a prior pick doesn't
   // hide everything when the sheet pops up again.
   useEffect(() => {
-    if (open) setSearch('');
+    if (open) {
+      setSearch('');
+      setAddingNew(false);
+    }
   }, [open]);
 
   // Lift the sheet above the keyboard so the search field's results stay
@@ -719,7 +747,42 @@ function PantryPickerSheet({
             all · {filtered.length}
           </Text>
           {filtered.length === 0 ? (
-            <Text style={styles.sheetEmpty}>no match</Text>
+            <View>
+              <Text style={styles.sheetEmpty}>no match</Text>
+              {search.trim().length >= 2 && (
+                <Pressable
+                  onPress={async () => {
+                    const name = search.trim();
+                    setAddingNew(true);
+                    try {
+                      await onAddNew(name);
+                    } finally {
+                      setAddingNew(false);
+                    }
+                  }}
+                  disabled={addingNew}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Add ${search.trim()} to pantry`}
+                  style={({ pressed }) => [
+                    styles.sheetAddNewBtn,
+                    addingNew && { opacity: 0.5 },
+                    pressed && !addingNew && { opacity: 0.7 },
+                  ]}>
+                  <Glyph
+                    name="plus"
+                    color={tokens.accentInk}
+                    size={11}
+                  />
+                  <Text
+                    style={[styles.sheetAddNewText, textStyles.cap]}
+                    numberOfLines={1}>
+                    {addingNew
+                      ? `adding "${search.trim()}"…`
+                      : `add "${search.trim()}" to pantry`}
+                  </Text>
+                </Pressable>
+              )}
+            </View>
           ) : (
             <View style={styles.sheetList}>
               {filtered.map((p, i) => {
@@ -1220,5 +1283,25 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
     textAlign: 'center',
     paddingVertical: 14,
+  },
+  sheetAddNewBtn: {
+    marginTop: 4,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: tokens.line2,
+    borderStyle: 'dashed',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  sheetAddNewText: {
+    fontFamily: fonts.monoSemibold,
+    fontSize: 11,
+    color: tokens.accentInk,
+    letterSpacing: 1.98,
+    flexShrink: 1,
   },
 });
