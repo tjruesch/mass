@@ -229,6 +229,7 @@ export default function MealsPlanScreen() {
         }
         onClose={() => setPicker({ kind: 'closed' })}
         onSelect={handlePickMeal}
+        onCreateNew={() => router.push('/meals/new' as never)}
       />
     </View>
   );
@@ -352,6 +353,7 @@ function LibraryPickerSheet({
   selectedMealId,
   onClose,
   onSelect,
+  onCreateNew,
 }: {
   open: boolean;
   slot: MealSlot | null;
@@ -359,6 +361,9 @@ function LibraryPickerSheet({
   selectedMealId: number | null;
   onClose: () => void;
   onSelect: (mealId: number) => void;
+  /** Navigate to the new-meal composer. Sheet stays open behind it
+   *  so the new meal appears in the library list on return. */
+  onCreateNew: () => void;
 }) {
   const [search, setSearch] = useState('');
   useEffect(() => {
@@ -435,6 +440,19 @@ function LibraryPickerSheet({
         contentContainerStyle={{ paddingBottom: 24 + kbHeight }}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}>
+        <Pressable
+          onPress={onCreateNew}
+          accessibilityRole="button"
+          accessibilityLabel="Create a new library meal"
+          style={({ pressed }) => [
+            styles.newMealBtn,
+            pressed && { opacity: 0.55 },
+          ]}>
+          <Glyph name="plus" color={tokens.accentInk} size={11} />
+          <Text style={[styles.newMealBtnText, textStyles.cap]}>
+            new library meal
+          </Text>
+        </Pressable>
         {filtered.length === 0 ? (
           <Text style={styles.sheetEmpty}>
             {library.length === 0
@@ -801,5 +819,24 @@ const styles = StyleSheet.create({
     fontFamily: fonts.mono,
     fontSize: 10,
     color: tokens.ink4,
+  },
+  newMealBtn: {
+    marginBottom: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: tokens.line2,
+    borderStyle: 'dashed',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  newMealBtnText: {
+    fontFamily: fonts.monoSemibold,
+    fontSize: 11,
+    color: tokens.accentInk,
+    letterSpacing: 1.98,
   },
 });
