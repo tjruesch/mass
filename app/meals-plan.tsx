@@ -229,7 +229,13 @@ export default function MealsPlanScreen() {
         }
         onClose={() => setPicker({ kind: 'closed' })}
         onSelect={handlePickMeal}
-        onCreateNew={() => router.push('/meals/new' as never)}
+        onCreateNew={() => {
+          // Close first so the BottomSheet Modal doesn't float over
+          // the composer. The user retaps the slot after creating
+          // the meal — sheet then shows the new library entry.
+          setPicker({ kind: 'closed' });
+          router.push('/meals/new' as never);
+        }}
       />
     </View>
   );
