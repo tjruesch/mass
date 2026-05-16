@@ -33,6 +33,12 @@ function formatClockTime(d: Date): string {
  *  app with a wake/sleep window of ~06:00–22:00. Late-night users (post-21:00
  *  through pre-05:00) get "Evening" rather than a clinical "Night" because
  *  the surface is a fitness/health log, not a sleep aid. */
+function formatMacroG(g: number): string {
+  if (g === 0) return '0g';
+  if (Number.isInteger(g)) return `${g}g`;
+  return `${Math.round(g * 10) / 10}g`;
+}
+
 function greetingFor(d: Date): string {
   const h = d.getHours();
   if (h < 5) return 'Evening';
@@ -45,6 +51,7 @@ import { TabBar, WindowStrip } from '@/components/design';
 import { useTodayMove } from '@/src/hooks/use-move';
 import { useFasting, type FastingState } from '@/src/hooks/use-fasting';
 import { useFastingPreferences } from '@/src/hooks/use-fasting-preferences';
+import { useTodayMeals } from '@/src/hooks/use-meals';
 import { useWaterToday } from '@/src/hooks/use-water';
 import { useWaterPreferences } from '@/src/hooks/use-water-preferences';
 import { useNow } from '@/src/lib/use-now';
@@ -59,20 +66,29 @@ import {
 } from '@/src/lib/time';
 import { fonts, textStyles, tokens } from '@/theme/tokens';
 
+// Hardcoded kcal budget until Slice 6 — Goals + daily targets wires the
+// real value from a `meal_preferences` (or shared goals) table. Tracked
+// in #92 and #7.
+const KCAL_BUDGET_PLACEHOLDER = 1820;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Hero rings — three concentric kcal/h2o/move arcs, no center label.
 // ─────────────────────────────────────────────────────────────────────────────
 function Concentric({
   size = 138,
+  kcalPct,
   h2oPct,
   movePct,
 }: {
   size?: number;
+  /** 0..1+ — outer ring (ink). Driven by meals consumed / budget. */
+  kcalPct?: number;
   /** 0..1+ — middle ring (cool). Arc clamps at 1; the head puck keeps going past it. */
   h2oPct?: number;
   /** 0..1+ — inner ring (accent). Driven by HK exercise minutes / target. */
   movePct?: number;
 }) {
+  const kcalRaw = kcalPct === undefined ? 0 : Math.max(0, kcalPct);
   const h2oRaw = h2oPct === undefined ? 0.617 : Math.max(0, h2oPct);
   const moveRaw = movePct === undefined ? 0 : Math.max(0, movePct);
   const cx = size / 2;
@@ -83,7 +99,7 @@ function Concentric({
     // stroke-to-stroke gaps land at 8px on both sides — equally spaced
     // regardless of sw. Bump sw to thicken the bands without changing the
     // outer or inner ring size; gap simply shrinks.
-    { rOff: 0, target: 0.264, c: tokens.ink, sw: 16 },
+    { rOff: 0, target: kcalRaw, c: tokens.ink, sw: 16 },
     { rOff: 24, target: h2oRaw, c: tokens.cool, sw: 16 },
     { rOff: 48, target: moveRaw, c: tokens.accentInk, sw: 16 },
   ];
@@ -422,6 +438,34 @@ export default function HomeScreen() {
   const waterValueLabel = (waterToday.totalMl / 1000).toFixed(2);
   const waterTargetLabel = `of ${(waterTargetMl / 1000).toFixed(1)}`;
 
+  // Live meals — kcal ring + macros card. Budget stays hardcoded until
+  // Slice 6 wires the real goal source.
+  const today = useTodayMeals();
+  const consumedKcal = today.totalKcal;
+  const kcalPctValue =
+    KCAL_BUDGET_PLACEHOLDER > 0 ? consumedKcal / KCAL_BUDGET_PLACEHOLDER : 0;
+  const kcalValueLabel = Math.round(consumedKcal).toString();
+  const kcalTargetLabel = `of ${KCAL_BUDGET_PLACEHOLDER}`;
+  const kcalPctLabel = `${Math.round(kcalPctValue * 100)}%`;
+
+  // Per-macro kcal contribution drives the stacked bar widths — protein
+  // and carbs are 4 kcal/g, fat is 9. When no meals are logged yet, fall
+  // back to a flat split so the bar isn't a degenerate zero-width strip.
+  const pKcal = today.totalProteinG * 4;
+  const cKcal = today.totalCarbsG * 4;
+  const fKcal = today.totalFatG * 9;
+  const macroKcalSum = pKcal + cKcal + fKcal;
+  const macroFlexP = macroKcalSum > 0 ? pKcal : 0;
+  const macroFlexC = macroKcalSum > 0 ? cKcal : 0;
+  const macroFlexF = macroKcalSum > 0 ? fKcal : 0;
+  // Tail fills whatever budget remains so the bar reads as a progress
+  // strip, not just a sum-of-macros. Zero macros + zero kcal collapses
+  // the bar to its bg track.
+  const macroFlexTail = Math.max(
+    0,
+    KCAL_BUDGET_PLACEHOLDER - macroKcalSum,
+  );
+
   // Live move ring — active kcal from HK (Apple's red Move ring).
   // Returns null while HK auth is pending; the ring + legend
   // gracefully show 0 / '—'.
@@ -480,12 +524,27 @@ export default function HomeScreen() {
         {/* ── 2. Hero rings — inline, flows directly under the greeting ── */}
         <View style={styles.heroSection}>
           <View style={styles.heroBody}>
-            <Concentric size={184} h2oPct={waterPctValue} movePct={move.pct} />
+            <Concentric
+              size={184}
+              kcalPct={kcalPctValue}
+              h2oPct={waterPctValue}
+              movePct={move.pct}
+            />
             <View style={styles.heroLegendCol}>
-              <Legend swatch={tokens.ink} label="kcal" value="480" target="of 1820" pct="26%" />
+              <Pressable onPress={() => router.push('/meals' as never)}>
+                {({ pressed }) => (
+                  <View style={pressed && { opacity: 0.6 }}>
+                    <Legend
+                      swatch={tokens.ink}
+                      label="kcal"
+                      value={kcalValueLabel}
+                      target={kcalTargetLabel}
+                      pct={kcalPctLabel}
+                    />
+                  </View>
+                )}
+              </Pressable>
               <View style={styles.legendDivider} />
-              {/* Tappable legend row — kcal still hardcoded (meals slice).
-                  h2o + move are live (water hook + HK exercise time). */}
               <Pressable onPress={() => router.push('/water')}>
                 {({ pressed }) => (
                   <View style={pressed && { opacity: 0.6 }}>
@@ -529,13 +588,6 @@ export default function HomeScreen() {
             </Text>
           </Pressable>
           <Pressable
-            onPress={() => router.push('/meals' as never)}
-            style={({ pressed }) => pressed && { opacity: 0.6 }}>
-            <Text style={[styles.tempWeightLinkText, textStyles.cap]}>
-              → meals (temp)
-            </Text>
-          </Pressable>
-          <Pressable
             onPress={() => router.push('/pantry' as never)}
             style={({ pressed }) => pressed && { opacity: 0.6 }}>
             <Text style={[styles.tempWeightLinkText, textStyles.cap]}>
@@ -556,57 +608,109 @@ export default function HomeScreen() {
         </View>
 
         {/* ── 4. Macros card ────────────────────────────────────── */}
-        <View style={[styles.cardOuterTight, { marginBottom: 8 }]}>
-          <View style={[styles.card, styles.macrosCard]}>
-            <View style={styles.macrosHeader}>
-              <Text style={[styles.cardLabel, textStyles.cap]}>macros · today</Text>
-              <Text style={[styles.macrosKcal, textStyles.tnum]}>
-                <Text style={styles.macrosKcalStrong}>480</Text>
-                <Text> / 1820 kcal</Text>
-              </Text>
-            </View>
-            <View style={styles.macrosBar}>
-              <View style={{ flex: 38, backgroundColor: tokens.ink }} />
-              <View style={{ flex: 42, backgroundColor: tokens.cool }} />
-              <View style={{ flex: 12, backgroundColor: tokens.accentInk }} />
-              <View style={{ flex: 8 }} />
-            </View>
-            <View style={styles.macrosGrid}>
-              {[
-                { k: 'P', v: '46g', c: tokens.ink, italic: false },
-                { k: 'C', v: '52g', c: tokens.cool, italic: false },
-                { k: 'F', v: '14g', c: tokens.accentInk, italic: false },
-                { k: 'left', v: '92g', c: tokens.ink4, italic: true },
-              ].map((m) => (
-                <View key={m.k} style={styles.macroCell}>
-                  <Text
-                    style={{
-                      fontFamily: fonts.monoMedium,
-                      fontSize: 12,
-                      color: m.c,
-                      letterSpacing: 1.92,
-                      textTransform: m.italic ? 'lowercase' : 'uppercase',
-                      fontStyle: m.italic ? 'italic' : 'normal',
-                    }}>
-                    {m.k}
+        {/* `left` cell + deficit/tdee footer stay stubbed until Slice 6
+            (#92) wires the real goal/TDEE source — both require macro
+            *targets* not just totals, which the meals slice doesn't own. */}
+        <Pressable onPress={() => router.push('/meals' as never)}>
+          {({ pressed }) => (
+            <View
+              style={[
+                styles.cardOuterTight,
+                { marginBottom: 8 },
+                pressed && { opacity: 0.94 },
+              ]}>
+              <View style={[styles.card, styles.macrosCard]}>
+                <View style={styles.macrosHeader}>
+                  <Text style={[styles.cardLabel, textStyles.cap]}>
+                    macros · today
                   </Text>
-                  <Text style={[styles.macroValue, textStyles.tnum]}>{m.v}</Text>
+                  <Text style={[styles.macrosKcal, textStyles.tnum]}>
+                    <Text style={styles.macrosKcalStrong}>
+                      {kcalValueLabel}
+                    </Text>
+                    <Text> / {KCAL_BUDGET_PLACEHOLDER} kcal</Text>
+                  </Text>
                 </View>
-              ))}
-            </View>
-            <View style={styles.macrosFooter}>
-              <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 6 }}>
-                <Text style={[styles.deficitLabel, textStyles.cap]}>deficit</Text>
-                <Text style={[styles.deficitValue, textStyles.tnum]}>−1000</Text>
-                <Text style={styles.deficitNote}> · on track</Text>
+                <View style={styles.macrosBar}>
+                  <View style={{ flex: macroFlexP, backgroundColor: tokens.ink }} />
+                  <View style={{ flex: macroFlexC, backgroundColor: tokens.cool }} />
+                  <View
+                    style={{ flex: macroFlexF, backgroundColor: tokens.accentInk }}
+                  />
+                  <View style={{ flex: macroFlexTail }} />
+                </View>
+                <View style={styles.macrosGrid}>
+                  {[
+                    {
+                      k: 'P',
+                      v: formatMacroG(today.totalProteinG),
+                      c: tokens.ink,
+                      italic: false,
+                    },
+                    {
+                      k: 'C',
+                      v: formatMacroG(today.totalCarbsG),
+                      c: tokens.cool,
+                      italic: false,
+                    },
+                    {
+                      k: 'F',
+                      v: formatMacroG(today.totalFatG),
+                      c: tokens.accentInk,
+                      italic: false,
+                    },
+                    // `left` is a placeholder until macro targets land.
+                    { k: 'left', v: '—', c: tokens.ink4, italic: true },
+                  ].map((m) => (
+                    <View key={m.k} style={styles.macroCell}>
+                      <Text
+                        style={{
+                          fontFamily: fonts.monoMedium,
+                          fontSize: 12,
+                          color: m.c,
+                          letterSpacing: 1.92,
+                          textTransform: m.italic ? 'lowercase' : 'uppercase',
+                          fontStyle: m.italic ? 'italic' : 'normal',
+                        }}>
+                        {m.k}
+                      </Text>
+                      <Text style={[styles.macroValue, textStyles.tnum]}>
+                        {m.v}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+                <View style={styles.macrosFooter}>
+                  <View
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'baseline',
+                      gap: 6,
+                    }}>
+                    <Text style={[styles.deficitLabel, textStyles.cap]}>
+                      deficit
+                    </Text>
+                    <Text style={[styles.deficitValue, textStyles.tnum]}>
+                      −1000
+                    </Text>
+                    <Text style={styles.deficitNote}> · on track</Text>
+                  </View>
+                  <View
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'baseline',
+                      gap: 6,
+                    }}>
+                    <Text style={[styles.deficitLabel, textStyles.cap]}>
+                      tdee
+                    </Text>
+                    <Text style={[styles.tdeeValue, textStyles.tnum]}>2820</Text>
+                  </View>
+                </View>
               </View>
-              <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 6 }}>
-                <Text style={[styles.deficitLabel, textStyles.cap]}>tdee</Text>
-                <Text style={[styles.tdeeValue, textStyles.tnum]}>2820</Text>
-              </View>
             </View>
-          </View>
-        </View>
+          )}
+        </Pressable>
       </ScrollView>
 
       <TabBar active="home" />
