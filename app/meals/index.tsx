@@ -143,9 +143,16 @@ export default function MealsScreen() {
   const closeDrawer = useCallback(() => setDrawerOpen(false), []);
 
   const remaining = Math.max(0, budgetKcal - today.totalKcal);
-  const consumedPct =
-    budgetKcal > 0 ? Math.min(1, today.totalKcal / budgetKcal) : 0;
   const overBudget = today.totalKcal > budgetKcal;
+  // Progress bar spans 0 → TDEE (not just 0 → budget) so the user
+  // can see the planned-deficit zone painted at the right end.
+  // `consumedPctOfTdee` drives the ink fill; `budgetPctOfTdee` marks
+  // the boundary where the bar transitions into the warn-coloured
+  // deficit area.
+  const consumedPctOfTdee =
+    tdeeKcal > 0 ? Math.min(1, today.totalKcal / tdeeKcal) : 0;
+  const budgetPctOfTdee =
+    tdeeKcal > 0 ? Math.min(1, budgetKcal / tdeeKcal) : 1;
 
   return (
     <View style={{ flex: 1, backgroundColor: tokens.bg }}>
@@ -219,10 +226,23 @@ export default function MealsScreen() {
             </View>
 
             <View style={styles.progressTrack}>
+              {/* Deficit zone — paints the budget→tdee region warn so
+                  the user can see how much room is left in their
+                  planned cut. Rendered first so the ink fill below
+                  paints over it once consumption crosses into the
+                  deficit zone. */}
+              {budgetPctOfTdee < 1 && (
+                <View
+                  style={[
+                    styles.progressDeficitZone,
+                    { left: `${budgetPctOfTdee * 100}%` },
+                  ]}
+                />
+              )}
               <View
                 style={[
                   styles.progressFill,
-                  { width: `${Math.min(100, consumedPct * 100)}%` },
+                  { width: `${consumedPctOfTdee * 100}%` },
                 ]}
               />
             </View>
@@ -805,6 +825,14 @@ const styles = StyleSheet.create({
     backgroundColor: tokens.bg2,
     borderRadius: 3,
     overflow: 'hidden',
+    position: 'relative',
+  },
+  progressDeficitZone: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(180,90,30,0.32)',
   },
   progressFill: {
     height: '100%',
