@@ -43,7 +43,6 @@ import {
   type HkAuthState,
 } from '@/src/lib/healthkit/auth';
 import { WORKOUT_PERMISSIONS } from '@/src/lib/healthkit/workouts';
-import { fallbackLabelForHkActivity } from '@/src/lib/workouts/types';
 import { fonts, textStyles, tokens } from '@/theme/tokens';
 
 // ─── Weekday config ─────────────────────────────────────────────────────────
@@ -141,10 +140,15 @@ export default function WorkoutsSettingsScreen() {
                     pressed && { opacity: 0.75 },
                   ]}>
                   <Text style={[styles.templateDow, textStyles.cap]}>{wd.short}</Text>
-                  <View style={styles.templateIcon}>
+                  <View
+                    style={[
+                      styles.templateIcon,
+                      typeDef && { backgroundColor: tokens.bg2 },
+                    ]}>
                     <WorkoutGlyph
                       icon={typeDef?.icon ?? 'rest'}
                       color={typeDef ? toneColor(typeDef.tone) : tokens.ink4}
+                      size={20}
                     />
                   </View>
                   <Text
@@ -179,7 +183,7 @@ export default function WorkoutsSettingsScreen() {
                   pressed && { opacity: 0.75 },
                 ]}>
                 <View style={styles.typeIcon}>
-                  <WorkoutGlyph icon={t.icon} color={toneColor(t.tone)} />
+                  <WorkoutGlyph icon={t.icon} color={toneColor(t.tone)} size={22} />
                 </View>
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <View style={styles.typeNameRow}>
@@ -212,7 +216,7 @@ export default function WorkoutsSettingsScreen() {
         </Section>
 
         {/* APPLE HEALTH */}
-        <Section label="apple health" sub="auto-import sources">
+        <Section label="apple health">
           <AppleHealthSection
             auth={auth}
             autoImport={prefs.autoImportHealthKit}
@@ -220,26 +224,6 @@ export default function WorkoutsSettingsScreen() {
             onConnect={() => ensureHkAuthorization(WORKOUT_PERMISSIONS)}
             onToggleAutoImport={onToggleAutoImport}
           />
-          {auth === 'granted' && (
-            <View style={[styles.cardList, { marginTop: 8 }]}>
-              {sourceMappings(types).map((row, i, arr) => (
-                <View
-                  key={row.ah}
-                  style={[
-                    styles.sourceRow,
-                    i < arr.length - 1 && styles.rowBorder,
-                  ]}>
-                  <View style={{ flex: 1, minWidth: 0 }}>
-                    <Text style={styles.sourceAh}>{row.ah}</Text>
-                    <Text style={styles.sourceMap}>→ {row.maps}</Text>
-                  </View>
-                  <View style={styles.sourceOnPill}>
-                    <Text style={[styles.sourceOnText, textStyles.cap]}>on</Text>
-                  </View>
-                </View>
-              ))}
-            </View>
-          )}
         </Section>
 
         {/* LINKING RULES */}
@@ -536,33 +520,6 @@ function humanizeActivity(hkKey: string): string {
   return hkKey.replace(/([A-Z])/g, ' $1').toLowerCase().trim();
 }
 
-/**
- * Static mapping rows of HK source → which type(s) include it as a
- * candidate. Aggregates across all steps of all types so a step that
- * accepts `running` shows up under `running → cardio · marathon-prep`
- * etc.
- */
-function sourceMappings(types: ReadonlyArray<WorkoutTypeDef>) {
-  const grouped = new Map<string, Set<string>>();
-  for (const t of types) {
-    for (const step of t.steps) {
-      for (const k of step.hkCandidateKeys) {
-        const set = grouped.get(k) ?? new Set<string>();
-        set.add(t.label);
-        grouped.set(k, set);
-      }
-    }
-  }
-  const rows: Array<{ ah: string; maps: string }> = [];
-  for (const [key, types] of grouped) {
-    rows.push({
-      ah: fallbackLabelForHkActivity(key).toLowerCase(),
-      maps: Array.from(types).join(' · '),
-    });
-  }
-  return rows;
-}
-
 // ─── Styles ────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
@@ -626,7 +583,9 @@ const styles = StyleSheet.create({
     letterSpacing: 1.92,
   },
   templateIcon: {
-    width: 22,
+    width: 32,
+    height: 32,
+    borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -658,9 +617,10 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   typeIcon: {
-    width: 28,
-    height: 28,
-    borderRadius: 8,
+    width: 38,
+    height: 38,
+    borderRadius: 10,
+    backgroundColor: tokens.bg2,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -762,42 +722,6 @@ const styles = StyleSheet.create({
     color: tokens.bg,
     letterSpacing: 1.92,
     textTransform: 'uppercase',
-  },
-
-  // Source mapping
-  sourceRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    gap: 12,
-  },
-  sourceAh: {
-    fontFamily: fonts.monoMedium,
-    fontSize: 13,
-    color: tokens.ink,
-    letterSpacing: 0.26,
-  },
-  sourceMap: {
-    fontFamily: fonts.mono,
-    fontSize: 11,
-    color: tokens.ink3,
-    marginTop: 3,
-    letterSpacing: 0.44,
-  },
-  sourceOnPill: {
-    paddingVertical: 4,
-    paddingHorizontal: 10,
-    borderRadius: 999,
-    backgroundColor: 'rgba(31, 122, 58, 0.08)',
-    borderWidth: 1,
-    borderColor: 'rgba(31, 122, 58, 0.18)',
-  },
-  sourceOnText: {
-    fontFamily: fonts.monoSemibold,
-    fontSize: 11,
-    color: '#1F7A3A',
-    letterSpacing: 1.92,
   },
 
   // Linking rules
