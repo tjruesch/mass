@@ -479,7 +479,7 @@ function WaterColumn({
       {/* Left: tick labels reading top→bottom for inner ticks only. The
           labels are absolute-positioned so they line up exactly with the
           tick marks inside the cylinder. */}
-      <View style={[waterColumnStyles.labels, { height, width: 28 }]}>
+      <View style={[waterColumnStyles.labels, { height, width: 36 }]}>
         {innerTicks.map((ml) => {
           const reached = consumed >= ml;
           const isMajor = ml % 1000 === 0;
@@ -922,8 +922,8 @@ const waterColumnStyles = StyleSheet.create({
   tickLabel: {
     position: 'absolute',
     right: 0,
-    fontSize: 11,
-    letterSpacing: 0.44,
+    fontSize: 10,
+    letterSpacing: 0.4,
     lineHeight: 12,
     textAlign: 'right',
   },
