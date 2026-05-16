@@ -25,6 +25,7 @@ import {
   PlanDayDrawer,
   SubHeader,
   TabBar,
+  WorkoutTypeEditorDrawer,
   type PlanDayPatch,
 } from '@/components/design';
 import { WorkoutGlyph, toneColor } from '@/components/design/plan-day-drawer';
@@ -79,6 +80,9 @@ export default function WorkoutsSettingsScreen() {
   const lastSyncAt = useLastWorkoutSyncAt();
 
   const [planKey, setPlanKey] = useState<WeekdayKey | null>(null);
+  const [typeEditor, setTypeEditor] = useState<
+    { mode: 'create' } | { mode: 'edit'; type: WorkoutTypeDef } | null
+  >(null);
 
   if (!prefs) return <View style={{ flex: 1, backgroundColor: tokens.bg }} />;
 
@@ -168,29 +172,40 @@ export default function WorkoutsSettingsScreen() {
         <Section label="workout types" sub="library">
           <View style={styles.cardList}>
             {types.map((t, i) => (
-              <View
+              <Pressable
                 key={t.key}
-                style={[
+                onPress={() => setTypeEditor({ mode: 'edit', type: t })}
+                accessibilityRole="button"
+                accessibilityLabel={`Edit ${t.label}`}
+                style={({ pressed }) => [
                   styles.typeRow,
                   i < types.length - 1 && styles.rowBorder,
+                  pressed && { opacity: 0.75 },
                 ]}>
                 <View style={styles.typeIcon}>
                   <WorkoutGlyph icon={t.icon} color={toneColor(t.tone)} />
                 </View>
                 <View style={{ flex: 1, minWidth: 0 }}>
-                  <Text style={styles.typeName}>{t.label}</Text>
+                  <View style={styles.typeNameRow}>
+                    <Text style={styles.typeName}>{t.label}</Text>
+                    {t.isBuiltin && (
+                      <View style={styles.builtinPill}>
+                        <Text style={[styles.builtinPillText, textStyles.cap]}>
+                          built-in
+                        </Text>
+                      </View>
+                    )}
+                  </View>
                   <Text style={styles.typeDetail} numberOfLines={1}>
                     {describeStepsForLibrary(t)}
                   </Text>
                 </View>
                 <Glyph name="chev" color={tokens.ink3} />
-              </View>
+              </Pressable>
             ))}
           </View>
           <Pressable
-            onPress={() => {
-              /* deferred — #72 */
-            }}
+            onPress={() => setTypeEditor({ mode: 'create' })}
             style={({ pressed }) => [
               styles.newTypeBtn,
               pressed && { opacity: 0.55 },
@@ -293,6 +308,12 @@ export default function WorkoutsSettingsScreen() {
         onCommit={(patch) => {
           if (planKey) onCommitPlan(planKey, patch);
         }}
+      />
+
+      <WorkoutTypeEditorDrawer
+        open={typeEditor !== null}
+        onClose={() => setTypeEditor(null)}
+        type={typeEditor?.mode === 'edit' ? typeEditor.type : null}
       />
     </View>
   );
@@ -653,10 +674,29 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  typeNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   typeName: {
     fontFamily: fonts.sansMedium,
     fontSize: 13,
     color: tokens.ink,
+  },
+  builtinPill: {
+    paddingVertical: 2,
+    paddingHorizontal: 6,
+    borderRadius: 999,
+    backgroundColor: tokens.bg2,
+    borderWidth: 1,
+    borderColor: tokens.line,
+  },
+  builtinPillText: {
+    fontFamily: fonts.monoSemibold,
+    fontSize: 8,
+    color: tokens.ink4,
+    letterSpacing: 1.28,
   },
   typeDetail: {
     fontFamily: fonts.mono,

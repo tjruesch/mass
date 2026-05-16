@@ -229,3 +229,110 @@ export function findTypeByKey(
 export async function deleteWorkoutType(id: number): Promise<void> {
   await db.delete(workoutTypes).where(eq(workoutTypes.id, id));
 }
+
+/** Step shape coming in from the editor — same as runtime `WorkoutStep` but
+ *  position is assigned in CRUD based on array order, so callers don't have
+ *  to track it. Candidate keys are passed as an array; storage layer
+ *  serializes to JSON. */
+export type WorkoutStepInput = {
+  durationMin: number;
+  hkActivityKey: string;
+  hkCandidateKeys: ReadonlyArray<string>;
+};
+
+/**
+ * Create a new (custom) workout type with its steps in a single
+ * transaction. `is_builtin` is forced to false here — the seeder is the
+ * only place built-ins are written.
+ */
+export async function createWorkoutType(opts: {
+  key: string;
+  label: string;
+  tone: WorkoutTypeRow['tone'];
+  icon: WorkoutTypeRow['icon'];
+  steps: ReadonlyArray<WorkoutStepInput>;
+}): Promise<number> {
+  if (opts.steps.length === 0) {
+    throw new Error('A workout type needs at least one step');
+  }
+  return db.transaction(async (tx) => {
+    const [row] = await tx
+      .insert(workoutTypes)
+      .values({
+        key: opts.key,
+        label: opts.label,
+        tone: opts.tone,
+        icon: opts.icon,
+        isBuiltin: false,
+      })
+      .returning({ id: workoutTypes.id });
+    await tx.insert(workoutTypeSteps).values(
+      opts.steps.map((s, i) => ({
+        typeId: row.id,
+        position: i,
+        durationMin: s.durationMin,
+        hkActivityKey: s.hkActivityKey,
+        hkCandidateKeys: JSON.stringify(s.hkCandidateKeys),
+      })),
+    );
+    return row.id;
+  });
+}
+
+/**
+ * Update the parent type's mutable fields. Steps are managed via
+ * `replaceWorkoutTypeSteps` — kept separate so the editor's "save"
+ * doesn't have to diff arrays.
+ */
+export async function updateWorkoutType(
+  id: number,
+  patch: Partial<{
+    key: string;
+    label: string;
+    tone: WorkoutTypeRow['tone'];
+    icon: WorkoutTypeRow['icon'];
+  }>,
+): Promise<void> {
+  if (Object.keys(patch).length === 0) return;
+  await db.update(workoutTypes).set(patch).where(eq(workoutTypes.id, id));
+}
+
+/**
+ * Replace the full steps list for a type. Simpler than diffing — the
+ * editor saves rarely and the step count is tiny. Wrapped in a
+ * transaction so a partial failure doesn't leave the type with zero
+ * steps.
+ */
+export async function replaceWorkoutTypeSteps(
+  typeId: number,
+  steps: ReadonlyArray<WorkoutStepInput>,
+): Promise<void> {
+  if (steps.length === 0) {
+    throw new Error('A workout type needs at least one step');
+  }
+  await db.transaction(async (tx) => {
+    await tx.delete(workoutTypeSteps).where(eq(workoutTypeSteps.typeId, typeId));
+    await tx.insert(workoutTypeSteps).values(
+      steps.map((s, i) => ({
+        typeId,
+        position: i,
+        durationMin: s.durationMin,
+        hkActivityKey: s.hkActivityKey,
+        hkCandidateKeys: JSON.stringify(s.hkCandidateKeys),
+      })),
+    );
+  });
+}
+
+/**
+ * Derive a kebab-case key from a free-form label. Used as the editor's
+ * default key value; user can override.
+ */
+export function slugifyKey(label: string): string {
+  return label
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
