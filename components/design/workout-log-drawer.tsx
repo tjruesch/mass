@@ -1,7 +1,16 @@
 /**
- * Bottom drawer for logging or editing a workout. Dual-mode like the
- * weight + water drawers — pass an `entry` to enter edit mode with a
- * destructive delete action.
+ * Bottom drawer for logging or editing a workout. Tri-mode:
+ *
+ *   - **create** — no entry; user is logging a fresh manual workout
+ *   - **edit**   — entry without a HealthKit UUID; user can change all fields
+ *   - **view**   — entry mirrored from HealthKit; read-only (#75)
+ *
+ * The view mode exists because workouts that came in via the HK pull
+ * shouldn't be edited locally — our changes would either get overwritten
+ * on the next sync (HK is authoritative) or create a silent divergence
+ * with the Health app. A read-only mode + an "edit in the Health app"
+ * banner avoids both. Two-way mirroring (delete + recreate via HK APIs)
+ * is filed as a follow-up.
  *
  * Sections (composite model, #82):
  *   1. type   — chips per type in the live library
@@ -49,7 +58,12 @@ type Props = {
 };
 
 export function WorkoutLogDrawer({ open, onClose, entry }: Props) {
-  const mode: 'create' | 'edit' = entry ? 'edit' : 'create';
+  const isHkSourced = entry?.healthkitUuid != null;
+  const mode: 'create' | 'edit' | 'view' = entry
+    ? isHkSourced
+      ? 'view'
+      : 'edit'
+    : 'create';
   const types = useWorkoutTypes();
 
   const [typeKey, setTypeKey] = useState<string>('');
@@ -154,28 +168,56 @@ export function WorkoutLogDrawer({ open, onClose, entry }: Props) {
     );
   }, [saving, entry, totalMin, typeDef, onClose]);
 
+  const kickerByMode = {
+    create: 'WORKOUT · LOG',
+    edit: 'WORKOUT · EDIT',
+    view: 'WORKOUT · FROM HEALTH',
+  } as const;
+  const titleByMode = {
+    create: 'Log workout',
+    edit: 'Edit workout',
+    view: 'Apple Health workout',
+  } as const;
+
   return (
     <Drawer
       open={open}
       onClose={onClose}
-      kicker={mode === 'edit' ? 'WORKOUT · EDIT' : 'WORKOUT · LOG'}
-      title={mode === 'edit' ? 'Edit workout' : 'Log workout'}
+      kicker={kickerByMode[mode]}
+      title={titleByMode[mode]}
       cta={
-        <PrimaryButton
-          label={
-            saving
-              ? 'saving…'
-              : mode === 'edit'
-              ? 'save changes'
-              : valid
-              ? `save ${totalMin} min · ${typeDef!.label.toLowerCase()}`
-              : 'pick a type + valid time'
-          }
-          onPress={handleSave}
-          disabled={!valid || saving}
-        />
+        mode === 'view' ? (
+          <PrimaryButton
+            label="close"
+            onPress={onClose}
+            disabled={false}
+          />
+        ) : (
+          <PrimaryButton
+            label={
+              saving
+                ? 'saving…'
+                : mode === 'edit'
+                ? 'save changes'
+                : valid
+                ? `save ${totalMin} min · ${typeDef!.label.toLowerCase()}`
+                : 'pick a type + valid time'
+            }
+            onPress={handleSave}
+            disabled={!valid || saving}
+          />
+        )
       }>
-      <DrawerSection label="type" marginTop={8}>
+      {mode === 'view' && (
+        <View style={styles.hkBanner}>
+          <Text style={styles.hkBannerText}>
+            This workout came in from Apple Health. Edit it in the Health app
+            to change anything — your changes there flow back here automatically.
+          </Text>
+        </View>
+      )}
+
+      <DrawerSection label="type" marginTop={mode === 'view' ? 14 : 8}>
         <View style={styles.typeRow}>
           {types.map((t) => {
             const active = typeKey === t.key;
@@ -183,10 +225,12 @@ export function WorkoutLogDrawer({ open, onClose, entry }: Props) {
               <Pressable
                 key={t.key}
                 onPress={() => setTypeKey(t.key)}
+                disabled={mode === 'view'}
                 style={({ pressed }) => [
                   styles.typeChip,
                   active && styles.typeChipActive,
-                  pressed && { opacity: 0.7 },
+                  pressed && mode !== 'view' && { opacity: 0.7 },
+                  mode === 'view' && !active && { opacity: 0.4 },
                 ]}>
                 <Text
                   numberOfLines={1}
@@ -210,24 +254,26 @@ export function WorkoutLogDrawer({ open, onClose, entry }: Props) {
       </DrawerSection>
 
       <DrawerSection label="when">
-        <DateTimeField
-          value={startedAt}
-          onChange={setStartedAt}
-          label="start"
-          title="Start"
-          maximumDate={new Date()}
-        />
+        <View pointerEvents={mode === 'view' ? 'none' : 'auto'}>
+          <DateTimeField
+            value={startedAt}
+            onChange={setStartedAt}
+            label="start"
+            title="Start"
+            maximumDate={new Date()}
+          />
+        </View>
         <Text
           style={[
             styles.durationLine,
-            !valid && { color: tokens.warn },
+            !valid && mode !== 'view' && { color: tokens.warn },
           ]}>
           ends{' '}
           <Text style={[styles.durationValue, textStyles.tnum]}>
             {formatClock(endedAt)}
           </Text>
           <Text style={{ color: tokens.ink4 }}> · {formatDuration(totalMin)} total</Text>
-          {!valid && endedAt.getTime() > Date.now() && (
+          {!valid && mode !== 'view' && endedAt.getTime() > Date.now() && (
             <Text style={styles.durationWarn}> — end is in the future</Text>
           )}
         </Text>
@@ -243,11 +289,12 @@ export function WorkoutLogDrawer({ open, onClose, entry }: Props) {
             placeholder="—"
             placeholderTextColor={tokens.ink4}
             maxLength={4}
+            editable={mode !== 'view'}
             style={[styles.kcalInput, textStyles.tnum]}
           />
           <Text style={styles.kcalUnit}>kcal</Text>
         </View>
-        {typeDef && typeDef.steps.length > 1 && kcalText.trim() !== '' && (
+        {typeDef && typeDef.steps.length > 1 && kcalText.trim() !== '' && mode !== 'view' && (
           <Text style={styles.kcalSplitHint}>
             split across {typeDef.steps.length} steps proportional to duration
           </Text>
@@ -259,13 +306,16 @@ export function WorkoutLogDrawer({ open, onClose, entry }: Props) {
           value={notes}
           onChangeText={(t) => setNotes(t.slice(0, NOTES_MAX))}
           multiline
-          placeholder="e.g. heavy back squats, deload week"
+          placeholder={mode === 'view' ? '—' : 'e.g. heavy back squats, deload week'}
           placeholderTextColor={tokens.ink4}
+          editable={mode !== 'view'}
           style={styles.notesInput}
         />
-        <Text style={styles.notesHint}>
-          {notes.length}/{NOTES_MAX}
-        </Text>
+        {mode !== 'view' && (
+          <Text style={styles.notesHint}>
+            {notes.length}/{NOTES_MAX}
+          </Text>
+        )}
       </DrawerSection>
 
       {mode === 'edit' && (
@@ -440,5 +490,24 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: tokens.accentInk,
     letterSpacing: 1.6,
+  },
+
+  // HK-sourced view-mode banner
+  hkBanner: {
+    marginTop: 8,
+    paddingVertical: 11,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    backgroundColor: 'rgba(214, 61, 82, 0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(214, 61, 82, 0.16)',
+  },
+  hkBannerText: {
+    fontFamily: fonts.mono,
+    fontSize: 11.5,
+    color: tokens.ink3,
+    lineHeight: 16,
+    fontStyle: 'italic',
+    letterSpacing: 0.23,
   },
 });
