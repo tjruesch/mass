@@ -102,7 +102,12 @@ export function WeightChart({ history, prefs, width, height, range }: Props) {
     return t >= startDate.getTime() && t <= today.getTime();
   });
 
-  if (visiblePoints.length < 2) {
+  // Empty state only when there's genuinely nothing to draw: no entries
+  // AND no goal layers to anchor the chart against. A sparse window with
+  // a goal is still a meaningful view — show optimal trajectory + goal
+  // horizontal + axes even when zero entries fall inside the range.
+  const hasGoalAnchor = targetKg !== null && targetDate !== null;
+  if (visiblePoints.length === 0 && !hasGoalAnchor) {
     return (
       <View
         style={{
@@ -129,8 +134,9 @@ export function WeightChart({ history, prefs, width, height, range }: Props) {
     );
   }
 
-  const lastEntry = visiblePoints[visiblePoints.length - 1];
-  const latestMa = lastEntry.ma;
+  const lastEntry: WeightHistoryPoint | null =
+    visiblePoints.length > 0 ? visiblePoints[visiblePoints.length - 1] : null;
+  const latestMa: number | null = lastEntry?.ma ?? null;
 
   // Optimal trajectory: linear from (anchorDate, anchorKg) → (targetDate,
   // targetKg). Evaluated at any date for clipping.
@@ -146,24 +152,33 @@ export function WeightChart({ history, prefs, width, height, range }: Props) {
     );
   };
 
-  // Y axis — include visible points, the latest MA, target, and the
-  // trajectory's value at both chart edges (so a clipped-in trajectory
-  // entering from off-screen still fits the y-bounds).
+  // Y axis — include visible points, the latest MA (if any), target, and
+  // the trajectory's value at both chart edges. Falls back to a sane
+  // default range when truly nothing's available.
   let yMin: number;
   let yMax: number;
-  if (prefs.snapToGoalRange) {
+  if (prefs.snapToGoalRange && latestMa !== null) {
     yMin = latestMa - 5;
     yMax = latestMa + 5;
   } else {
-    const candidates: number[] = [latestMa];
+    const candidates: number[] = [];
+    if (latestMa !== null) candidates.push(latestMa);
     if (targetKg !== null) candidates.push(targetKg);
     const tyStart = trajectoryY(startDate);
     const tyEnd = trajectoryY(endDate);
     if (tyStart !== null) candidates.push(tyStart);
     if (tyEnd !== null) candidates.push(tyEnd);
     for (const p of visiblePoints) candidates.push(p.entry.kg);
-    yMin = Math.min(...candidates) - 2;
-    yMax = Math.max(...candidates) + 1;
+    if (candidates.length === 0) {
+      // No goal, no entries — bail to a placeholder 60–100 kg axis.
+      // Reached only when hasGoalAnchor is true but trajectory math fails
+      // (e.g. start == target dates). Rare, but keep the chart drawable.
+      yMin = 60;
+      yMax = 100;
+    } else {
+      yMin = Math.min(...candidates) - 2;
+      yMax = Math.max(...candidates) + 1;
+    }
   }
 
   // ── Coordinate transforms ────────────────────────────────────────
@@ -210,7 +225,7 @@ export function WeightChart({ history, prefs, width, height, range }: Props) {
   // both goal mode and window mode (we now always extend to targetDate
   // when one exists in the future).
   const projectedPath =
-    targetKg !== null && targetDate !== null
+    targetKg !== null && targetDate !== null && lastEntry && latestMa !== null
       ? `M${sx(lastEntry.entry.at).toFixed(1)},${sy(latestMa).toFixed(1)} L${sx(targetDate).toFixed(1)},${sy(targetKg).toFixed(1)}`
       : null;
 
@@ -376,8 +391,8 @@ export function WeightChart({ history, prefs, width, height, range }: Props) {
           />
         )}
 
-        {/* MA path */}
-        {prefs.showMovingAvg && (
+        {/* MA path — needs at least 2 points to draw a line. */}
+        {prefs.showMovingAvg && visiblePoints.length >= 2 && (
           <Path
             d={maPath}
             stroke={tokens.ink}
@@ -402,8 +417,8 @@ export function WeightChart({ history, prefs, width, height, range }: Props) {
           />
         ))}
 
-        {/* Today marker + callout */}
-        {todayInWindow && (
+        {/* Today marker + callout — needs a last entry to anchor against. */}
+        {todayInWindow && lastEntry && latestMa !== null && (
           <G>
             <Line
               x1={sx(today)}
