@@ -16,6 +16,10 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { TabBar } from '@/components/design';
 import { useCombinedStreak } from '@/src/hooks/use-combined-streak';
+import {
+  useFeatureStreaks,
+  type FeatureStreakStat,
+} from '@/src/hooks/use-feature-streaks';
 import { useNow } from '@/src/lib/use-now';
 import { fonts, textStyles, tokens } from '@/theme/tokens';
 
@@ -37,6 +41,8 @@ const LEGEND_ITEMS = [
 
 // Heat steps mirror the heatmap palette in `designs/screen-trends.jsx`
 // — accent-ink for 3, then progressively diluted ink against bg.
+// Reused by both the combined hero (hits = 0-3 goals met) and the
+// per-feature mini dots (0-3 intensity for that feature alone).
 function dotBackground(hits: number): string {
   if (hits === 3) return tokens.accentInk;
   if (hits === 2) return mix(tokens.ink, tokens.bg, 0.55);
@@ -79,6 +85,7 @@ export default function TrendsScreen() {
   // a manual refresh, same cadence as the home greeting.
   const now = useNow(60_000);
   const combined = useCombinedStreak();
+  const features = useFeatureStreaks();
   // Last DOT_DAYS slice of the 90-day window for the row of dots.
   const dotWindow = combined.hitsPerDay.slice(-DOT_DAYS);
 
@@ -159,13 +166,37 @@ export default function TrendsScreen() {
           </View>
 
           <View style={styles.divider} />
+
+          {/* ── Per-feature breakdown ───────────────────────────── */}
+          <Text style={[styles.kicker, textStyles.cap, styles.subKicker]}>
+            by feature
+          </Text>
+          <View style={styles.featureRow}>
+            <FeatureColumn
+              label="fasting"
+              stat={features.fasting}
+              meanFormatter={(h) => `μ ${formatOne(h)} h`}
+              isFirst
+            />
+            <FeatureColumn
+              label="water"
+              stat={features.water}
+              meanFormatter={(l) => `μ ${formatOne(l)} L`}
+            />
+            <FeatureColumn
+              label="workouts"
+              stat={features.workouts}
+              meanFormatter={(n) => `μ ${formatOne(n)} / wk`}
+            />
+          </View>
+          <View style={styles.divider} />
         </View>
 
-        {/* Placeholder until #99–#101 fill the remaining sections. */}
+        {/* Placeholder until #100-101 fill the remaining sections. */}
         <View style={styles.placeholderOuter}>
           <Text style={[styles.kicker, textStyles.cap]}>coming next</Text>
           <Text style={styles.placeholder}>
-            per-feature breakdown · weight chart · 7d deficit bars
+            weight chart · 7d deficit bars
           </Text>
         </View>
       </ScrollView>
@@ -173,6 +204,59 @@ export default function TrendsScreen() {
       <TabBar active="trends" />
     </View>
   );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FeatureColumn — one of three sub-sections in the per-feature row.
+// First column has no left border; the others get a 1px divider line.
+// ─────────────────────────────────────────────────────────────────────────────
+function FeatureColumn({
+  label,
+  stat,
+  meanFormatter,
+  isFirst = false,
+}: {
+  label: string;
+  stat: FeatureStreakStat;
+  meanFormatter: (mean: number) => string;
+  isFirst?: boolean;
+}) {
+  return (
+    <View
+      style={[
+        styles.featureCol,
+        !isFirst && styles.featureColBorder,
+        !isFirst && { paddingLeft: 12 },
+      ]}>
+      <Text style={[styles.featureLabel, textStyles.cap]}>{label}</Text>
+      <Text style={[styles.featureNumber, textStyles.tnum]}>
+        {stat.current}d
+      </Text>
+      <Text style={styles.featureMean}>{meanFormatter(stat.mean)}</Text>
+      <View style={styles.featureDotRow}>
+        {stat.weekDots.map((v, i) => {
+          const isToday = i === stat.weekDots.length - 1;
+          return (
+            <View
+              key={i}
+              style={[
+                styles.featureDot,
+                { backgroundColor: dotBackground(v) },
+                v === 0 && styles.dotOutlined,
+                isToday && styles.featureDotToday,
+              ]}
+            />
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
+function formatOne(n: number): string {
+  if (!Number.isFinite(n)) return '0';
+  if (n === 0) return '0';
+  return (Math.round(n * 10) / 10).toFixed(1);
 }
 
 const styles = StyleSheet.create({
@@ -314,5 +398,59 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: tokens.line,
     marginTop: 18,
+  },
+
+  subKicker: {
+    marginTop: 18,
+    marginBottom: 12,
+  },
+  featureRow: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+  },
+  featureCol: {
+    flex: 1,
+    gap: 6,
+  },
+  featureColBorder: {
+    borderLeftWidth: 1,
+    borderLeftColor: tokens.line,
+  },
+  featureLabel: {
+    fontFamily: fonts.mono,
+    fontSize: 9,
+    color: tokens.ink3,
+    letterSpacing: 1.62,
+    textTransform: 'lowercase',
+  },
+  featureNumber: {
+    marginTop: 1,
+    fontFamily: fonts.monoSemibold,
+    fontSize: 22,
+    color: tokens.ink,
+    letterSpacing: -0.77,
+    lineHeight: 22,
+  },
+  featureMean: {
+    marginTop: 2,
+    fontFamily: fonts.mono,
+    fontSize: 9,
+    color: tokens.ink4,
+    fontStyle: 'italic',
+    letterSpacing: 0.4,
+  },
+  featureDotRow: {
+    marginTop: 6,
+    flexDirection: 'row',
+    gap: 3,
+  },
+  featureDot: {
+    width: 9,
+    height: 9,
+    borderRadius: 2,
+  },
+  featureDotToday: {
+    borderWidth: 1,
+    borderColor: tokens.ink,
   },
 });
