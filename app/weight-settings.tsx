@@ -158,7 +158,7 @@ export default function WeightSettingsScreen() {
                         textDecorationColor: tokens.line2,
                       },
                     ]}>
-                    {prefs.targetKg === null ? '—' : prefs.targetKg.toFixed(0)}
+                    {prefs.targetKg === null ? '—' : prefs.targetKg.toFixed(1)}
                   </Text>
                   <Text style={styles.goalValueUnit}>kg</Text>
                 </View>
@@ -331,9 +331,19 @@ function TargetEditSheet({
   const clamp = (n: number) =>
     Math.min(TARGET_MAX_KG, Math.max(TARGET_MIN_KG, Math.round(n * 10) / 10));
 
+  /**
+   * First step from an off-grid value (e.g. 87.3) snaps to the nearest 0.5
+   * boundary in the step direction — 87.3 + step → 87.5, 87.3 − step → 87.0.
+   * Subsequent steps move by a full 0.5. Avoids a stepper that just drifts
+   * the original off-grid value (87.3 → 87.8 → 88.3 → …).
+   */
   const onStep = (delta: number) => {
     const base = Number.isFinite(parsed) ? parsed : 70;
-    setKgText(clamp(base + delta).toFixed(1));
+    const next =
+      delta > 0
+        ? Math.floor(base / TARGET_STEP_KG) * TARGET_STEP_KG + TARGET_STEP_KG
+        : Math.ceil(base / TARGET_STEP_KG) * TARGET_STEP_KG - TARGET_STEP_KG;
+    setKgText(clamp(next).toFixed(1));
   };
 
   const handleClose = (commit: boolean) => {
@@ -607,7 +617,7 @@ function daysBetween(a: Date, b: Date): number {
 function formatDeltaKg(delta: number): string {
   if (delta === 0) return '0 kg';
   const sign = delta < 0 ? '−' : '+';
-  return `${sign}${Math.abs(delta).toFixed(0)} kg`;
+  return `${sign}${Math.abs(delta).toFixed(1)} kg`;
 }
 
 function formatClock(d: Date): string {

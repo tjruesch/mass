@@ -90,6 +90,11 @@ export async function getHkAuthState(req: HkPermissionRequest): Promise<HkAuthSt
  * Re-querying state afterwards is what `requestAuthorization`'s boolean
  * doesn't tell us — that boolean only signals "the prompt completed
  * without error", not what the user picked.
+ *
+ * After the prompt resolves, we notify every active `useHkAuthState`
+ * instance so screens reflect the new state without waiting for an
+ * app-foreground transition. iOS doesn't background the app for the
+ * permission sheet, so nothing else would trigger a refresh.
  */
 export async function ensureHkAuthorization(req: HkPermissionRequest): Promise<HkAuthState> {
   if (!isHealthDataAvailable()) return 'unavailable';
@@ -101,7 +106,28 @@ export async function ensureHkAuthorization(req: HkPermissionRequest): Promise<H
   ) {
     await requestAuthorization(req);
   }
-  return getHkAuthState(req);
+  const next = await getHkAuthState(req);
+  notifyAuthListeners();
+  return next;
+}
+
+// ─── Pub/sub for "auth state changed" ──────────────────────────────────────
+// React's effect machinery can't observe iOS auth changes directly — there's
+// no system event. We push a manual notification after `ensureHkAuthorization`
+// (and any future call that mutates auth) so subscribed hooks re-poll.
+
+type AuthListener = () => void;
+const authListeners = new Set<AuthListener>();
+
+function notifyAuthListeners() {
+  for (const fn of authListeners) {
+    try {
+      fn();
+    } catch {
+      // Listeners shouldn't throw; swallow so one bad subscriber can't
+      // break the rest of the broadcast.
+    }
+  }
 }
 
 /**
@@ -136,12 +162,20 @@ export function useHkAuthState(req: HkPermissionRequest): HkAuthState {
         });
     };
     refresh();
+    // Two refresh triggers:
+    //   1. AppState 'active' — catches "user toggled HK perms in iOS Settings
+    //      and returned to the app" (the app actually backgrounds for that).
+    //   2. authListeners — fires after `ensureHkAuthorization` resolves,
+    //      since the native permission sheet does NOT background the app
+    //      and AppState wouldn't transition.
     const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
       if (next === 'active') refresh();
     });
+    authListeners.add(refresh);
     return () => {
       cancelled = true;
       sub.remove();
+      authListeners.delete(refresh);
     };
     // reqKey captures req identity for change detection.
     // eslint-disable-next-line react-hooks/exhaustive-deps
