@@ -331,31 +331,6 @@ export const workoutPreferences = sqliteTable('workout_preferences', {
   moveTargetKcal: integer('move_target_kcal').notNull().default(500),
 });
 
-// ─── Goals (programs / phases like "cut-04 · day 14/28") ──────────────────────
-export const goals = sqliteTable('goals', {
-  id: id(),
-  kind: text('kind', { enum: ['cut', 'maintain', 'bulk'] }).notNull(),
-  targetKg: real('target_kg'),
-  startedAt: integer('started_at', { mode: 'timestamp_ms' }).notNull(),
-  /** Null for open-ended programs. */
-  endsAt: integer('ends_at', { mode: 'timestamp_ms' }),
-  isActive: integer('is_active', { mode: 'boolean' }).notNull().default(false),
-  notes: text('notes'),
-  createdAt: createdAt(),
-});
-
-// ─── Daily targets (per-day kcal / h2o / move / deficit) ──────────────────────
-export const dailyTargets = sqliteTable('daily_targets', {
-  /** App-local calendar date — 'YYYY-MM-DD'. PK so there's at most one row per day. */
-  date: text('date').primaryKey(),
-  kcal: integer('kcal').notNull(),
-  h2oMl: integer('h2o_ml').notNull(),
-  moveMin: integer('move_min').notNull(),
-  /** Negative for a cut, 0 for maintenance, positive for a surplus. */
-  deficit: integer('deficit').notNull().default(0),
-  createdAt: createdAt(),
-});
-
 // ─── Meal preferences (singleton, always id=1) ────────────────────────────────
 /**
  * Mode the daily kcal budget is computed in. `deficit` derives the
@@ -541,12 +516,6 @@ export type WorkoutTypeRow = typeof workoutTypes.$inferSelect;
 export type NewWorkoutTypeRow = typeof workoutTypes.$inferInsert;
 export type WorkoutTypeStepRow = typeof workoutTypeSteps.$inferSelect;
 export type NewWorkoutTypeStepRow = typeof workoutTypeSteps.$inferInsert;
-
-export type Goal = typeof goals.$inferSelect;
-export type NewGoal = typeof goals.$inferInsert;
-
-export type DailyTarget = typeof dailyTargets.$inferSelect;
-export type NewDailyTarget = typeof dailyTargets.$inferInsert;
 
 export type HkSyncCursor = typeof hkSyncCursor.$inferSelect;
 export type NewHkSyncCursor = typeof hkSyncCursor.$inferInsert;
