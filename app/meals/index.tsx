@@ -1,33 +1,67 @@
 /**
- * Meals detail screen (#86).
+ * Meals · week planner — follows designs/screen-meals-week.jsx.
  *
- * Today's energy hero + macro mini-bar + 4 slot cards
- * (breakfast/lunch/dinner/snack) + a recent-meals list. Each empty
- * slot card opens the meal log drawer pre-selected to that slot.
+ * Layout (top → bottom):
+ *   1. SubHeader
+ *   2. Today · energy hero — "kcal LEFT" big number, progress bar,
+ *      tiny "X of Y · budget" sub-row.
+ *   3. "this week" stat strip — N meals logged · μ kcal/day.
+ *   4. Day strip — M T W T F S S with date numbers + status dot.
+ *      Selected day is inverted (ink fill); today gets a bold label.
+ *   5. Selected day header — "today · Thursday" + "X kcal logged".
+ *   6. Slot cards — full-width vertical stack of 4 cards (breakfast,
+ *      lunch, dinner, snack). Populated cards show name + macros + ✓.
+ *      Empty cards are dashed with a "+ add <slot>" CTA.
+ *   7. Library strip — horizontal scroll of saved library meals (130px
+ *      mini-cards) + dashed "+ new meal" CTA at the end.
  *
- * Week strip + library carousel come in #88. Settings cog routes to
- * a placeholder until #92 (meals-settings, overlaps Slice 6) ships.
+ * Out of scope until later slices:
+ *   - "on pace" pill (top-right of hero) — needs time-of-day budget
+ *     pacing; lands with Slice 6 goal infra.
+ *   - Deficit + TDEE display — Slice 6 goal infra.
+ *   - 7d deficit bar chart at bottom of hero — Slice 6.
+ *   - Pantry stock "missing N" warning chips on slot cards — Slice 5
+ *     deferred D1 (stock tracking).
+ *   - Prep time on slot cards — meals.prep is not stored yet.
  *
- * Daily budget stays hardcoded at 1820 until Slice 6 wires the real
- * goal source via `meal_preferences` / `daily_targets`.
+ * Budget remains hardcoded at 1820 until Slice 6 wires meal_preferences.
  */
 
 import { useRouter } from 'expo-router';
-import { useCallback, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useMemo, useState } from 'react';
+import {
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
+import Svg, { Path } from 'react-native-svg';
 
 import { Glyph, MealLogDrawer, SubHeader, TabBar } from '@/components/design';
+import type { Meal } from '@/src/db/schema';
 import {
   MEAL_SLOTS,
   useLibraryMeals,
-  useRecentMeals,
-  useTodayMeals,
+  useThisWeekMeals,
+  type DayMeals,
   type MealSlot,
 } from '@/src/hooks/use-meals';
-import type { Meal } from '@/src/db/schema';
+import { dowMondayFirst } from '@/src/lib/time';
 import { fonts, textStyles, tokens } from '@/theme/tokens';
 
 const KCAL_BUDGET_PLACEHOLDER = 1820;
+
+const DOW_LABELS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'] as const;
+const DAY_NAMES = [
+  'monday',
+  'tuesday',
+  'wednesday',
+  'thursday',
+  'friday',
+  'saturday',
+  'sunday',
+] as const;
 
 const SLOT_LABEL: Record<MealSlot, string> = {
   breakfast: 'breakfast',
@@ -38,12 +72,17 @@ const SLOT_LABEL: Record<MealSlot, string> = {
 
 export default function MealsScreen() {
   const router = useRouter();
-  const today = useTodayMeals();
-  const recent = useRecentMeals(8);
+  const week = useThisWeekMeals();
   const library = useLibraryMeals();
+
+  const todayDow = dowMondayFirst(new Date());
+  const [selectedDow, setSelectedDow] = useState<number>(todayDow);
+
+  const today = week.days[todayDow]!;
+  const selectedDay = week.days[selectedDow]!;
+
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerSlot, setDrawerSlot] = useState<MealSlot | undefined>(undefined);
-
   const openDrawerForSlot = useCallback((slot?: MealSlot) => {
     setDrawerSlot(slot);
     setDrawerOpen(true);
@@ -51,89 +90,174 @@ export default function MealsScreen() {
   const closeDrawer = useCallback(() => setDrawerOpen(false), []);
 
   const remaining = Math.max(0, KCAL_BUDGET_PLACEHOLDER - today.totalKcal);
-  const pct =
+  const consumedPct =
     KCAL_BUDGET_PLACEHOLDER > 0
       ? Math.min(1, today.totalKcal / KCAL_BUDGET_PLACEHOLDER)
       : 0;
+  const overBudget = today.totalKcal > KCAL_BUDGET_PLACEHOLDER;
+
+  const avgKcalPerActiveDay = useMemo(() => {
+    return week.daysWithMeals > 0
+      ? Math.round(week.weekKcal / week.daysWithMeals)
+      : 0;
+  }, [week.weekKcal, week.daysWithMeals]);
 
   return (
     <View style={{ flex: 1, backgroundColor: tokens.bg }}>
       <ScrollView
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}>
-        <SubHeader
-          title="Meals"
-          back="Home"
-          onBack={() => router.back()}
-        />
+        <SubHeader title="Meals" back="Home" onBack={() => router.back()} />
 
-        {/* Today's energy hero */}
+        {/* ── Hero: today's energy budget ─────────────────────────────── */}
         <View style={styles.heroOuter}>
           <View style={styles.heroCard}>
-            <Text style={[styles.kicker, textStyles.cap]}>today · kcal</Text>
+            <View style={styles.heroHeaderRow}>
+              <Text style={[styles.kicker, textStyles.cap]}>
+                today · energy
+              </Text>
+              {/* `on pace` pill skipped — needs Slice 6 budget pacing. */}
+            </View>
             <View style={styles.heroNumberRow}>
               <Text style={[styles.heroNumber, textStyles.tnum]}>
-                {Math.round(today.totalKcal)}
+                {overBudget
+                  ? Math.round(today.totalKcal - KCAL_BUDGET_PLACEHOLDER)
+                  : Math.round(remaining)}
               </Text>
-              <Text style={styles.heroNumberSep}>/</Text>
-              <Text style={[styles.heroBudget, textStyles.tnum]}>
-                {KCAL_BUDGET_PLACEHOLDER}
+              <Text style={styles.heroNumberUnit}>
+                kcal {overBudget ? 'over' : 'left'}
               </Text>
             </View>
-            <Text style={[styles.heroSub, textStyles.tnum]}>
-              <Text style={styles.heroSubStrong}>{Math.round(remaining)} kcal</Text>
-              <Text style={styles.heroSubMute}>
-                {remaining > 0 ? ' remaining' : ' over'}
-                {'   ·   '}
-              </Text>
-              <Text style={styles.heroSubStrong}>{Math.round(pct * 100)}%</Text>
-            </Text>
 
             <View style={styles.progressTrack}>
               <View
                 style={[
                   styles.progressFill,
-                  { width: `${Math.min(100, pct * 100)}%` },
+                  { width: `${Math.min(100, consumedPct * 100)}%` },
                 ]}
               />
             </View>
 
-            <MacroMiniBar
-              kcal={today.totalKcal}
-              proteinG={today.totalProteinG}
-              carbsG={today.totalCarbsG}
-              fatG={today.totalFatG}
-            />
+            <View style={styles.heroSubRow}>
+              <Text style={[styles.heroSubLeft, textStyles.tnum]}>
+                <Text style={styles.heroSubStrong}>
+                  {Math.round(today.totalKcal)}
+                </Text>
+                <Text style={styles.heroSubMute}> of </Text>
+                <Text style={styles.heroSubStrong}>
+                  {KCAL_BUDGET_PLACEHOLDER}
+                </Text>
+                <Text style={styles.heroSubMute}> · budget</Text>
+              </Text>
+              <Text style={styles.heroSubRight}>
+                <Text style={styles.heroSubMute}>μ </Text>
+                <Text style={[styles.heroSubStrong, textStyles.tnum]}>
+                  {avgKcalPerActiveDay}
+                </Text>
+                <Text style={styles.heroSubMute}> kcal/day</Text>
+              </Text>
+            </View>
           </View>
         </View>
 
-        {/* Slot cards */}
-        <View style={styles.slotsOuter}>
-          <Text style={[styles.kicker, textStyles.cap, styles.sectionKicker]}>
-            today · slots
+        {/* ── This-week stat strip ────────────────────────────────────── */}
+        <View style={styles.thisWeekRow}>
+          <Text style={[styles.kicker, textStyles.cap]}>this week</Text>
+          <Text style={[styles.thisWeekStat, textStyles.tnum]}>
+            <Text style={styles.heroSubStrong}>{week.plannedCount}</Text>
+            <Text style={styles.heroSubMute}>
+              {' '}
+              meal{week.plannedCount === 1 ? '' : 's'} logged
+            </Text>
           </Text>
-          <View style={styles.slotsGrid}>
+        </View>
+
+        {/* ── Day strip (M-S) ─────────────────────────────────────────── */}
+        <View style={styles.dayStripOuter}>
+          <View style={styles.dayStrip}>
+            {week.days.map((day, d) => {
+              const isToday = d === todayDow;
+              const isSelected = d === selectedDow;
+              const hasMeals = day.meals.length > 0;
+              return (
+                <Pressable
+                  key={d}
+                  onPress={() => setSelectedDow(d)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Select ${DAY_NAMES[d]}`}
+                  style={({ pressed }) => [
+                    styles.dayCell,
+                    isSelected
+                      ? styles.dayCellSelected
+                      : styles.dayCellDefault,
+                    pressed && !isSelected && { opacity: 0.65 },
+                  ]}>
+                  <Text
+                    style={[
+                      styles.dayDow,
+                      textStyles.cap,
+                      isSelected && styles.dayDowSelected,
+                      isToday && !isSelected && styles.dayDowToday,
+                    ]}>
+                    {DOW_LABELS[d]}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.dayDate,
+                      isSelected && styles.dayDateSelected,
+                    ]}>
+                    {day.date.getDate()}
+                  </Text>
+                  <View
+                    style={[
+                      styles.statusDot,
+                      hasMeals
+                        ? isSelected
+                          ? styles.statusDotOkSelected
+                          : styles.statusDotOk
+                        : styles.statusDotEmpty,
+                    ]}
+                  />
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+
+        {/* ── Selected day · header + slot cards ──────────────────────── */}
+        <View style={styles.selectedDayOuter}>
+          <View style={styles.selectedDayHeader}>
+            <Text style={[styles.kicker, textStyles.cap]}>
+              {selectedDow === todayDow
+                ? `today · ${DAY_NAMES[selectedDow]}`
+                : DAY_NAMES[selectedDow]}
+            </Text>
+            <Text style={[styles.selectedDayStat, textStyles.tnum]}>
+              <Text style={styles.heroSubStrong}>
+                {Math.round(selectedDay.totalKcal)}
+              </Text>
+              <Text style={styles.heroSubMute}> kcal logged</Text>
+            </Text>
+          </View>
+          <View style={styles.slotList}>
             {MEAL_SLOTS.map((slot) => (
               <SlotCard
                 key={slot}
                 slot={slot}
-                meals={today.bySlot[slot]}
+                meals={selectedDay.bySlot[slot]}
+                canLog={selectedDow === todayDow}
                 onLog={() => openDrawerForSlot(slot)}
               />
             ))}
           </View>
         </View>
 
-        {/* Library — reusable meals the user has saved. Tap a row → edit; */}
-        {/*           tap the dashed CTA → new-meal composer.                */}
-        <LibrarySection
+        {/* ── Library strip — horizontal scroll ───────────────────────── */}
+        <LibraryStrip
           meals={library}
           onTapMeal={(id) => router.push(`/meals/${id}` as never)}
           onCreate={() => router.push('/meals/new' as never)}
         />
-
-        {/* Recent meals */}
-        <RecentMeals meals={recent} />
 
         <View style={{ height: 24 }} />
       </ScrollView>
@@ -150,101 +274,36 @@ export default function MealsScreen() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// MacroMiniBar — three-color stack with per-macro labels below.
-// ─────────────────────────────────────────────────────────────────────────────
-function MacroMiniBar({
-  kcal,
-  proteinG,
-  carbsG,
-  fatG,
-}: {
-  kcal: number;
-  proteinG: number;
-  carbsG: number;
-  fatG: number;
-}) {
-  // Energy contribution per macro — useful for the stacked bar widths
-  // since per-gram caloric density differs. Protein 4, carbs 4, fat 9.
-  const pKcal = proteinG * 4;
-  const cKcal = carbsG * 4;
-  const fKcal = fatG * 9;
-  const total = Math.max(pKcal + cKcal + fKcal, kcal, 1);
-
-  return (
-    <View style={styles.macroBlock}>
-      <View style={styles.macroBar}>
-        <View
-          style={{
-            flex: pKcal,
-            backgroundColor: tokens.ink,
-          }}
-        />
-        <View
-          style={{
-            flex: cKcal,
-            backgroundColor: tokens.cool,
-          }}
-        />
-        <View
-          style={{
-            flex: fKcal,
-            backgroundColor: tokens.accentInk,
-          }}
-        />
-        {/* Tail: any unaccounted kcal (e.g. one-off entries with kcal but
-            zero macros) renders as muted bg2 so the bar reads to the
-            user's `pct` summary even when macro breakdown is missing. */}
-        <View
-          style={{
-            flex: Math.max(0, total - (pKcal + cKcal + fKcal)),
-            backgroundColor: tokens.bg2,
-          }}
-        />
-      </View>
-      <View style={styles.macroLegendRow}>
-        <MacroLegend label="P" value={proteinG} color={tokens.ink} />
-        <MacroLegend label="C" value={carbsG} color={tokens.cool} />
-        <MacroLegend label="F" value={fatG} color={tokens.accentInk} />
-      </View>
-    </View>
-  );
-}
-
-function MacroLegend({
-  label,
-  value,
-  color,
-}: {
-  label: string;
-  value: number;
-  color: string;
-}) {
-  return (
-    <View style={styles.macroLegend}>
-      <View style={[styles.macroSwatch, { backgroundColor: color }]} />
-      <Text style={styles.macroLetter}>{label}</Text>
-      <Text style={[styles.macroValue, textStyles.tnum]}>
-        {formatMacro(value)}
-      </Text>
-    </View>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// SlotCard — one of four daily slots. Empty card shows a + log CTA;
-// populated card shows the meal(s) name + kcal.
+// SlotCard — full-width row. Populated card: kicker + name + macros line
+// + ✓ ok icon. Empty card: dashed border + "+ add <slot>".
+//
+// Past-day empty slots render as a muted "—" line rather than a CTA, since
+// we don't support backdated logging via this entry point.
 // ─────────────────────────────────────────────────────────────────────────────
 function SlotCard({
   slot,
   meals,
+  canLog,
   onLog,
 }: {
   slot: MealSlot;
   meals: ReadonlyArray<Meal>;
+  canLog: boolean;
   onLog: () => void;
 }) {
-  const isEmpty = meals.length === 0;
-  if (isEmpty) {
+  if (meals.length === 0) {
+    if (!canLog) {
+      return (
+        <View style={[styles.slotCard, styles.slotCardPast]}>
+          <View style={styles.slotHeadRow}>
+            <Text style={[styles.slotKicker, textStyles.cap]}>
+              {SLOT_LABEL[slot]}
+            </Text>
+            <Text style={styles.slotPastDash}>—</Text>
+          </View>
+        </View>
+      );
+    }
     return (
       <Pressable
         onPress={onLog}
@@ -253,57 +312,85 @@ function SlotCard({
         style={({ pressed }) => [
           styles.slotCard,
           styles.slotCardEmpty,
-          pressed && { opacity: 0.65 },
+          pressed && { opacity: 0.6 },
         ]}>
-        <Text style={[styles.slotLabel, textStyles.cap]}>{SLOT_LABEL[slot]}</Text>
         <View style={styles.slotEmptyRow}>
           <Glyph name="plus" color={tokens.ink3} size={11} />
           <Text style={[styles.slotEmptyText, textStyles.cap]}>
-            log {SLOT_LABEL[slot]}
+            add {SLOT_LABEL[slot]}
           </Text>
         </View>
       </Pressable>
     );
   }
 
-  // Sum kcal across all meals in this slot — happens rarely (most
-  // slots have one entry) but multi-snack days shouldn't render
-  // truncated.
+  // Single primary meal headlines the card. If a slot has additional
+  // entries (multi-snack day), surface a "+N" tail next to the name.
+  const primary = meals[0];
+  const primaryName = primary.name ?? 'Meal';
   const slotKcal = meals.reduce((a, m) => a + (m.kcal ?? 0), 0);
-  const primaryName =
-    meals.length === 1
-      ? meals[0].name ?? 'Meal'
-      : `${meals[0].name ?? 'Meal'} +${meals.length - 1}`;
+  const slotP = meals.reduce((a, m) => a + (m.proteinG ?? 0), 0);
+  const slotC = meals.reduce((a, m) => a + (m.carbsG ?? 0), 0);
+  const slotF = meals.reduce((a, m) => a + (m.fatG ?? 0), 0);
 
   return (
     <Pressable
-      onPress={onLog}
+      onPress={canLog ? onLog : undefined}
       accessibilityRole="button"
-      accessibilityLabel={`Add to ${slot}`}
+      accessibilityLabel={`${slot} · ${primaryName}`}
       style={({ pressed }) => [
         styles.slotCard,
         styles.slotCardFilled,
-        pressed && { opacity: 0.75 },
+        pressed && canLog && { opacity: 0.75 },
       ]}>
-      <Text style={[styles.slotLabel, textStyles.cap]}>{SLOT_LABEL[slot]}</Text>
-      <Text numberOfLines={1} style={styles.slotMealName}>
-        {primaryName}
-      </Text>
-      <View style={styles.slotKcalRow}>
-        <Text style={[styles.slotKcal, textStyles.tnum]}>
-          {Math.round(slotKcal)}
-        </Text>
-        <Text style={styles.slotKcalUnit}>kcal</Text>
+      <View style={styles.slotInner}>
+        <View style={styles.slotBody}>
+          <Text style={[styles.slotKicker, textStyles.cap]}>
+            {SLOT_LABEL[slot]}
+            {meals.length > 1 && (
+              <>
+                <Text style={styles.slotKickerDot}>{'  ·  '}</Text>
+                <Text>+{meals.length - 1}</Text>
+              </>
+            )}
+          </Text>
+          <Text numberOfLines={1} style={styles.slotMealName}>
+            {primaryName}
+          </Text>
+          <Text style={[styles.slotMacroLine, textStyles.tnum]}>
+            <Text style={styles.slotMacroNum}>{Math.round(slotKcal)}</Text>
+            <Text style={styles.slotMacroUnit}> kcal</Text>
+            <Text style={styles.slotMacroSep}>{'  ·  '}</Text>
+            <Text style={styles.slotMacroNum}>P {formatMacro(slotP)}</Text>
+            <Text style={styles.slotMacroSep}>{'  ·  '}</Text>
+            <Text style={styles.slotMacroNum}>C {formatMacro(slotC)}</Text>
+            <Text style={styles.slotMacroSep}>{'  ·  '}</Text>
+            <Text style={styles.slotMacroNum}>F {formatMacro(slotF)}</Text>
+          </Text>
+        </View>
+        <View style={styles.slotCheck}>
+          <Svg width={11} height={11} viewBox="0 0 12 12">
+            <Path
+              d="M2.5 6L5 8.5 9.5 3.5"
+              stroke="#1F7A3A"
+              strokeWidth={1.6}
+              fill="none"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </Svg>
+        </View>
       </View>
     </Pressable>
   );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// LibrarySection — reusable meals built via #87's composer. Carries
-// no eatenAt; tap a row to edit, tap the dashed CTA to create a new one.
+// LibraryStrip — horizontal scroll of saved library meals. Each card
+// shows the meal name + kcal. Tap → /meals/<id> (edit). Trailing "+"
+// card → /meals/new (composer).
 // ─────────────────────────────────────────────────────────────────────────────
-function LibrarySection({
+function LibraryStrip({
   meals,
   onTapMeal,
   onCreate,
@@ -313,131 +400,76 @@ function LibrarySection({
   onCreate: () => void;
 }) {
   return (
-    <View style={styles.recentOuter}>
-      <Text style={[styles.kicker, textStyles.cap, styles.sectionKicker]}>
-        library
-      </Text>
-      {meals.length === 0 ? (
-        <Text style={styles.recentEmptyText}>
-          no saved meals yet — build one for one-tap logging
+    <View style={styles.libraryOuter}>
+      <View style={styles.libraryHeader}>
+        <Text style={[styles.kicker, textStyles.cap]}>
+          your library · {meals.length} meal{meals.length === 1 ? '' : 's'}
         </Text>
-      ) : (
-        <View style={styles.recentCard}>
-          {meals.map((m, i) => {
-            const isLast = i === meals.length - 1;
-            return (
-              <Pressable
-                key={m.id}
-                onPress={() => onTapMeal(m.id)}
-                accessibilityRole="button"
-                accessibilityLabel={`Edit ${m.name ?? 'Meal'}`}
-                style={({ pressed }) => [
-                  styles.recentRow,
-                  !isLast && styles.recentRowBorder,
-                  pressed && { opacity: 0.7 },
-                ]}>
-                <View style={styles.recentBody}>
-                  <Text numberOfLines={1} style={styles.recentName}>
-                    {m.name ?? 'Meal'}
-                  </Text>
-                </View>
-                <View style={styles.recentMetricsCol}>
-                  <Text style={[styles.recentKcal, textStyles.tnum]}>
-                    {Math.round(m.kcal ?? 0)}
-                  </Text>
-                  <Text style={styles.recentKcalUnit}>kcal</Text>
-                </View>
-                <Glyph name="chev" color={tokens.ink3} />
-              </Pressable>
-            );
-          })}
-        </View>
-      )}
-      <Pressable
-        onPress={onCreate}
-        style={({ pressed }) => [
-          styles.newMealBtn,
-          pressed && { opacity: 0.55 },
-        ]}>
-        <Glyph name="plus" color={tokens.ink3} size={11} />
-        <Text style={[styles.newMealBtnText, textStyles.cap]}>new meal</Text>
-      </Pressable>
-    </View>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// RecentMeals — desc list of recently-logged meals. Tap is a no-op
-// for now; edit support lands with #93.
-// ─────────────────────────────────────────────────────────────────────────────
-const WEEKDAY_FMT = new Intl.DateTimeFormat('en', { weekday: 'short' });
-const MONTH_DAY_FMT = new Intl.DateTimeFormat('en', { day: '2-digit', month: 'short' });
-
-function RecentMeals({ meals }: { meals: ReadonlyArray<Meal> }) {
-  if (meals.length === 0) {
-    return (
-      <View style={styles.recentOuter}>
-        <Text style={[styles.kicker, textStyles.cap, styles.sectionKicker]}>
-          recent
-        </Text>
-        <Text style={styles.recentEmptyText}>no meals logged yet</Text>
+        <Pressable
+          onPress={onCreate}
+          accessibilityRole="button"
+          accessibilityLabel="Create new meal"
+          hitSlop={6}
+          style={({ pressed }) => [
+            styles.libraryNewLink,
+            pressed && { opacity: 0.55 },
+          ]}>
+          <Glyph name="plus" color={tokens.accentInk} size={11} />
+          <Text style={[styles.libraryNewLinkText, textStyles.cap]}>
+            new meal
+          </Text>
+        </Pressable>
       </View>
-    );
-  }
-  return (
-    <View style={styles.recentOuter}>
-      <Text style={[styles.kicker, textStyles.cap, styles.sectionKicker]}>
-        recent
-      </Text>
-      <View style={styles.recentCard}>
-        {meals.map((m, i) => {
-          const isLast = i === meals.length - 1;
-          const eatenAt = m.eatenAt ?? new Date(0);
-          return (
-            <View
-              key={m.id}
-              style={[styles.recentRow, !isLast && styles.recentRowBorder]}>
-              <View style={styles.recentDayCol}>
-                <Text style={[styles.recentDay, textStyles.cap]}>
-                  {WEEKDAY_FMT.format(eatenAt).toLowerCase()}
-                </Text>
-                <Text style={styles.recentDate}>
-                  {MONTH_DAY_FMT.format(eatenAt).toLowerCase()}
-                </Text>
-              </View>
-              <View style={styles.recentBody}>
-                <Text numberOfLines={1} style={styles.recentName}>
-                  {m.name ?? 'Meal'}
-                </Text>
-                <Text style={styles.recentTimeSub}>
-                  {formatClock(eatenAt)}
-                </Text>
-              </View>
-              <View style={styles.recentMetricsCol}>
-                <Text style={[styles.recentKcal, textStyles.tnum]}>
-                  {Math.round(m.kcal ?? 0)}
-                </Text>
-                <Text style={styles.recentKcalUnit}>kcal</Text>
-              </View>
-            </View>
-          );
-        })}
-      </View>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.libraryScroll}>
+        {meals.map((m) => (
+          <Pressable
+            key={m.id}
+            onPress={() => onTapMeal(m.id)}
+            accessibilityRole="button"
+            accessibilityLabel={`Edit ${m.name ?? 'meal'}`}
+            style={({ pressed }) => [
+              styles.libraryCard,
+              pressed && { opacity: 0.75 },
+            ]}>
+            <Text numberOfLines={2} style={styles.libraryCardName}>
+              {m.name ?? 'Meal'}
+            </Text>
+            <Text style={[styles.libraryCardKcal, textStyles.tnum]}>
+              {Math.round(m.kcal ?? 0)}
+              <Text style={styles.libraryCardKcalUnit}> kcal</Text>
+            </Text>
+          </Pressable>
+        ))}
+        <Pressable
+          onPress={onCreate}
+          accessibilityRole="button"
+          accessibilityLabel="New meal"
+          style={({ pressed }) => [
+            styles.libraryAddCard,
+            pressed && { opacity: 0.55 },
+          ]}>
+          <Glyph name="plus" color={tokens.ink3} size={14} />
+        </Pressable>
+      </ScrollView>
     </View>
   );
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
-function formatClock(d: Date): string {
-  return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
-}
-
 function formatMacro(g: number): string {
   if (g === 0) return '0g';
   if (Number.isInteger(g)) return `${g}g`;
   return `${Math.round(g * 10) / 10}g`;
 }
+
+// `selectedDay` is kept referentially stable across renders but we don't
+// want eslint to flag the implicit `DayMeals` type import.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+type _ReferencedTypes = DayMeals;
 
 // ─── Styles ────────────────────────────────────────────────────────────────
 
@@ -452,67 +484,50 @@ const styles = StyleSheet.create({
     color: tokens.ink4,
     letterSpacing: 2.2,
   },
-  sectionKicker: {
-    marginBottom: 10,
-  },
 
-  // Hero card
+  // Hero
   heroOuter: {
-    paddingTop: 4,
+    paddingTop: 14,
     paddingHorizontal: 22,
   },
   heroCard: {
     backgroundColor: tokens.card,
-    borderRadius: 22,
-    paddingTop: 14,
-    paddingHorizontal: 18,
-    paddingBottom: 14,
+    borderWidth: 1,
+    borderColor: tokens.line,
+    borderRadius: 18,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 12 },
     shadowRadius: 24,
     shadowOpacity: 0.04,
   },
+  heroHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
+  },
   heroNumberRow: {
     flexDirection: 'row',
     alignItems: 'baseline',
     gap: 8,
-    marginTop: 6,
+    marginTop: 8,
   },
   heroNumber: {
     fontFamily: fonts.monoSemibold,
-    fontSize: 38,
+    fontSize: 36,
     color: tokens.ink,
-    letterSpacing: -1.14,
-    lineHeight: 42,
+    letterSpacing: -1.26,
+    lineHeight: 36,
   },
-  heroNumberSep: {
-    fontFamily: fonts.mono,
-    fontSize: 22,
-    color: tokens.ink4,
-  },
-  heroBudget: {
-    fontFamily: fonts.mono,
-    fontSize: 18,
-    color: tokens.ink4,
-    letterSpacing: -0.18,
-  },
-  heroSub: {
-    marginTop: 6,
+  heroNumberUnit: {
     fontFamily: fonts.mono,
     fontSize: 13,
     color: tokens.ink3,
-    letterSpacing: 0.4,
-  },
-  heroSubStrong: {
-    fontFamily: fonts.monoMedium,
-    color: tokens.ink,
-  },
-  heroSubMute: {
-    color: tokens.ink4,
   },
 
   progressTrack: {
-    marginTop: 12,
+    marginTop: 14,
     height: 6,
     backgroundColor: tokens.bg2,
     borderRadius: 3,
@@ -524,215 +539,301 @@ const styles = StyleSheet.create({
     borderRadius: 3,
   },
 
-  macroBlock: {
-    marginTop: 14,
-  },
-  macroBar: {
-    flexDirection: 'row',
-    height: 8,
-    borderRadius: 4,
-    overflow: 'hidden',
-    backgroundColor: tokens.bg2,
-  },
-  macroLegendRow: {
+  heroSubRow: {
+    marginTop: 9,
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginTop: 10,
-    paddingHorizontal: 4,
+    alignItems: 'baseline',
   },
-  macroLegend: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
+  heroSubLeft: {
+    fontFamily: fonts.mono,
+    fontSize: 11,
+    letterSpacing: 0.44,
   },
-  macroSwatch: {
-    width: 8,
-    height: 8,
-    borderRadius: 999,
+  heroSubRight: {
+    fontFamily: fonts.mono,
+    fontSize: 11,
+    letterSpacing: 0.44,
   },
-  macroLetter: {
+  heroSubStrong: {
     fontFamily: fonts.monoSemibold,
-    fontSize: 12,
-    color: tokens.ink3,
-    letterSpacing: 1.92,
-  },
-  macroValue: {
-    fontFamily: fonts.monoMedium,
-    fontSize: 13,
     color: tokens.ink,
-    letterSpacing: -0.06,
+  },
+  heroSubMute: {
+    color: tokens.ink4,
   },
 
-  // Slot cards
-  slotsOuter: {
-    paddingTop: 18,
+  // This-week strip
+  thisWeekRow: {
+    paddingTop: 16,
+    paddingHorizontal: 22,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
+  },
+  thisWeekStat: {
+    fontFamily: fonts.mono,
+    fontSize: 11,
+    letterSpacing: 0.44,
+  },
+
+  // Day strip
+  dayStripOuter: {
+    paddingTop: 12,
     paddingHorizontal: 22,
   },
-  slotsGrid: {
+  dayStrip: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
+    gap: 5,
+  },
+  dayCell: {
+    flex: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 2,
+    borderRadius: 12,
+    alignItems: 'center',
+    gap: 5,
+  },
+  dayCellDefault: {
+    backgroundColor: tokens.bg,
+    borderWidth: 1,
+    borderColor: tokens.line,
+  },
+  dayCellSelected: {
+    backgroundColor: tokens.ink,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowRadius: 14,
+    shadowOpacity: 0.1,
+  },
+  dayDow: {
+    fontFamily: fonts.mono,
+    fontSize: 10,
+    color: tokens.ink4,
+    letterSpacing: 1.8,
+  },
+  dayDowSelected: {
+    color: tokens.bg,
+    opacity: 0.6,
+  },
+  dayDowToday: {
+    fontFamily: fonts.monoSemibold,
+    color: tokens.ink,
+  },
+  dayDate: {
+    fontFamily: fonts.monoSemibold,
+    fontSize: 14,
+    color: tokens.ink,
+    letterSpacing: -0.14,
+  },
+  dayDateSelected: {
+    color: tokens.bg,
+  },
+  statusDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 999,
+  },
+  statusDotOk: {
+    backgroundColor: tokens.accentInk,
+  },
+  statusDotOkSelected: {
+    backgroundColor: tokens.accent,
+  },
+  statusDotEmpty: {
+    borderWidth: 1,
+    borderColor: tokens.line,
+    backgroundColor: 'transparent',
+  },
+
+  // Selected day + slot cards
+  selectedDayOuter: {
+    paddingTop: 16,
+    paddingHorizontal: 22,
+  },
+  selectedDayHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
+    marginBottom: 10,
+  },
+  selectedDayStat: {
+    fontFamily: fonts.mono,
+    fontSize: 11,
+    letterSpacing: 0.44,
+  },
+  slotList: {
     gap: 8,
   },
   slotCard: {
-    flexBasis: '48%',
-    flexGrow: 1,
+    borderRadius: 14,
+  },
+  slotCardEmpty: {
     paddingVertical: 14,
     paddingHorizontal: 14,
-    borderRadius: 14,
-    gap: 6,
+    backgroundColor: tokens.bg,
+    borderWidth: 1,
+    borderColor: tokens.line2,
+    borderStyle: 'dashed',
+  },
+  slotCardPast: {
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    backgroundColor: tokens.bg,
+    borderWidth: 1,
+    borderColor: tokens.line,
+    opacity: 0.6,
+  },
+  slotCardFilled: {
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    backgroundColor: tokens.card,
+    borderWidth: 1,
+    borderColor: tokens.line,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowRadius: 3,
     shadowOpacity: 0.02,
   },
-  slotCardEmpty: {
-    backgroundColor: tokens.card,
-    borderWidth: 1,
-    borderColor: tokens.line2,
-    borderStyle: 'dashed',
+  slotHeadRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
-  slotCardFilled: {
-    backgroundColor: tokens.card,
-    borderWidth: 1,
-    borderColor: tokens.line,
-  },
-  slotLabel: {
+  slotPastDash: {
     fontFamily: fonts.mono,
-    fontSize: 11,
+    fontSize: 12,
     color: tokens.ink4,
-    letterSpacing: 1.76,
   },
   slotEmptyRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingVertical: 4,
+    justifyContent: 'center',
+    gap: 8,
   },
   slotEmptyText: {
-    fontFamily: fonts.monoSemibold,
-    fontSize: 12,
-    color: tokens.ink3,
-    letterSpacing: 1.76,
-  },
-  slotMealName: {
-    fontFamily: fonts.sansSemibold,
-    fontSize: 15,
-    color: tokens.ink,
-    letterSpacing: -0.15,
-  },
-  slotKcalRow: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    gap: 3,
-  },
-  slotKcal: {
-    fontFamily: fonts.monoSemibold,
-    fontSize: 14,
-    color: tokens.ink,
-  },
-  slotKcalUnit: {
     fontFamily: fonts.mono,
     fontSize: 11,
     color: tokens.ink4,
+    letterSpacing: 1.32,
+    fontStyle: 'italic',
+  },
+  slotInner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  slotBody: {
+    flex: 1,
+    minWidth: 0,
+  },
+  slotKicker: {
+    fontFamily: fonts.mono,
+    fontSize: 9,
+    color: tokens.ink4,
+    letterSpacing: 1.98,
+  },
+  slotKickerDot: {
+    color: tokens.ink3,
+  },
+  slotMealName: {
+    fontFamily: fonts.sansSemibold,
+    fontSize: 14,
+    color: tokens.ink,
+    letterSpacing: -0.07,
+    marginTop: 4,
+  },
+  slotMacroLine: {
+    marginTop: 3,
+    fontFamily: fonts.mono,
+    fontSize: 10,
+    color: tokens.ink3,
+    letterSpacing: 0.4,
+  },
+  slotMacroNum: {
+    color: tokens.ink3,
+  },
+  slotMacroUnit: {
+    color: tokens.ink4,
+  },
+  slotMacroSep: {
+    color: tokens.ink4,
+  },
+  slotCheck: {
+    width: 22,
+    height: 22,
+    borderRadius: 999,
+    backgroundColor: 'rgba(31,122,58,0.10)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 
-  // Recent
-  recentOuter: {
-    paddingTop: 20,
+  // Library strip
+  libraryOuter: {
+    paddingTop: 18,
+  },
+  libraryHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
     paddingHorizontal: 22,
+    marginBottom: 10,
   },
-  recentEmptyText: {
-    fontFamily: fonts.mono,
-    fontSize: 13,
-    color: tokens.ink4,
-    fontStyle: 'italic',
-    letterSpacing: 0.26,
+  libraryNewLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
   },
-  recentCard: {
+  libraryNewLinkText: {
+    fontFamily: fonts.monoSemibold,
+    fontSize: 11,
+    color: tokens.accentInk,
+    letterSpacing: 2.2,
+  },
+  libraryScroll: {
+    paddingHorizontal: 22,
+    gap: 8,
+  },
+  libraryCard: {
+    width: 130,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
     backgroundColor: tokens.card,
     borderWidth: 1,
     borderColor: tokens.line,
-    borderRadius: 14,
-    overflow: 'hidden',
+    borderRadius: 12,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowRadius: 3,
     shadowOpacity: 0.02,
   },
-  recentRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 14,
-    gap: 12,
+  libraryCardName: {
+    fontFamily: fonts.sansSemibold,
+    fontSize: 12,
+    color: tokens.ink,
+    letterSpacing: -0.06,
+    lineHeight: 15,
   },
-  recentRowBorder: {
-    borderBottomColor: tokens.line,
-    borderBottomWidth: 1,
+  libraryCardKcal: {
+    marginTop: 6,
+    fontFamily: fonts.monoSemibold,
+    fontSize: 12,
+    color: tokens.ink,
   },
-  recentDayCol: {
+  libraryCardKcalUnit: {
+    fontFamily: fonts.mono,
+    fontSize: 9,
+    color: tokens.ink4,
+  },
+  libraryAddCard: {
     width: 60,
-  },
-  recentDay: {
-    fontFamily: fonts.monoSemibold,
-    fontSize: 11,
-    color: tokens.ink,
-    letterSpacing: 1.76,
-  },
-  recentDate: {
-    fontFamily: fonts.mono,
-    fontSize: 11,
-    color: tokens.ink4,
-    fontStyle: 'italic',
-    marginTop: 2,
-  },
-  recentBody: {
-    flex: 1,
-    minWidth: 0,
-  },
-  recentName: {
-    fontFamily: fonts.sansMedium,
-    fontSize: 14,
-    color: tokens.ink,
-  },
-  recentTimeSub: {
-    marginTop: 2,
-    fontFamily: fonts.mono,
-    fontSize: 11,
-    color: tokens.ink4,
-    letterSpacing: 0.4,
-  },
-  recentMetricsCol: {
-    alignItems: 'flex-end',
-  },
-  recentKcal: {
-    fontFamily: fonts.monoSemibold,
-    fontSize: 15,
-    color: tokens.ink,
-  },
-  recentKcalUnit: {
-    fontFamily: fonts.mono,
-    fontSize: 11,
-    color: tokens.ink4,
-  },
-
-  newMealBtn: {
-    marginTop: 10,
-    paddingVertical: 11,
-    paddingHorizontal: 12,
-    borderRadius: 10,
+    paddingVertical: 10,
     borderWidth: 1,
     borderColor: tokens.line2,
     borderStyle: 'dashed',
-    flexDirection: 'row',
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 7,
-  },
-  newMealBtnText: {
-    fontFamily: fonts.monoSemibold,
-    fontSize: 12,
-    color: tokens.ink3,
-    letterSpacing: 1.92,
   },
 });

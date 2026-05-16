@@ -22,7 +22,7 @@ import { useMemo } from 'react';
 import { db } from '@/src/db';
 import { meals, type Meal } from '@/src/db/schema';
 import { useNow } from '@/src/lib/use-now';
-import { addDays, startOfDay } from '@/src/lib/time';
+import { addDays, dowMondayFirst, startOfDay } from '@/src/lib/time';
 
 /** Slot buckets used by the per-slot index. Time windows are inclusive
  *  on the start and exclusive on the end. The order matches what's
@@ -135,6 +135,90 @@ export function useRecentMeals(limit: number = 8): ReadonlyArray<Meal> {
       .limit(limit),
   );
   return data ?? [];
+}
+
+export type DayMeals = {
+  readonly date: Date;
+  readonly meals: ReadonlyArray<Meal>;
+  readonly bySlot: Record<MealSlot, ReadonlyArray<Meal>>;
+  readonly totalKcal: number;
+};
+
+export type WeekMealsState = {
+  /** Monday-of-current-week at local midnight. */
+  readonly weekStart: Date;
+  /** Index 0 = Monday, 6 = Sunday. Each bucket holds that calendar day's
+   *  *logged* meals (eatenAt is non-null and falls inside the day). */
+  readonly days: ReadonlyArray<DayMeals>;
+  /** Total kcal across the entire week so far (sum of `days[i].totalKcal`). */
+  readonly weekKcal: number;
+  /** How many slot positions across the week have at least one logged meal. */
+  readonly plannedCount: number;
+  /** Days with at least one logged meal — used for the μ kcal/day strip stat. */
+  readonly daysWithMeals: number;
+};
+
+export function useThisWeekMeals(): WeekMealsState {
+  // Re-tick once a minute so a meal logged near midnight migrates buckets
+  // without the user needing to refresh. Same cadence as `useTodayMeals`.
+  const now = useNow(60_000);
+  const todayStart = startOfDay(now);
+  const todayDow = dowMondayFirst(now);
+  const weekStart = addDays(todayStart, -todayDow);
+  const weekEnd = addDays(weekStart, 7);
+
+  const { data } = useLiveQuery(
+    db
+      .select()
+      .from(meals)
+      .where(
+        and(
+          isNotNull(meals.eatenAt),
+          gte(meals.eatenAt, weekStart),
+          lt(meals.eatenAt, weekEnd),
+        ),
+      ),
+  );
+
+  // Hot path memo. `weekStart.getTime()` is stable across a single calendar
+  // week so the bucketing only re-runs when meals change or we cross a day.
+  const weekStartKey = weekStart.getTime();
+  return useMemo<WeekMealsState>(() => {
+    const days: DayMeals[] = [];
+    let weekKcal = 0;
+    let plannedCount = 0;
+    let daysWithMeals = 0;
+    for (let i = 0; i < 7; i++) {
+      const date = addDays(weekStart, i);
+      const dayEnd = addDays(date, 1);
+      const dayMeals = (data ?? []).filter((m) => {
+        const t = m.eatenAt;
+        return t != null && t >= date && t < dayEnd;
+      });
+      const bySlot: Record<MealSlot, Meal[]> = {
+        breakfast: [],
+        lunch: [],
+        dinner: [],
+        snack: [],
+      };
+      let totalKcal = 0;
+      for (const m of dayMeals) {
+        const hour = m.eatenAt?.getHours() ?? 12;
+        bySlot[slotForHour(hour)].push(m);
+        totalKcal += m.kcal ?? 0;
+      }
+      // plannedCount counts populated slot-positions, mirroring the
+      // designs/screen-meals-week.jsx semantics (one entry per slot).
+      for (const slot of MEAL_SLOTS) {
+        if (bySlot[slot].length > 0) plannedCount++;
+      }
+      if (dayMeals.length > 0) daysWithMeals++;
+      weekKcal += totalKcal;
+      days.push({ date, meals: dayMeals, bySlot, totalKcal });
+    }
+    return { weekStart, days, weekKcal, plannedCount, daysWithMeals };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, weekStartKey]);
 }
 
 export function useLibraryMeals(): ReadonlyArray<Meal> {
