@@ -30,6 +30,8 @@ import {
   useFeatureStreaks,
   type FeatureStreakStat,
 } from '@/src/hooks/use-feature-streaks';
+import { useMealPreferences } from '@/src/hooks/use-meal-preferences';
+import { useThisWeekMeals } from '@/src/hooks/use-meals';
 import { useWeightHistory } from '@/src/hooks/use-weight';
 import { useNow } from '@/src/lib/use-now';
 import { addDays, dowMondayFirst, startOfDay } from '@/src/lib/time';
@@ -128,6 +130,16 @@ type DeltaPoint = {
   readonly future: boolean;
 };
 
+type DeficitPoint = {
+  readonly date: Date;
+  /** Positive = cut (under budget), negative = surplus. Null for
+   *  days with no meals logged or future days. */
+  readonly deficit: number | null;
+  readonly future: boolean;
+};
+
+const DEFICIT_BAR_CHART_H = 140;
+
 export default function TrendsScreen() {
   const router = useRouter();
   // Once-a-minute tick keeps the dateline live across midnight without
@@ -136,6 +148,8 @@ export default function TrendsScreen() {
   const combined = useCombinedStreak();
   const features = useFeatureStreaks();
   const weightHistory = useWeightHistory({ days: 90 });
+  const week = useThisWeekMeals();
+  const mealPrefs = useMealPreferences();
   // Last DOT_DAYS slice of the 90-day window for the row of dots.
   const dotWindow = combined.hitsPerDay.slice(-DOT_DAYS);
 
@@ -143,6 +157,44 @@ export default function TrendsScreen() {
     () => buildWeightDeltas(weightHistory.points, now),
     [weightHistory.points, now],
   );
+
+  // Per-day deficit for the week. Days the user didn't log meals
+  // collapse to a midline placeholder — counting "no log" as a full
+  // budget deficit would inflate the week's total. Same logic the
+  // /meals hero's rolling deficit row uses.
+  const deficitDays = useMemo<ReadonlyArray<DeficitPoint>>(() => {
+    const todayDow = dowMondayFirst(now);
+    return week.days.map((d, i) => {
+      const isFuture = i > todayDow;
+      if (isFuture) return { date: d.date, deficit: null, future: true };
+      if (d.meals.length === 0) {
+        return { date: d.date, deficit: null, future: false };
+      }
+      return {
+        date: d.date,
+        deficit: mealPrefs.budgetKcal - d.totalKcal,
+        future: false,
+      };
+    });
+  }, [week, mealPrefs.budgetKcal, now]);
+
+  const deficitSummary = useMemo(() => {
+    let total = 0;
+    let n = 0;
+    for (const d of deficitDays) {
+      if (d.deficit === null) continue;
+      total += d.deficit;
+      n++;
+    }
+    return {
+      total,
+      mean: n > 0 ? total / n : 0,
+      loggedDays: n,
+      target: mealPrefs.deficitKcal,
+      // 7700 kcal ≈ 1 kg of body fat.
+      kgEquivalent: total / 7700,
+    };
+  }, [deficitDays, mealPrefs.deficitKcal]);
 
   return (
     <View style={{ flex: 1, backgroundColor: tokens.bg }}>
@@ -278,11 +330,53 @@ export default function TrendsScreen() {
           </View>
         </Pressable>
 
-        {/* Placeholder until #101 fills the deficit bars section. */}
-        <View style={styles.placeholderOuter}>
-          <Text style={[styles.kicker, textStyles.cap]}>coming next</Text>
-          <Text style={styles.placeholder}>7d deficit bars</Text>
-        </View>
+        {/* ── Deficit card ────────────────────────────────────────── */}
+        <Pressable
+          onPress={() => router.push('/meals' as never)}
+          accessibilityRole="button"
+          accessibilityLabel="See meal totals"
+          style={({ pressed }) => [
+            styles.weightOuter,
+            pressed && { opacity: 0.85 },
+          ]}>
+          <View style={styles.weightHeader}>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={[styles.kicker, textStyles.cap]}>
+                deficit · 7d
+              </Text>
+              <View style={styles.weightHeroRow}>
+                <Text style={[styles.weightHeroNumber, textStyles.tnum]}>
+                  {formatSignedKcalLong(deficitSummary.total)}
+                </Text>
+                <Text style={styles.weightUnit}>kcal</Text>
+                <Text style={styles.deficitKgEq}>
+                  ≈ {formatKgDelta(deficitSummary.kgEquivalent)}
+                </Text>
+              </View>
+              <Text style={styles.deficitHint}>
+                {deficitSummary.loggedDays > 0 ? (
+                  <>
+                    <Text>μ {formatSignedKcal(deficitSummary.mean)}</Text>
+                    <Text> / day · target </Text>
+                    <Text>{formatSignedKcal(deficitSummary.target)}</Text>
+                  </>
+                ) : (
+                  <Text>log a meal to see deficit · target {formatSignedKcal(deficitSummary.target)}</Text>
+                )}
+              </Text>
+            </View>
+            <View style={styles.seeAll}>
+              <Text style={[styles.seeAllText, textStyles.cap]}>see all</Text>
+              <Glyph name="chev" color={tokens.accentInk} />
+            </View>
+          </View>
+          <View style={styles.weightCard}>
+            <DeficitBarChart
+              days={deficitDays}
+              targetKcal={deficitSummary.target}
+            />
+          </View>
+        </Pressable>
       </ScrollView>
 
       <TabBar active="trends" />
@@ -538,6 +632,183 @@ function formatDelta(kg: number): string {
   // renders as "−0.05" instead of "0.0".
   const value = abs >= 0.1 ? abs.toFixed(1) : abs.toFixed(2);
   return `${sign}${value}`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Deficit display formatters. Convention across the app: positive
+// deficit value internally = cut (under budget). For display we
+// flip the sign so a cut shows as "−1,013" — matches what users
+// expect from diet apps and the design source.
+// ─────────────────────────────────────────────────────────────────────────────
+function formatSignedKcal(kcal: number): string {
+  const rounded = Math.round(kcal);
+  if (rounded > 0) return `−${rounded.toLocaleString()}`;
+  if (rounded < 0) return `+${Math.abs(rounded).toLocaleString()}`;
+  return '0';
+}
+function formatSignedKcalLong(kcal: number): string {
+  return formatSignedKcal(kcal);
+}
+function formatKgDelta(kg: number): string {
+  if (Math.abs(kg) < 0.05) return '0 kg';
+  const sign = kg > 0 ? '−' : '+';
+  return `${sign}${Math.abs(kg).toFixed(1)} kg`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DeficitBarChart — Mon-Sun bars centered on a 0-line. Bars above
+// midline = cut (green); below = surplus (warn). A dashed accent
+// line marks the planned daily deficit so the user sees at-a-glance
+// whether they're hitting the cut.
+// ─────────────────────────────────────────────────────────────────────────────
+function DeficitBarChart({
+  days,
+  targetKcal,
+}: {
+  days: ReadonlyArray<DeficitPoint>;
+  targetKcal: number;
+}) {
+  const w = 290;
+  const h = DEFICIT_BAR_CHART_H;
+  const padT = 20;
+  const padB = 22;
+  const padL = 4;
+  const padR = 4;
+  const innerW = w - padL - padR;
+  const innerH = h - padT - padB;
+  const midY = padT + innerH / 2;
+
+  // Scale headroom for both the target line and the actual swings.
+  // Floor at 800 keeps low-deficit weeks from looking compressed.
+  const scaleMax = Math.max(
+    800,
+    Math.abs(targetKcal) * 1.3,
+    ...days.map((d) => (d.deficit === null ? 0 : Math.abs(d.deficit))),
+  );
+  const targetY = midY - (targetKcal / scaleMax) * (innerH / 2);
+
+  const slot = innerW / days.length;
+  const barW = Math.max(14, slot - 6);
+
+  const futureIdx = days.findIndex((d) => d.future);
+  const todayDow = futureIdx === -1 ? days.length - 1 : futureIdx - 1;
+
+  const anyData = days.some((d) => d.deficit !== null);
+  if (!anyData) {
+    return (
+      <View style={styles.deltaEmpty}>
+        <Text style={styles.deltaEmptyText}>
+          log meals this week to see your deficit
+        </Text>
+      </View>
+    );
+  }
+
+  return (
+    <View style={{ width: w, height: h }}>
+      <Svg width={w} height={h}>
+        {/* center 0-line */}
+        <Line
+          x1={padL}
+          y1={midY}
+          x2={padL + innerW}
+          y2={midY}
+          stroke={tokens.ink}
+          strokeOpacity={0.25}
+          strokeWidth={0.8}
+        />
+        {/* target line */}
+        {targetKcal !== 0 && (
+          <G>
+            <Line
+              x1={padL}
+              y1={targetY}
+              x2={padL + innerW}
+              y2={targetY}
+              stroke={tokens.accentInk}
+              strokeWidth={0.8}
+              strokeDasharray="3 3"
+              opacity={0.75}
+            />
+            <SvgText
+              x={padL + innerW - 2}
+              y={targetY - 4}
+              fontSize={8}
+              fontFamily={fonts.mono}
+              fill={tokens.accentInk}
+              textAnchor="end">
+              target {formatSignedKcal(targetKcal)}
+            </SvgText>
+          </G>
+        )}
+        <G>
+          {days.map((d, i) => {
+            const cx = padL + slot * i + slot / 2;
+            const x = cx - barW / 2;
+            if (d.deficit === null) {
+              return (
+                <Rect
+                  key={i}
+                  x={x}
+                  y={midY - 1}
+                  width={barW}
+                  height={2}
+                  rx={1}
+                  fill={tokens.line2}
+                  opacity={d.future ? 0.35 : 0.6}
+                />
+              );
+            }
+            const isCut = d.deficit > 0;
+            const magnitude = Math.abs(d.deficit) / scaleMax;
+            const barH = Math.max(3, magnitude * (innerH / 2));
+            const y = isCut ? midY - barH : midY;
+            const isToday = i === todayDow;
+            const labelY = isCut ? y - 5 : y + barH + 11;
+            return (
+              <G key={i}>
+                <Rect
+                  x={x}
+                  y={y}
+                  width={barW}
+                  height={barH}
+                  rx={2}
+                  fill={isCut ? '#1F7A3A' : tokens.warn}
+                  opacity={isToday ? 1 : 0.6}
+                />
+                <SvgText
+                  x={cx}
+                  y={labelY}
+                  fontSize={9}
+                  fontFamily={fonts.monoSemibold}
+                  fill={isCut ? '#1F7A3A' : tokens.warn}
+                  opacity={isToday ? 1 : 0.75}
+                  textAnchor="middle">
+                  {formatSignedKcal(d.deficit)}
+                </SvgText>
+              </G>
+            );
+          })}
+        </G>
+      </Svg>
+      <View style={styles.deltaDowRow}>
+        {days.map((_, i) => {
+          const isToday = i === todayDow;
+          return (
+            <Text
+              key={i}
+              style={[
+                styles.deltaDow,
+                textStyles.cap,
+                isToday && styles.deltaDowToday,
+              ]}>
+              {DOW_LABELS_MON_FIRST[i]}
+            </Text>
+          );
+        })}
+      </View>
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({
@@ -828,5 +1099,21 @@ const styles = StyleSheet.create({
   deltaDowToday: {
     fontFamily: fonts.monoSemibold,
     color: tokens.ink,
+  },
+
+  // Deficit card additions
+  deficitKgEq: {
+    marginLeft: 8,
+    fontFamily: fonts.monoSemibold,
+    fontSize: 12,
+    color: tokens.ink3,
+  },
+  deficitHint: {
+    marginTop: 4,
+    fontFamily: fonts.mono,
+    fontSize: 9.5,
+    color: tokens.ink4,
+    fontStyle: 'italic',
+    letterSpacing: 0.4,
   },
 });
