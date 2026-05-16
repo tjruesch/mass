@@ -647,13 +647,13 @@ const styles = StyleSheet.create({
   },
   sectionLabel: {
     fontFamily: fonts.mono,
-    fontSize: 9,
+    fontSize: 11,
     color: tokens.ink4,
-    letterSpacing: 1.98,
+    letterSpacing: 2.2,
   },
   sectionSub: {
     fontFamily: fonts.mono,
-    fontSize: 9,
+    fontSize: 11,
     color: tokens.ink3,
     fontStyle: 'italic',
   },
@@ -686,9 +686,9 @@ const styles = StyleSheet.create({
   },
   colKicker: {
     fontFamily: fonts.mono,
-    fontSize: 8.5,
+    fontSize: 11,
     color: tokens.ink4,
-    letterSpacing: 1.53,
+    letterSpacing: 1.76,
   },
   goalValueRow: {
     flexDirection: 'row',
@@ -704,7 +704,7 @@ const styles = StyleSheet.create({
   },
   goalValueUnit: {
     fontFamily: fonts.mono,
-    fontSize: 12,
+    fontSize: 14,
     color: tokens.ink3,
   },
   goalDateTap: {
@@ -712,9 +712,9 @@ const styles = StyleSheet.create({
   },
   goalHint: {
     fontFamily: fonts.mono,
-    fontSize: 9,
+    fontSize: 12,
     color: tokens.ink4,
-    marginTop: 2,
+    marginTop: 3,
     fontStyle: 'italic',
   },
   goalDivider: {
@@ -736,7 +736,7 @@ const styles = StyleSheet.create({
   },
   goalRateValue: {
     fontFamily: fonts.monoSemibold,
-    fontSize: 14,
+    fontSize: 16,
     color: tokens.ink,
   },
   safetyPill: {
@@ -752,8 +752,8 @@ const styles = StyleSheet.create({
   },
   safetyPillText: {
     fontFamily: fonts.monoSemibold,
-    fontSize: 8,
-    letterSpacing: 1.44,
+    fontSize: 11,
+    letterSpacing: 1.76,
     textTransform: 'uppercase',
   },
   safetyPillTextSafe: {
@@ -784,28 +784,28 @@ const styles = StyleSheet.create({
   },
   cardRowName: {
     fontFamily: fonts.sansMedium,
-    fontSize: 13,
+    fontSize: 15,
     color: tokens.ink,
   },
   cardRowSub: {
     fontFamily: fonts.mono,
-    fontSize: 9.5,
+    fontSize: 12,
     color: tokens.ink4,
-    marginTop: 2,
+    marginTop: 3,
     fontStyle: 'italic',
   },
 
   connectCta: {
-    paddingVertical: 8,
-    paddingHorizontal: 14,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
     borderRadius: 10,
     backgroundColor: tokens.ink,
   },
   connectCtaText: {
     fontFamily: fonts.monoSemibold,
-    fontSize: 10,
+    fontSize: 12,
     color: tokens.bg,
-    letterSpacing: 1.6,
+    letterSpacing: 1.92,
     textTransform: 'uppercase',
   },
 
@@ -860,9 +860,9 @@ const targetSheetStyles = StyleSheet.create({
   },
   kicker: {
     fontFamily: fonts.mono,
-    fontSize: 8.5,
+    fontSize: 11,
     color: tokens.ink4,
-    letterSpacing: 1.87,
+    letterSpacing: 2.2,
   },
   title: {
     fontFamily: fonts.sansSemibold,
@@ -877,9 +877,9 @@ const targetSheetStyles = StyleSheet.create({
   },
   closeBtnText: {
     fontFamily: fonts.monoSemibold,
-    fontSize: 10,
+    fontSize: 12,
     color: tokens.accentInk,
-    letterSpacing: 1.6,
+    letterSpacing: 1.92,
     textTransform: 'uppercase',
   },
   body: {
@@ -928,11 +928,11 @@ const targetSheetStyles = StyleSheet.create({
   },
   weightHint: {
     fontFamily: fonts.mono,
-    fontSize: 9.5,
+    fontSize: 12,
     color: tokens.ink4,
     marginTop: 6,
     fontStyle: 'italic',
-    letterSpacing: 0.38,
+    letterSpacing: 0.48,
   },
   stepperBtn: {
     width: 36,

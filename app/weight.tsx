@@ -579,20 +579,20 @@ const styles = StyleSheet.create({
   },
   statChipLabel: {
     fontFamily: fonts.mono,
-    fontSize: 8.5,
+    fontSize: 11,
     color: tokens.ink4,
-    letterSpacing: 1.53,
+    letterSpacing: 1.76,
   },
   statChipValue: {
     fontFamily: fonts.monoSemibold,
-    fontSize: 11,
+    fontSize: 13,
     color: tokens.ink,
-    letterSpacing: 0.4,
+    letterSpacing: 0.52,
   },
   statSeparator: {
     color: tokens.ink4,
     fontFamily: fonts.mono,
-    fontSize: 11,
+    fontSize: 13,
   },
 
   // Quick log
@@ -615,21 +615,21 @@ const styles = StyleSheet.create({
   },
   quickLogKicker: {
     fontFamily: fonts.mono,
-    fontSize: 9,
+    fontSize: 11,
     color: tokens.ink4,
-    letterSpacing: 1.98,
+    letterSpacing: 2.2,
   },
   quickLogTitle: {
     fontFamily: fonts.sansSemibold,
-    fontSize: 14,
+    fontSize: 16,
     color: tokens.ink,
     marginTop: 3,
   },
   quickLogSub: {
     fontFamily: fonts.mono,
-    fontSize: 9.5,
+    fontSize: 12,
     color: tokens.ink4,
-    marginTop: 2,
+    marginTop: 3,
     fontStyle: 'italic',
   },
   quickLogBtn: {
@@ -647,9 +647,9 @@ const styles = StyleSheet.create({
   },
   quickLogBtnText: {
     fontFamily: fonts.monoSemibold,
-    fontSize: 10,
+    fontSize: 12,
     color: tokens.bg,
-    letterSpacing: 1.6,
+    letterSpacing: 1.92,
     textTransform: 'uppercase',
   },
 
@@ -689,9 +689,9 @@ const styles = StyleSheet.create({
   },
   rangeChipText: {
     fontFamily: fonts.monoSemibold,
-    fontSize: 9,
+    fontSize: 11,
     color: tokens.ink,
-    letterSpacing: 1.62,
+    letterSpacing: 1.98,
   },
 
   // Recent entries
@@ -701,17 +701,17 @@ const styles = StyleSheet.create({
   },
   recentKicker: {
     fontFamily: fonts.mono,
-    fontSize: 9,
+    fontSize: 11,
     color: tokens.ink4,
-    letterSpacing: 1.98,
+    letterSpacing: 2.2,
     marginBottom: 8,
   },
   recentEmptyText: {
     fontFamily: fonts.mono,
-    fontSize: 11,
+    fontSize: 13,
     color: tokens.ink4,
     fontStyle: 'italic',
-    letterSpacing: 0.22,
+    letterSpacing: 0.26,
   },
   recentCard: {
     backgroundColor: tokens.card,
@@ -738,20 +738,20 @@ const styles = StyleSheet.create({
   },
   recentDay: {
     fontFamily: fonts.monoSemibold,
-    fontSize: 8.5,
+    fontSize: 11,
     color: tokens.ink,
-    letterSpacing: 1.53,
+    letterSpacing: 1.76,
   },
   recentDate: {
     fontFamily: fonts.mono,
-    fontSize: 8.5,
+    fontSize: 11,
     color: tokens.ink4,
     fontStyle: 'italic',
-    marginTop: 1,
+    marginTop: 2,
   },
   recentDelta: {
     fontFamily: fonts.monoMedium,
-    fontSize: 11,
+    fontSize: 13,
   },
   recentDeltaMuted: { color: tokens.ink4 },
   recentDeltaDown: { color: tokens.cool },
@@ -760,17 +760,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'baseline',
     gap: 2,
-    minWidth: 56,
+    minWidth: 64,
     justifyContent: 'flex-end',
   },
   recentKg: {
     fontFamily: fonts.monoSemibold,
-    fontSize: 14,
+    fontSize: 16,
     color: tokens.ink,
   },
   recentKgUnit: {
     fontFamily: fonts.mono,
-    fontSize: 9,
+    fontSize: 12,
     color: tokens.ink4,
   },
 
@@ -787,7 +787,7 @@ const styles = StyleSheet.create({
   },
   streakMeta: {
     fontFamily: fonts.mono,
-    fontSize: 9,
+    fontSize: 12,
     color: tokens.ink3,
   },
   streakMetaStrong: {
@@ -810,9 +810,9 @@ const styles = StyleSheet.create({
   },
   streakLegendWord: {
     fontFamily: fonts.mono,
-    fontSize: 8.5,
+    fontSize: 11,
     color: tokens.ink4,
-    letterSpacing: 0.34,
+    letterSpacing: 0.44,
   },
 
   devSeedBtn: {
@@ -827,9 +827,9 @@ const styles = StyleSheet.create({
   },
   devSeedText: {
     fontFamily: fonts.mono,
-    fontSize: 10,
+    fontSize: 12,
     color: tokens.ink4,
-    letterSpacing: 1.6,
+    letterSpacing: 1.92,
     textTransform: 'uppercase',
   },
 });

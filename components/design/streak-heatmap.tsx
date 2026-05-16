@@ -119,9 +119,9 @@ export function StreakHeatmap({ cells, weeks = 14, today: providedToday, weekday
             <Text
               style={{
                 fontFamily: fonts.mono,
-                fontSize: 7.5,
+                fontSize: 10,
                 color: tokens.ink4,
-                letterSpacing: 0.45,
+                letterSpacing: 0.5,
                 lineHeight: CELL,
               }}>
               {d}
@@ -141,9 +141,9 @@ export function StreakHeatmap({ cells, weeks = 14, today: providedToday, weekday
                 position: 'absolute',
                 left: m.col * (CELL + GAP),
                 fontFamily: fonts.mono,
-                fontSize: 8,
+                fontSize: 10,
                 color: tokens.ink4,
-                letterSpacing: 1.28,
+                letterSpacing: 1.6,
                 textTransform: 'uppercase',
               }}>
               {m.label}

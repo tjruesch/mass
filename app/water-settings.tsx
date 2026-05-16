@@ -570,13 +570,13 @@ const styles = StyleSheet.create({
   },
   sectionLabel: {
     fontFamily: fonts.mono,
-    fontSize: 9,
+    fontSize: 11,
     color: tokens.ink4,
-    letterSpacing: 1.98,
+    letterSpacing: 2.2,
   },
   sectionSub: {
     fontFamily: fonts.mono,
-    fontSize: 9,
+    fontSize: 11,
     color: tokens.ink3,
     fontStyle: 'italic',
   },
@@ -633,7 +633,7 @@ const styles = StyleSheet.create({
   },
   stepperLabel: {
     fontFamily: fonts.monoSemibold,
-    fontSize: 11,
+    fontSize: 13,
     color: tokens.ink,
   },
   targetEndLabels: {
@@ -643,16 +643,16 @@ const styles = StyleSheet.create({
   },
   targetEndLabel: {
     fontFamily: fonts.mono,
-    fontSize: 8.5,
+    fontSize: 11,
     color: tokens.ink4,
-    letterSpacing: 0.34,
+    letterSpacing: 0.44,
   },
   targetCenterLabel: {
     fontFamily: fonts.mono,
-    fontSize: 8.5,
+    fontSize: 11,
     color: tokens.ink4,
     fontStyle: 'italic',
-    letterSpacing: 0.34,
+    letterSpacing: 0.44,
   },
 
   // ── Quick-add rows ──────────────────────────────────────────────
@@ -663,20 +663,20 @@ const styles = StyleSheet.create({
   },
   quickAddValue: {
     fontFamily: fonts.monoSemibold,
-    fontSize: 14,
+    fontSize: 16,
     color: tokens.ink,
-    letterSpacing: -0.14,
+    letterSpacing: -0.16,
   },
   quickAddUnit: {
     fontFamily: fonts.mono,
-    fontSize: 9.5,
+    fontSize: 12,
     color: tokens.ink4,
   },
   quickAddLabel: {
     fontFamily: fonts.mono,
-    fontSize: 9,
+    fontSize: 11,
     color: tokens.ink4,
-    letterSpacing: 1.62,
+    letterSpacing: 1.98,
   },
   quickAddRowEnd: {
     flexDirection: 'row',
@@ -710,13 +710,13 @@ const styles = StyleSheet.create({
   },
   dayCircleText: {
     fontFamily: fonts.monoSemibold,
-    fontSize: 11,
+    fontSize: 13,
     color: tokens.ink3,
-    letterSpacing: 0.66,
+    letterSpacing: 0.78,
   },
   weeklySummary: {
     fontFamily: fonts.mono,
-    fontSize: 9.5,
+    fontSize: 12,
     color: tokens.ink4,
     marginTop: 8,
   },
@@ -742,14 +742,14 @@ const styles = StyleSheet.create({
   },
   cardRowName: {
     fontFamily: fonts.sansMedium,
-    fontSize: 13,
+    fontSize: 15,
     color: tokens.ink,
   },
   cardRowSub: {
     fontFamily: fonts.mono,
-    fontSize: 9.5,
+    fontSize: 12,
     color: tokens.ink4,
-    marginTop: 2,
+    marginTop: 3,
     fontStyle: 'italic',
   },
 
@@ -784,9 +784,9 @@ const editSheetStyles = StyleSheet.create({
   },
   kicker: {
     fontFamily: fonts.mono,
-    fontSize: 8.5,
+    fontSize: 11,
     color: tokens.ink4,
-    letterSpacing: 1.87,
+    letterSpacing: 2.2,
   },
   title: {
     fontFamily: fonts.sansSemibold,
@@ -801,9 +801,9 @@ const editSheetStyles = StyleSheet.create({
   },
   closeBtnText: {
     fontFamily: fonts.monoSemibold,
-    fontSize: 10,
+    fontSize: 12,
     color: tokens.accentInk,
-    letterSpacing: 1.6,
+    letterSpacing: 1.92,
     textTransform: 'uppercase',
   },
   body: {
@@ -825,10 +825,10 @@ const editSheetStyles = StyleSheet.create({
   },
   inputHint: {
     fontFamily: fonts.mono,
-    fontSize: 9,
+    fontSize: 12,
     color: tokens.ink4,
     marginTop: 6,
     fontStyle: 'italic',
-    letterSpacing: 0.36,
+    letterSpacing: 0.48,
   },
 });

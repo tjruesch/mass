@@ -184,8 +184,8 @@ const styles = StyleSheet.create({
   },
   tickText: {
     fontFamily: fonts.mono,
-    fontSize: 8.5,
+    fontSize: 11,
     color: tokens.ink4,
-    letterSpacing: 0.34,
+    letterSpacing: 0.44,
   },
 });

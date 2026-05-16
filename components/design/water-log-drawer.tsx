@@ -361,16 +361,16 @@ const styles = StyleSheet.create({
   },
   amountChipValue: {
     fontFamily: fonts.monoSemibold,
-    fontSize: 15,
+    fontSize: 17,
     color: tokens.ink,
-    letterSpacing: -0.15,
+    letterSpacing: -0.17,
   },
   amountChipValueActive: {
     color: tokens.bg,
   },
   amountChipUnit: {
     fontFamily: fonts.mono,
-    fontSize: 8.5,
+    fontSize: 11,
     color: tokens.ink4,
   },
   amountChipUnitActive: {
@@ -379,9 +379,9 @@ const styles = StyleSheet.create({
   },
   amountChipSub: {
     fontFamily: fonts.mono,
-    fontSize: 8,
+    fontSize: 11,
     color: tokens.ink4,
-    letterSpacing: 1.44,
+    letterSpacing: 1.76,
   },
   amountChipSubActive: {
     color: tokens.bg,
@@ -407,9 +407,9 @@ const styles = StyleSheet.create({
   },
   customLabel: {
     fontFamily: fonts.mono,
-    fontSize: 8.5,
+    fontSize: 11,
     color: tokens.ink4,
-    letterSpacing: 1.87,
+    letterSpacing: 2.2,
   },
   customValueRow: {
     flexDirection: 'row',
@@ -418,12 +418,12 @@ const styles = StyleSheet.create({
   },
   customValue: {
     fontFamily: fonts.monoSemibold,
-    fontSize: 13,
+    fontSize: 15,
     color: tokens.ink,
   },
   customUnit: {
     fontFamily: fonts.mono,
-    fontSize: 9,
+    fontSize: 12,
     color: tokens.ink4,
   },
   // Larger vertical hit area than the visible track so dragging stays usable
@@ -467,9 +467,9 @@ const styles = StyleSheet.create({
   },
   tickText: {
     fontFamily: fonts.mono,
-    fontSize: 8.5,
+    fontSize: 11,
     color: tokens.ink4,
-    letterSpacing: 0.34,
+    letterSpacing: 0.44,
   },
   tickTextActive: {
     color: tokens.ink,
@@ -498,9 +498,9 @@ const styles = StyleSheet.create({
   },
   kindChipLabel: {
     fontFamily: fonts.monoSemibold,
-    fontSize: 10,
+    fontSize: 12,
     color: tokens.ink3,
-    letterSpacing: 1.6,
+    letterSpacing: 1.92,
     textTransform: 'lowercase',
   },
   kindChipLabelActive: {
@@ -516,8 +516,8 @@ const styles = StyleSheet.create({
   },
   deleteText: {
     fontFamily: fonts.monoSemibold,
-    fontSize: 10,
+    fontSize: 12,
     color: tokens.accentInk,
-    letterSpacing: 1.6,
+    letterSpacing: 1.92,
   },
 });

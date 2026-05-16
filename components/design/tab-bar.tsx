@@ -79,8 +79,8 @@ export function TabBar({ active = 'home', dark = false }: Props) {
             <Text
               style={{
                 fontFamily: fonts.mono,
-                fontSize: 9,
-                letterSpacing: 0.72,
+                fontSize: 11,
+                letterSpacing: 0.88,
                 textTransform: 'uppercase',
                 color,
               }}>

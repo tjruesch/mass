@@ -379,13 +379,13 @@ const styles = StyleSheet.create({
   },
   sectionLabel: {
     fontFamily: fonts.mono,
-    fontSize: 9,
+    fontSize: 11,
     color: tokens.ink4,
-    letterSpacing: 1.98,
+    letterSpacing: 2.2,
   },
   sectionSub: {
     fontFamily: fonts.mono,
-    fontSize: 9,
+    fontSize: 11,
     color: tokens.ink3,
     fontStyle: 'italic',
   },
@@ -413,14 +413,14 @@ const styles = StyleSheet.create({
   },
   protocolLabel: {
     fontFamily: fonts.monoSemibold,
-    fontSize: 13,
+    fontSize: 15,
     color: tokens.ink,
-    letterSpacing: -0.13,
+    letterSpacing: -0.15,
   },
   protocolSub: {
     fontFamily: fonts.mono,
-    fontSize: 8,
-    letterSpacing: 1.28,
+    fontSize: 11,
+    letterSpacing: 1.76,
     textTransform: 'uppercase',
     color: tokens.ink2,
     opacity: 0.55,
@@ -452,16 +452,16 @@ const styles = StyleSheet.create({
   },
   windowStatLabel: {
     fontFamily: fonts.mono,
-    fontSize: 8.5,
+    fontSize: 11,
     color: tokens.ink4,
-    letterSpacing: 1.87,
+    letterSpacing: 2.2,
   },
   windowStatValue: {
     fontFamily: fonts.monoMedium,
-    fontSize: 18,
+    fontSize: 20,
     color: tokens.ink,
     marginTop: 4,
-    letterSpacing: -0.36,
+    letterSpacing: -0.4,
   },
   // Weekly schedule
   dayCircle: {
@@ -485,13 +485,13 @@ const styles = StyleSheet.create({
   },
   dayCircleText: {
     fontFamily: fonts.monoSemibold,
-    fontSize: 11,
+    fontSize: 13,
     color: tokens.ink3,
-    letterSpacing: 0.66,
+    letterSpacing: 0.78,
   },
   weeklySummary: {
     fontFamily: fonts.mono,
-    fontSize: 9.5,
+    fontSize: 12,
     color: tokens.ink4,
     marginTop: 8,
   },
@@ -517,23 +517,23 @@ const styles = StyleSheet.create({
   },
   cardRowName: {
     fontFamily: fonts.sansMedium,
-    fontSize: 13,
+    fontSize: 15,
     color: tokens.ink,
   },
   cardRowSub: {
     fontFamily: fonts.mono,
-    fontSize: 9.5,
+    fontSize: 12,
     color: tokens.ink4,
-    marginTop: 2,
+    marginTop: 3,
     fontStyle: 'italic',
   },
   reminderNote: {
     fontFamily: fonts.mono,
-    fontSize: 9,
+    fontSize: 12,
     color: tokens.ink4,
     marginTop: 8,
     fontStyle: 'italic',
-    letterSpacing: 0.36,
+    letterSpacing: 0.48,
   },
 
   // Switch

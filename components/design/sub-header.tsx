@@ -78,9 +78,9 @@ export function SubHeader({ title, back = 'Home', onBack, trailing }: Props) {
         <Text
           style={{
             fontFamily: fonts.mono,
-            fontSize: 9,
+            fontSize: 11,
             color: tokens.ink4,
-            letterSpacing: 1.98,
+            letterSpacing: 2.2,
             textTransform: 'uppercase',
           }}>
           {back}
@@ -90,9 +90,9 @@ export function SubHeader({ title, back = 'Home', onBack, trailing }: Props) {
       <Text
         style={{
           fontFamily: fonts.sansSemibold,
-          fontSize: 14,
+          fontSize: 16,
           color: tokens.ink,
-          letterSpacing: -0.14,
+          letterSpacing: -0.16,
         }}>
         {title}
       </Text>

@@ -768,7 +768,7 @@ function FastingPhaseBar({ active }: PhaseBarProps) {
                 flex: p.end - p.start,
                 textAlign: 'left',
                 fontFamily: isCurrent ? fonts.monoSemibold : fonts.mono,
-                fontSize: 8.5,
+                fontSize: 11,
                 color: isCurrent ? tokens.ink2 : tokens.ink4,
               }}>
               {p.short}
@@ -870,28 +870,28 @@ const styles = StyleSheet.create({
   },
   heroElapsedLabel: {
     fontFamily: fonts.mono,
-    fontSize: 9,
+    fontSize: 11,
     color: tokens.ink4,
-    letterSpacing: 1.98,
+    letterSpacing: 2.2,
   },
   heroElapsedTime: {
     fontFamily: fonts.monoMedium,
-    fontSize: 44,
+    fontSize: 48,
     color: tokens.ink,
     marginTop: 6,
-    letterSpacing: -1.1,
+    letterSpacing: -1.2,
   },
   heroElapsedSeconds: {
-    fontSize: 18,
+    fontSize: 20,
     color: tokens.ink4,
     fontFamily: fonts.mono,
   },
   // Hero center — labels + the shared START/END pill
   heroIdleLabel: {
     fontFamily: fonts.mono,
-    fontSize: 9,
+    fontSize: 11,
     color: tokens.ink4,
-    letterSpacing: 1.98,
+    letterSpacing: 2.2,
   },
   // Shared by START FAST (idle) and END FAST (active) — same visual weight,
   // since they're symmetric primary actions in their respective states.
@@ -908,16 +908,16 @@ const styles = StyleSheet.create({
   },
   heroPrimaryPillText: {
     fontFamily: fonts.monoSemibold,
-    fontSize: 11,
+    fontSize: 13,
     color: tokens.bg,
-    letterSpacing: 1.98,
+    letterSpacing: 2.34,
     textTransform: 'uppercase',
   },
   heroIdleTarget: {
     fontFamily: fonts.mono,
-    fontSize: 10,
+    fontSize: 12,
     color: tokens.ink4,
-    letterSpacing: 0.4,
+    letterSpacing: 0.48,
     marginTop: 12,
   },
 
@@ -946,22 +946,22 @@ const styles = StyleSheet.create({
   },
   statLabel: {
     fontFamily: fonts.mono,
-    fontSize: 8.5,
+    fontSize: 11,
     color: tokens.ink4,
-    letterSpacing: 1.53,
+    letterSpacing: 1.76,
   },
   statValue: {
     fontFamily: fonts.monoMedium,
-    fontSize: 16,
+    fontSize: 18,
     color: tokens.ink,
     marginTop: 4,
-    letterSpacing: -0.32,
+    letterSpacing: -0.36,
   },
   statSub: {
     fontFamily: fonts.mono,
-    fontSize: 9,
+    fontSize: 12,
     color: tokens.ink3,
-    marginTop: 2,
+    marginTop: 3,
   },
 
   // Phase card
@@ -988,13 +988,13 @@ const styles = StyleSheet.create({
   },
   phaseLabel: {
     fontFamily: fonts.mono,
-    fontSize: 9,
+    fontSize: 11,
     color: tokens.ink4,
-    letterSpacing: 1.98,
+    letterSpacing: 2.2,
   },
   phaseEta: {
     fontFamily: fonts.mono,
-    fontSize: 9,
+    fontSize: 12,
     color: tokens.ink3,
   },
   phaseRow: {
@@ -1037,13 +1037,13 @@ const styles = StyleSheet.create({
   },
   cardLabel: {
     fontFamily: fonts.mono,
-    fontSize: 9,
+    fontSize: 11,
     color: tokens.ink4,
-    letterSpacing: 1.98,
+    letterSpacing: 2.2,
   },
   streakMeta: {
     fontFamily: fonts.mono,
-    fontSize: 9,
+    fontSize: 12,
     color: tokens.ink3,
   },
   streakMetaStrong: {
@@ -1061,9 +1061,9 @@ const styles = StyleSheet.create({
   },
   streakLegendEdge: {
     fontFamily: fonts.mono,
-    fontSize: 8.5,
+    fontSize: 11,
     color: tokens.ink4,
-    letterSpacing: 1.53,
+    letterSpacing: 1.76,
     textTransform: 'uppercase',
   },
   streakLegendKey: {
@@ -1073,9 +1073,9 @@ const styles = StyleSheet.create({
   },
   streakLegendWord: {
     fontFamily: fonts.mono,
-    fontSize: 8,
+    fontSize: 11,
     color: tokens.ink4,
-    letterSpacing: 1.44,
+    letterSpacing: 1.76,
     textTransform: 'uppercase',
   },
 
@@ -1095,9 +1095,9 @@ const styles = StyleSheet.create({
   },
   logPastLinkText: {
     fontFamily: fonts.mono,
-    fontSize: 11,
+    fontSize: 13,
     color: tokens.ink3,
-    letterSpacing: 0.44,
+    letterSpacing: 0.52,
   },
 
   // Log-past-fast drawer
@@ -1109,19 +1109,19 @@ const styles = StyleSheet.create({
   },
   drawerTargetHint: {
     fontFamily: fonts.mono,
-    fontSize: 11,
+    fontSize: 13,
     color: tokens.ink4,
     fontStyle: 'italic',
   },
   drawerDurationValue: {
     fontFamily: fonts.monoSemibold,
-    fontSize: 22,
+    fontSize: 24,
     color: tokens.ink,
-    letterSpacing: -0.44,
+    letterSpacing: -0.48,
   },
   drawerValidationMsg: {
     fontFamily: fonts.mono,
-    fontSize: 11,
+    fontSize: 12,
     color: tokens.warn,
     marginTop: 6,
     fontStyle: 'italic',

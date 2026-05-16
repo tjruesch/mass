@@ -306,8 +306,8 @@ function PhaseBar({ elapsedHours }: { elapsedHours: number }) {
                 flex: p.end - p.start,
                 textAlign: 'left',
                 fontFamily: isCurrent ? fonts.monoSemibold : fonts.mono,
-                fontSize: 8,
-                letterSpacing: 0.32,
+                fontSize: 11,
+                letterSpacing: 0.44,
                 color: isCurrent ? tokens.ink2 : tokens.ink4,
               }}>
               {p.short}
@@ -549,9 +549,9 @@ export default function HomeScreen() {
                   <Text
                     style={{
                       fontFamily: fonts.monoMedium,
-                      fontSize: 10,
+                      fontSize: 12,
                       color: m.c,
-                      letterSpacing: 1.8,
+                      letterSpacing: 1.92,
                       textTransform: m.italic ? 'lowercase' : 'uppercase',
                       fontStyle: m.italic ? 'italic' : 'normal',
                     }}>
@@ -599,9 +599,9 @@ const styles = StyleSheet.create({
   },
   dateline: {
     fontFamily: fonts.mono,
-    fontSize: 9,
+    fontSize: 12,
     color: tokens.ink4,
-    letterSpacing: 1.98,
+    letterSpacing: 2.4,
   },
   datelineDot: {
     color: tokens.ink3,
@@ -628,15 +628,15 @@ const styles = StyleSheet.create({
   },
   streakText: {
     fontFamily: fonts.mono,
-    fontSize: 9,
-    letterSpacing: 1.44,
+    fontSize: 11,
+    letterSpacing: 1.76,
     textTransform: 'uppercase',
     color: tokens.ink2,
   },
   greetingHeading: {
     fontFamily: fonts.sansSemibold,
-    fontSize: 24,
-    letterSpacing: -0.6,
+    fontSize: 26,
+    letterSpacing: -0.65,
     marginTop: 8,
     color: tokens.ink,
   },
@@ -646,9 +646,9 @@ const styles = StyleSheet.create({
   },
   greetingSub: {
     fontFamily: fonts.mono,
-    fontSize: 11,
+    fontSize: 13,
     color: tokens.ink3,
-    marginTop: 4,
+    marginTop: 5,
   },
   greetingSubStrong: {
     color: tokens.ink,
@@ -665,9 +665,9 @@ const styles = StyleSheet.create({
   },
   tempWeightLinkText: {
     fontFamily: fonts.mono,
-    fontSize: 10,
+    fontSize: 12,
     color: tokens.ink4,
-    letterSpacing: 1.8,
+    letterSpacing: 2.16,
   },
 
   // Cards
@@ -692,9 +692,9 @@ const styles = StyleSheet.create({
   },
   cardLabel: {
     fontFamily: fonts.mono,
-    fontSize: 9,
+    fontSize: 11,
     color: tokens.ink4,
-    letterSpacing: 1.62,
+    letterSpacing: 1.98,
   },
 
   // Hero — inline section, no card frame. Sits on the page bg directly so
@@ -730,32 +730,32 @@ const styles = StyleSheet.create({
   },
   legendLabel: {
     fontFamily: fonts.mono,
-    fontSize: 9,
+    fontSize: 12,
     color: tokens.ink3,
-    letterSpacing: 1.62,
+    letterSpacing: 1.98,
   },
   legendValue: {
     fontFamily: fonts.monoSemibold,
-    fontSize: 16,
+    fontSize: 18,
     color: tokens.ink,
-    marginTop: 2,
-    letterSpacing: -0.24,
+    marginTop: 3,
+    letterSpacing: -0.27,
   },
   legendUnit: {
     color: tokens.ink4,
-    fontSize: 10,
+    fontSize: 12,
     fontFamily: fonts.mono,
   },
   legendPct: {
     fontFamily: fonts.monoSemibold,
-    fontSize: 11,
+    fontSize: 13,
     color: tokens.ink,
   },
   legendTarget: {
     fontFamily: fonts.mono,
-    fontSize: 9,
+    fontSize: 12,
     color: tokens.ink4,
-    marginTop: 1,
+    marginTop: 2,
   },
   legendDivider: {
     height: 1,
@@ -785,8 +785,8 @@ const styles = StyleSheet.create({
   },
   fastingChipText: {
     fontFamily: fonts.monoSemibold,
-    fontSize: 8,
-    letterSpacing: 1.44,
+    fontSize: 11,
+    letterSpacing: 1.76,
     textTransform: 'uppercase',
     color: tokens.ink2,
   },
@@ -799,19 +799,19 @@ const styles = StyleSheet.create({
   },
   fastingElapsed: {
     fontFamily: fonts.monoSemibold,
-    fontSize: 26,
+    fontSize: 30,
     color: tokens.ink,
-    letterSpacing: -0.78,
-    lineHeight: 32,
+    letterSpacing: -0.9,
+    lineHeight: 36,
   },
   fastingElapsedSeconds: {
     fontFamily: fonts.mono,
-    fontSize: 13,
+    fontSize: 15,
     color: tokens.ink4,
   },
   fastingElapsedLabel: {
     fontFamily: fonts.mono,
-    fontSize: 11,
+    fontSize: 13,
     color: tokens.ink3,
   },
   // Phase bar
@@ -857,7 +857,7 @@ const styles = StyleSheet.create({
   },
   macrosKcal: {
     fontFamily: fonts.mono,
-    fontSize: 10.5,
+    fontSize: 13,
     color: tokens.ink3,
   },
   macrosKcalStrong: {
@@ -884,7 +884,7 @@ const styles = StyleSheet.create({
   },
   macroValue: {
     fontFamily: fonts.monoMedium,
-    fontSize: 10,
+    fontSize: 12,
     color: tokens.ink,
   },
   macrosFooter: {
@@ -898,26 +898,26 @@ const styles = StyleSheet.create({
   },
   deficitLabel: {
     fontFamily: fonts.mono,
-    fontSize: 8,
+    fontSize: 11,
     color: tokens.ink4,
-    letterSpacing: 1.76,
+    letterSpacing: 1.92,
   },
   deficitValue: {
     fontFamily: fonts.monoSemibold,
-    fontSize: 10,
+    fontSize: 13,
     // Was a hardcoded green for "good" — switched to the palette's `cool`
     // teal so it reads positive without fighting the Mist · Petrol scheme.
     color: tokens.cool,
   },
   deficitNote: {
     fontFamily: fonts.mono,
-    fontSize: 10,
+    fontSize: 12,
     color: tokens.ink4,
     fontStyle: 'italic',
   },
   tdeeValue: {
     fontFamily: fonts.mono,
-    fontSize: 10,
+    fontSize: 13,
     color: tokens.ink3,
   },
 });

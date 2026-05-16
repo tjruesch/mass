@@ -309,11 +309,11 @@ const styles = StyleSheet.create({
   },
   weightHint: {
     fontFamily: fonts.mono,
-    fontSize: 9.5,
+    fontSize: 12,
     color: tokens.ink4,
     marginTop: 6,
     fontStyle: 'italic',
-    letterSpacing: 0.38,
+    letterSpacing: 0.48,
   },
 
   stepperBtn: {
@@ -340,8 +340,8 @@ const styles = StyleSheet.create({
   },
   deleteText: {
     fontFamily: fonts.monoSemibold,
-    fontSize: 10,
+    fontSize: 12,
     color: tokens.accentInk,
-    letterSpacing: 1.6,
+    letterSpacing: 1.92,
   },
 });

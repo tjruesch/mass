@@ -132,9 +132,9 @@ const styles = StyleSheet.create({
   },
   kicker: {
     fontFamily: fonts.mono,
-    fontSize: 8.5,
+    fontSize: 11,
     color: tokens.ink4,
-    letterSpacing: 1.87,
+    letterSpacing: 2.2,
   },
   title: {
     fontFamily: fonts.sansSemibold,
@@ -181,13 +181,13 @@ const drawerSectionStyles = StyleSheet.create({
   },
   label: {
     fontFamily: fonts.mono,
-    fontSize: 9,
+    fontSize: 11,
     color: tokens.ink4,
-    letterSpacing: 1.98,
+    letterSpacing: 2.2,
   },
   sub: {
     fontFamily: fonts.mono,
-    fontSize: 9,
+    fontSize: 12,
     color: tokens.ink3,
     fontStyle: 'italic',
   },
