@@ -46,7 +46,6 @@ import {
 } from '@/src/lib/workouts/types';
 import { fonts, textStyles, tokens } from '@/theme/tokens';
 
-import { BottomSheet } from './bottom-sheet';
 import { Drawer, DrawerSection } from './drawer';
 import { Glyph } from './glyph';
 import { PrimaryButton } from './primary-button';
@@ -266,14 +265,8 @@ export function WorkoutTypeEditorDrawer({ open, onClose, type }: Props) {
     );
   }, [type, saving, onClose]);
 
-  const activeActivityStep =
-    activityPickerStepId !== null
-      ? steps.find((s) => s.tempId === activityPickerStepId) ?? null
-      : null;
-
   return (
-    <>
-      <Drawer
+    <Drawer
         open={open}
         onClose={onClose}
         kicker={mode === 'edit' ? 'WORKOUT TYPE · EDIT' : 'WORKOUT TYPE · NEW'}
@@ -405,8 +398,17 @@ export function WorkoutTypeEditorDrawer({ open, onClose, type }: Props) {
                 total={steps.length}
                 step={s}
                 disabled={false}
+                pickerOpen={activityPickerStepId === s.tempId}
                 onChangeDuration={(d) => updateStep(s.tempId, { durationMin: d })}
-                onPickActivity={() => setActivityPickerStepId(s.tempId)}
+                onPickActivity={() =>
+                  setActivityPickerStepId(
+                    activityPickerStepId === s.tempId ? null : s.tempId,
+                  )
+                }
+                onSelectActivity={(key) => {
+                  updateStep(s.tempId, { hkActivityKey: key });
+                  setActivityPickerStepId(null);
+                }}
                 onMoveUp={() => moveStep(s.tempId, -1)}
                 onMoveDown={() => moveStep(s.tempId, 1)}
                 onDelete={() => deleteStep(s.tempId)}
@@ -440,19 +442,6 @@ export function WorkoutTypeEditorDrawer({ open, onClose, type }: Props) {
 
         <View style={{ height: 12 }} />
       </Drawer>
-
-      <ActivityPickerSheet
-        open={activeActivityStep !== null}
-        current={activeActivityStep?.hkActivityKey ?? null}
-        onClose={() => setActivityPickerStepId(null)}
-        onSelect={(key) => {
-          if (activityPickerStepId !== null) {
-            updateStep(activityPickerStepId, { hkActivityKey: key });
-          }
-          setActivityPickerStepId(null);
-        }}
-      />
-    </>
   );
 }
 
@@ -464,8 +453,10 @@ function StepRow({
   total,
   step,
   disabled,
+  pickerOpen,
   onChangeDuration,
   onPickActivity,
+  onSelectActivity,
   onMoveUp,
   onMoveDown,
   onDelete,
@@ -474,8 +465,13 @@ function StepRow({
   total: number;
   step: StepDraft;
   disabled: boolean;
+  /** True when this row's inline activity picker is expanded. */
+  pickerOpen: boolean;
   onChangeDuration: (d: number) => void;
+  /** Tap on the activity chip — parent toggles the inline expansion. */
   onPickActivity: () => void;
+  /** Tap on an activity inside the inline picker. */
+  onSelectActivity: (key: string) => void;
   onMoveUp: () => void;
   onMoveDown: () => void;
   onDelete: () => void;
@@ -486,80 +482,113 @@ function StepRow({
     onChangeDuration(Math.min(DURATION_MAX, step.durationMin + DURATION_STEP));
   return (
     <View style={styles.stepRow}>
-      <Text style={[styles.stepIdx, textStyles.tnum]}>{index + 1}</Text>
-      <View style={styles.stepBody}>
-        <Pressable
-          onPress={onPickActivity}
-          disabled={disabled}
-          accessibilityRole="button"
-          accessibilityLabel={`Pick activity for step ${index + 1}`}
-          style={({ pressed }) => [
-            styles.activityBtn,
-            pressed && !disabled && { opacity: 0.7 },
-          ]}>
-          <Text numberOfLines={1} style={styles.activityLabel}>
-            {humanizeActivity(step.hkActivityKey)}
-          </Text>
-          <Glyph name="chev" color={tokens.ink3} />
-        </Pressable>
-        <View style={styles.durRow}>
+      <View style={styles.stepHeadRow}>
+        <Text style={[styles.stepIdx, textStyles.tnum]}>{index + 1}</Text>
+        <View style={styles.stepBody}>
           <Pressable
-            onPress={decrement}
-            disabled={disabled || step.durationMin <= DURATION_MIN}
-            hitSlop={4}
+            onPress={onPickActivity}
+            disabled={disabled}
+            accessibilityRole="button"
+            accessibilityLabel={`Pick activity for step ${index + 1}`}
             style={({ pressed }) => [
-              styles.durStepBtn,
-              (disabled || step.durationMin <= DURATION_MIN) && { opacity: 0.35 },
-              pressed && { opacity: 0.6 },
+              styles.activityBtn,
+              pickerOpen && styles.activityBtnOpen,
+              pressed && !disabled && { opacity: 0.7 },
             ]}>
-            <Text style={styles.durStepLabel}>−</Text>
+            <Text numberOfLines={1} style={styles.activityLabel}>
+              {humanizeActivity(step.hkActivityKey)}
+            </Text>
+            <Glyph name="chev" color={tokens.ink3} />
           </Pressable>
-          <Text style={[styles.durValue, textStyles.tnum]}>
-            {step.durationMin}m
-          </Text>
+          <View style={styles.durRow}>
+            <Pressable
+              onPress={decrement}
+              disabled={disabled || step.durationMin <= DURATION_MIN}
+              hitSlop={4}
+              style={({ pressed }) => [
+                styles.durStepBtn,
+                (disabled || step.durationMin <= DURATION_MIN) && { opacity: 0.35 },
+                pressed && { opacity: 0.6 },
+              ]}>
+              <Text style={styles.durStepLabel}>−</Text>
+            </Pressable>
+            <Text style={[styles.durValue, textStyles.tnum]}>
+              {step.durationMin}m
+            </Text>
+            <Pressable
+              onPress={increment}
+              disabled={disabled || step.durationMin >= DURATION_MAX}
+              hitSlop={4}
+              style={({ pressed }) => [
+                styles.durStepBtn,
+                (disabled || step.durationMin >= DURATION_MAX) && { opacity: 0.35 },
+                pressed && { opacity: 0.6 },
+              ]}>
+              <Text style={styles.durStepLabel}>+</Text>
+            </Pressable>
+          </View>
+        </View>
+        <View style={styles.stepCtrls}>
+          <ArrowBtn
+            dir="up"
+            disabled={disabled || index === 0}
+            onPress={onMoveUp}
+          />
+          <ArrowBtn
+            dir="down"
+            disabled={disabled || index === total - 1}
+            onPress={onMoveDown}
+          />
           <Pressable
-            onPress={increment}
-            disabled={disabled || step.durationMin >= DURATION_MAX}
+            onPress={onDelete}
+            disabled={disabled || total <= 1}
             hitSlop={4}
             style={({ pressed }) => [
-              styles.durStepBtn,
-              (disabled || step.durationMin >= DURATION_MAX) && { opacity: 0.35 },
+              styles.delBtn,
+              (disabled || total <= 1) && { opacity: 0.35 },
               pressed && { opacity: 0.6 },
             ]}>
-            <Text style={styles.durStepLabel}>+</Text>
+            <Svg width={10} height={10} viewBox="0 0 12 12">
+              <Path
+                d="M2.5 2.5l7 7M9.5 2.5l-7 7"
+                stroke={tokens.ink3}
+                strokeWidth={1.6}
+                strokeLinecap="round"
+              />
+            </Svg>
           </Pressable>
         </View>
       </View>
-      <View style={styles.stepCtrls}>
-        <ArrowBtn
-          dir="up"
-          disabled={disabled || index === 0}
-          onPress={onMoveUp}
-        />
-        <ArrowBtn
-          dir="down"
-          disabled={disabled || index === total - 1}
-          onPress={onMoveDown}
-        />
-        <Pressable
-          onPress={onDelete}
-          disabled={disabled || total <= 1}
-          hitSlop={4}
-          style={({ pressed }) => [
-            styles.delBtn,
-            (disabled || total <= 1) && { opacity: 0.35 },
-            pressed && { opacity: 0.6 },
-          ]}>
-          <Svg width={10} height={10} viewBox="0 0 12 12">
-            <Path
-              d="M2.5 2.5l7 7M9.5 2.5l-7 7"
-              stroke={tokens.ink3}
-              strokeWidth={1.6}
-              strokeLinecap="round"
-            />
-          </Svg>
-        </Pressable>
-      </View>
+
+      {/* Inline activity picker — expands within this step row instead of a
+          nested modal. Nested react-native Modals on iOS swallow touches on
+          the upper layer; rendering inline keeps everything in one Modal. */}
+      {pickerOpen && (
+        <View style={styles.inlinePicker}>
+          {HK_ACTIVITY_KEYS.map((k) => {
+            const active = step.hkActivityKey === k;
+            return (
+              <Pressable
+                key={k}
+                onPress={() => onSelectActivity(k)}
+                style={({ pressed }) => [
+                  styles.inlinePickerChip,
+                  active && styles.inlinePickerChipActive,
+                  pressed && !active && { opacity: 0.7 },
+                ]}>
+                <Text
+                  numberOfLines={1}
+                  style={[
+                    styles.inlinePickerLabel,
+                    active && { color: tokens.bg },
+                  ]}>
+                  {humanizeActivity(k)}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      )}
     </View>
   );
 }
@@ -585,62 +614,6 @@ function ArrowBtn({
       ]}>
       <Glyph name={dir === 'up' ? 'arrUp' : 'arrDn'} color={tokens.ink3} size={9} />
     </Pressable>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// ActivityPickerSheet — bottom sheet listing the HK activity keys we
-// know about. Tap one to assign it to the current step.
-// ─────────────────────────────────────────────────────────────────────────────
-function ActivityPickerSheet({
-  open,
-  current,
-  onClose,
-  onSelect,
-}: {
-  open: boolean;
-  current: string | null;
-  onClose: () => void;
-  onSelect: (key: string) => void;
-}) {
-  return (
-    <BottomSheet open={open} onClose={onClose} sheetStyle={pickerStyles.sheet}>
-      <View style={pickerStyles.handle} />
-      <View style={pickerStyles.header}>
-        <View style={{ flex: 1 }}>
-          <Text style={[pickerStyles.kicker, textStyles.cap]}>HK activity</Text>
-          <Text style={pickerStyles.title}>Pick an activity</Text>
-        </View>
-        <Pressable onPress={onClose} hitSlop={10} style={pickerStyles.closeBtn}>
-          <Text style={pickerStyles.closeBtnText}>cancel</Text>
-        </Pressable>
-      </View>
-      <View style={pickerStyles.body}>
-        <View style={pickerStyles.grid}>
-          {HK_ACTIVITY_KEYS.map((k) => {
-            const active = current === k;
-            return (
-              <Pressable
-                key={k}
-                onPress={() => onSelect(k)}
-                style={({ pressed }) => [
-                  pickerStyles.gridChip,
-                  active && pickerStyles.gridChipActive,
-                  pressed && !active && { opacity: 0.7 },
-                ]}>
-                <Text
-                  style={[
-                    pickerStyles.gridChipLabel,
-                    active && { color: tokens.bg },
-                  ]}>
-                  {humanizeActivity(k)}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-      </View>
-    </BottomSheet>
   );
 }
 
@@ -742,15 +715,17 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   stepRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
     backgroundColor: tokens.card,
     borderWidth: 1,
     borderColor: tokens.line,
     borderRadius: 12,
     paddingVertical: 10,
     paddingHorizontal: 10,
+  },
+  stepHeadRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   stepIdx: {
     width: 14,
@@ -774,6 +749,41 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
     paddingHorizontal: 10,
     gap: 6,
+  },
+  activityBtnOpen: {
+    backgroundColor: tokens.ink,
+    borderColor: tokens.ink,
+  },
+  inlinePicker: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: tokens.line,
+  },
+  inlinePickerChip: {
+    flexGrow: 1,
+    flexBasis: '30%',
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+    backgroundColor: tokens.bg2,
+    borderWidth: 1,
+    borderColor: tokens.line,
+    alignItems: 'center',
+  },
+  inlinePickerChipActive: {
+    backgroundColor: tokens.ink,
+    borderColor: tokens.ink,
+  },
+  inlinePickerLabel: {
+    fontFamily: fonts.mono,
+    fontSize: 11,
+    color: tokens.ink,
+    letterSpacing: 0.22,
+    textTransform: 'lowercase',
   },
   activityLabel: {
     flex: 1,
@@ -870,88 +880,3 @@ const styles = StyleSheet.create({
   },
 });
 
-const pickerStyles = StyleSheet.create({
-  sheet: {
-    backgroundColor: tokens.bg,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingBottom: 30,
-    maxHeight: '70%',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -24 },
-    shadowRadius: 60,
-    shadowOpacity: 0.25,
-  },
-  handle: {
-    alignSelf: 'center',
-    width: 40,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: tokens.line2,
-    marginTop: 10,
-    marginBottom: 4,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    paddingTop: 10,
-    paddingHorizontal: 22,
-    paddingBottom: 6,
-  },
-  kicker: {
-    fontFamily: fonts.mono,
-    fontSize: 8.5,
-    color: tokens.ink4,
-    letterSpacing: 1.87,
-  },
-  title: {
-    fontFamily: fonts.sansSemibold,
-    fontSize: 19,
-    color: tokens.ink,
-    letterSpacing: -0.38,
-    marginTop: 4,
-  },
-  closeBtn: {
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-  },
-  closeBtnText: {
-    fontFamily: fonts.monoSemibold,
-    fontSize: 10,
-    color: tokens.ink3,
-    letterSpacing: 1.6,
-    textTransform: 'uppercase',
-  },
-  body: {
-    paddingHorizontal: 22,
-    paddingTop: 6,
-    paddingBottom: 10,
-  },
-  grid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
-  },
-  gridChip: {
-    flexGrow: 1,
-    flexBasis: '48%',
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    borderRadius: 10,
-    backgroundColor: tokens.bg2,
-    borderWidth: 1,
-    borderColor: tokens.line,
-    alignItems: 'center',
-  },
-  gridChipActive: {
-    backgroundColor: tokens.ink,
-    borderColor: tokens.ink,
-  },
-  gridChipLabel: {
-    fontFamily: fonts.mono,
-    fontSize: 11,
-    color: tokens.ink,
-    letterSpacing: 0.22,
-    textTransform: 'lowercase',
-  },
-});
