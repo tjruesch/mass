@@ -122,6 +122,7 @@ export default function RootLayout() {
           <Stack.Screen name="meals/[id]" />
           <Stack.Screen name="meals-settings" />
           <Stack.Screen name="meals-plan" />
+          <Stack.Screen name="goal-edit" />
           <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal', headerShown: true }} />
         </Stack>
         <StatusBar style="auto" />

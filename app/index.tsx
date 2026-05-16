@@ -83,6 +83,7 @@ function greetingFor(d: Date): string {
 }
 
 import { TabBar, WindowStrip } from '@/components/design';
+import { useActiveGoal } from '@/src/hooks/use-active-goal';
 import { useTodayMove } from '@/src/hooks/use-move';
 import { useFasting, type FastingState } from '@/src/hooks/use-fasting';
 import { useFastingPreferences } from '@/src/hooks/use-fasting-preferences';
@@ -460,6 +461,7 @@ function IdleFastingCardBody() {
 export default function HomeScreen() {
   const router = useRouter();
   const fasting = useFasting(1000);
+  const activeGoal = useActiveGoal();
   // Live water — 60s tick is plenty; live query also re-runs on every sip.
   const waterToday = useWaterToday();
   const waterPrefs = useWaterPreferences();
@@ -553,10 +555,20 @@ export default function HomeScreen() {
             ) : (
               <Text style={styles.greetingSubMute}>no active fast</Text>
             )}
-            <Text style={styles.greetingSubMute}>{'  ·  '}</Text>
-            {/* TODO(goals slice): wire 'day 14 / 28' to active goal */}
-            <Text style={styles.greetingSubStrong}>day 14</Text>
-            <Text style={styles.greetingSubMute}> / 28</Text>
+            {activeGoal.dayCount !== null && (
+              <>
+                <Text style={styles.greetingSubMute}>{'  ·  '}</Text>
+                <Text style={styles.greetingSubStrong}>
+                  day {activeGoal.dayCount}
+                </Text>
+                {activeGoal.totalDays !== null && (
+                  <Text style={styles.greetingSubMute}>
+                    {' / '}
+                    {activeGoal.totalDays}
+                  </Text>
+                )}
+              </>
+            )}
           </Text>
         </View>
 
@@ -631,6 +643,19 @@ export default function HomeScreen() {
             style={({ pressed }) => pressed && { opacity: 0.6 }}>
             <Text style={[styles.tempWeightLinkText, textStyles.cap]}>
               → pantry (temp)
+            </Text>
+          </Pressable>
+          <Pressable
+            onPress={() =>
+              router.push(
+                activeGoal.goal
+                  ? (`/goal-edit?id=${activeGoal.goal.id}` as never)
+                  : ('/goal-edit' as never),
+              )
+            }
+            style={({ pressed }) => pressed && { opacity: 0.6 }}>
+            <Text style={[styles.tempWeightLinkText, textStyles.cap]}>
+              → goal {activeGoal.goal ? '(edit)' : '(new)'}
             </Text>
           </Pressable>
         </View>
