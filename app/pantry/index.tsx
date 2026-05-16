@@ -145,7 +145,7 @@ function PantryRow({
         <Text style={[styles.rowKcal, textStyles.tnum]}>
           {Math.round(item.kcalPerServing)}
         </Text>
-        <Text style={styles.rowKcalUnit}>kcal</Text>
+        <Text style={styles.rowKcalUnit}>kcal / 100g</Text>
       </View>
       <Glyph name="chev" color={tokens.ink3} />
     </Pressable>
@@ -153,22 +153,19 @@ function PantryRow({
 }
 
 function formatRowSub(item: PantryItem): string {
+  // All macros are per 100g (the editor enforces that). We show brand
+  // first when set, then non-zero macros as P/C/F. Always-100g serving
+  // is implicit on the right column (`kcal / 100g`).
   const parts: string[] = [];
   if (item.brand !== null && item.brand.trim() !== '') {
     parts.push(item.brand);
   }
-  parts.push(`${formatQty(item.defaultServingQty)} ${item.defaultServingUnit}`);
   const macroParts: string[] = [];
   if (item.proteinG > 0) macroParts.push(`P ${formatMacro(item.proteinG)}`);
   if (item.carbsG > 0) macroParts.push(`C ${formatMacro(item.carbsG)}`);
   if (item.fatG > 0) macroParts.push(`F ${formatMacro(item.fatG)}`);
   if (macroParts.length > 0) parts.push(macroParts.join(' · '));
-  return parts.join(' · ');
-}
-
-function formatQty(q: number): string {
-  if (Number.isInteger(q)) return q.toString();
-  return (Math.round(q * 10) / 10).toString();
+  return parts.length === 0 ? '—' : parts.join(' · ');
 }
 
 function formatMacro(g: number): string {

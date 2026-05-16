@@ -3,10 +3,17 @@
  *
  * Route: /pantry/new (create) or /pantry/<numeric id> (edit).
  *
- * Fields: name, brand (optional), default serving qty + unit, kcal per
- * serving, protein / carbs / fat per serving. Auto-commit on save —
- * no save-on-every-keystroke like preferences screens, since the
- * editor's small enough that a save button is clearer.
+ * Fields: name, brand (optional), macros **per 100g** (kcal +
+ * protein/carbs/fat). The serving unit is always 100g — matches the
+ * European nutrition-label convention so users can copy values
+ * directly from packaging without per-serving math.
+ *
+ * Storage note: the underlying columns are still named
+ * `kcalPerServing` / `defaultServingQty` etc. (schema didn't change).
+ * The column semantics are reinterpreted: serving qty is always 100,
+ * unit is always 'g', and the kcal/macros columns store per-100g
+ * values. Meal-item calculations later normalise ingredient amounts
+ * to grams and apply qty/100 × per100g.
  *
  * Delete is only available in edit mode. Cascade is SET NULL on
  * `meal_items.pantry_item_id`, so deleting an item that's referenced
@@ -37,7 +44,14 @@ import { fonts, textStyles, tokens } from '@/theme/tokens';
 
 const NAME_MAX = 48;
 const BRAND_MAX = 32;
-const UNIT_MAX = 16;
+
+/**
+ * The reference serving — fixed at 100g so macros input is always
+ * per-100g. Stored on every row so the meal-calc layer has a stable
+ * scaling base without checking the column for the same constant.
+ */
+const REFERENCE_QTY = 100;
+const REFERENCE_UNIT = 'g';
 
 export default function PantryItemEditorScreen() {
   const router = useRouter();
@@ -48,8 +62,6 @@ export default function PantryItemEditorScreen() {
 
   const [name, setName] = useState('');
   const [brand, setBrand] = useState('');
-  const [defaultQtyText, setDefaultQtyText] = useState('1');
-  const [defaultUnit, setDefaultUnit] = useState('serving');
   const [kcalText, setKcalText] = useState('');
   const [proteinText, setProteinText] = useState('');
   const [carbsText, setCarbsText] = useState('');
@@ -89,8 +101,6 @@ export default function PantryItemEditorScreen() {
     function hydrateFrom(row: PantryItem) {
       setName(row.name);
       setBrand(row.brand ?? '');
-      setDefaultQtyText(formatQty(row.defaultServingQty));
-      setDefaultUnit(row.defaultServingUnit);
       setKcalText(formatMacro(row.kcalPerServing));
       setProteinText(formatMacro(row.proteinG));
       setCarbsText(formatMacro(row.carbsG));
@@ -99,19 +109,12 @@ export default function PantryItemEditorScreen() {
   }, [isCreate, numericId, hydrated, router]);
 
   const trimmedName = name.trim();
-  const trimmedUnit = defaultUnit.trim() === '' ? 'serving' : defaultUnit.trim();
-  const qty = parseDecimal(defaultQtyText);
   const kcal = parseDecimal(kcalText);
   const protein = parseDecimal(proteinText) ?? 0;
   const carbs = parseDecimal(carbsText) ?? 0;
   const fat = parseDecimal(fatText) ?? 0;
 
-  const valid =
-    trimmedName.length > 0 &&
-    qty !== null &&
-    qty > 0 &&
-    kcal !== null &&
-    kcal >= 0;
+  const valid = trimmedName.length > 0 && kcal !== null && kcal >= 0;
 
   const handleSave = useCallback(() => {
     if (!valid || saving) return;
@@ -120,8 +123,11 @@ export default function PantryItemEditorScreen() {
     const payload = {
       name: trimmedName,
       brand: trimmedBrand === '' ? null : trimmedBrand,
-      defaultServingQty: qty!,
-      defaultServingUnit: trimmedUnit,
+      // Pantry items are always stored per-100g — the reference
+      // serving doubles as the macro scaling base. Meal-item math
+      // multiplies by ingredientGrams / 100.
+      defaultServingQty: REFERENCE_QTY,
+      defaultServingUnit: REFERENCE_UNIT,
       kcalPerServing: kcal!,
       proteinG: protein,
       carbsG: carbs,
@@ -149,8 +155,6 @@ export default function PantryItemEditorScreen() {
     numericId,
     trimmedName,
     brand,
-    qty,
-    trimmedUnit,
     kcal,
     protein,
     carbs,
@@ -238,35 +242,8 @@ export default function PantryItemEditorScreen() {
           />
         </Section>
 
-        {/* SERVING */}
-        <Section label="default serving" sub="qty + unit">
-          <View style={styles.servingRow}>
-            <View style={[styles.textRow, styles.servingQtyCell]}>
-              <TextInput
-                value={defaultQtyText}
-                onChangeText={(t) => setDefaultQtyText(sanitizeDecimal(t))}
-                keyboardType="decimal-pad"
-                returnKeyType="done"
-                maxLength={6}
-                style={[styles.textInput, textStyles.tnum]}
-              />
-            </View>
-            <View style={[styles.textRow, styles.servingUnitCell]}>
-              <TextInput
-                value={defaultUnit}
-                onChangeText={(t) => setDefaultUnit(t.slice(0, UNIT_MAX))}
-                autoCapitalize="none"
-                autoCorrect={false}
-                placeholder="serving"
-                placeholderTextColor={tokens.ink4}
-                style={[styles.textInput, { fontFamily: fonts.mono }]}
-              />
-            </View>
-          </View>
-        </Section>
-
-        {/* MACROS */}
-        <Section label="macros · per serving">
+        {/* MACROS — always per 100g, matching European nutrition labels. */}
+        <Section label="macros" sub="per 100g">
           <View style={styles.cardList}>
             <MacroRow
               label="kcal"
@@ -300,7 +277,7 @@ export default function PantryItemEditorScreen() {
 
         {!valid && (
           <Text style={styles.bottomHint}>
-            name + serving qty + kcal/serving required
+            name + kcal per 100g required
           </Text>
         )}
 
@@ -425,11 +402,6 @@ function parseDecimal(s: string): number | null {
   return n;
 }
 
-function formatQty(q: number): string {
-  if (Number.isInteger(q)) return q.toString();
-  return (Math.round(q * 100) / 100).toString();
-}
-
 function formatMacro(g: number): string {
   if (g === 0) return '';
   if (Number.isInteger(g)) return g.toString();
@@ -492,17 +464,6 @@ const styles = StyleSheet.create({
     color: tokens.ink,
     letterSpacing: -0.16,
     paddingVertical: 0,
-  },
-
-  servingRow: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  servingQtyCell: {
-    flex: 1,
-  },
-  servingUnitCell: {
-    flex: 1.4,
   },
 
   cardList: {
