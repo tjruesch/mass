@@ -995,9 +995,9 @@ const styles = StyleSheet.create({
   },
   pickerChip: {
     flexGrow: 1,
-    flexBasis: '30%',
+    flexBasis: '48%',
     paddingVertical: 9,
-    paddingHorizontal: 8,
+    paddingHorizontal: 10,
     borderRadius: 8,
     backgroundColor: tokens.bg2,
     borderWidth: 1,
