@@ -22,15 +22,17 @@ import {
   View,
 } from 'react-native';
 
-import { Glyph, TabBar, WeightChart } from '@/components/design';
+import Svg, { G, Line, Rect } from 'react-native-svg';
+
+import { Glyph, TabBar } from '@/components/design';
 import { useCombinedStreak } from '@/src/hooks/use-combined-streak';
 import {
   useFeatureStreaks,
   type FeatureStreakStat,
 } from '@/src/hooks/use-feature-streaks';
 import { useWeightHistory } from '@/src/hooks/use-weight';
-import { useWeightPreferences } from '@/src/hooks/use-weight-preferences';
 import { useNow } from '@/src/lib/use-now';
+import { addDays, startOfDay } from '@/src/lib/time';
 import { fonts, textStyles, tokens } from '@/theme/tokens';
 
 const WEEKDAY_FMT = new Intl.DateTimeFormat('en', { weekday: 'short' });
@@ -94,11 +96,19 @@ function formatClockTime(d: Date): string {
   return `${h}:${m}`;
 }
 
-// Width of the weight chart inside its card. Card has 22 px outer +
-// 12 px inner padding × 2; matches the design source's 314-px inner.
-const WEIGHT_CARD_INNER_W = 346 - 22 * 2;
-const WEIGHT_CHART_W = WEIGHT_CARD_INNER_W - 12 * 2;
-const WEIGHT_CHART_H = 170;
+// 7-day delta bar chart. Each bar = MA(day_i) − MA(day_i-1) for the
+// last 7 calendar days. Centered 0-line; green below (loss), warn
+// above (gain). Scale floor of 0.5 kg keeps a flat week from
+// rendering hairline bars.
+const DELTA_BAR_DAYS = 7;
+const DELTA_BAR_CHART_H = 96;
+const DELTA_BAR_MIN_SCALE_KG = 0.5;
+const DELTA_DOW_FMT = new Intl.DateTimeFormat('en', { weekday: 'short' });
+
+type DeltaPoint = {
+  readonly date: Date;
+  readonly delta: number | null;
+};
 
 export default function TrendsScreen() {
   const router = useRouter();
@@ -108,13 +118,12 @@ export default function TrendsScreen() {
   const combined = useCombinedStreak();
   const features = useFeatureStreaks();
   const weightHistory = useWeightHistory({ days: 90 });
-  const weightPrefs = useWeightPreferences();
   // Last DOT_DAYS slice of the 90-day window for the row of dots.
   const dotWindow = combined.hitsPerDay.slice(-DOT_DAYS);
 
-  const weightSummary = useMemo(
-    () => buildWeightSummary(weightHistory, weightPrefs),
-    [weightHistory, weightPrefs],
+  const weightDeltas = useMemo(
+    () => buildWeightDeltas(weightHistory.points, now),
+    [weightHistory.points, now],
   );
 
   return (
@@ -221,60 +230,35 @@ export default function TrendsScreen() {
         </View>
 
         {/* ── Weight card ─────────────────────────────────────────── */}
-        <View style={styles.weightOuter}>
+        <Pressable
+          onPress={() => router.push('/weight' as never)}
+          accessibilityRole="button"
+          accessibilityLabel="See full weight history"
+          style={({ pressed }) => [
+            styles.weightOuter,
+            pressed && { opacity: 0.85 },
+          ]}>
           <View style={styles.weightHeader}>
             <View style={{ flex: 1, minWidth: 0 }}>
               <Text style={[styles.kicker, textStyles.cap]}>weight</Text>
               <View style={styles.weightHeroRow}>
                 <Text style={[styles.weightHeroNumber, textStyles.tnum]}>
-                  {weightSummary.latestKgLabel}
+                  {weightHistory.latestKg !== null
+                    ? formatOne(weightHistory.latestKg)
+                    : '—'}
                 </Text>
                 <Text style={styles.weightUnit}>kg</Text>
-                {weightSummary.delta !== null && (
-                  <Text
-                    style={[
-                      styles.weightDelta,
-                      textStyles.tnum,
-                      { color: weightSummary.deltaColor },
-                    ]}>
-                    {weightSummary.delta.arrow}{' '}
-                    {weightSummary.delta.absLabel} / 7d
-                  </Text>
-                )}
               </View>
-              <Text style={styles.weightHint}>
-                {weightSummary.hint}
-              </Text>
             </View>
-            <Pressable
-              onPress={() => router.push('/weight' as never)}
-              accessibilityRole="button"
-              accessibilityLabel="See full weight history"
-              hitSlop={6}
-              style={({ pressed }) => [
-                styles.seeAll,
-                pressed && { opacity: 0.55 },
-              ]}>
+            <View style={styles.seeAll}>
               <Text style={[styles.seeAllText, textStyles.cap]}>see all</Text>
               <Glyph name="chev" color={tokens.accentInk} />
-            </Pressable>
+            </View>
           </View>
           <View style={styles.weightCard}>
-            {weightPrefs ? (
-              <WeightChart
-                history={weightHistory.points}
-                prefs={weightPrefs}
-                width={WEIGHT_CHART_W}
-                height={WEIGHT_CHART_H}
-                range={{ mode: 'goal' }}
-              />
-            ) : (
-              <View style={styles.weightLoading}>
-                <Text style={styles.weightLoadingText}>loading…</Text>
-              </View>
-            )}
+            <DeltaBarChart deltas={weightDeltas} />
           </View>
-        </View>
+        </Pressable>
 
         {/* Placeholder until #101 fills the deficit bars section. */}
         <View style={styles.placeholderOuter}>
@@ -342,85 +326,154 @@ function formatOne(n: number): string {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Weight summary — current kg, 7d MA delta + arrow + colour, hint.
-// Pulled out so the JSX above stays focused on layout.
+// 7-day MA deltas. For each of the last 7 calendar days, evaluate
+// the trailing 7-day MA at that day and subtract the prior day's
+// MA. Returns 7 points even with sparse logging (null `delta` when
+// either side's window is empty).
 // ─────────────────────────────────────────────────────────────────────────────
-type WeightSummary = {
-  latestKgLabel: string;
-  delta: { arrow: string; absLabel: string } | null;
-  deltaColor: string;
-  hint: string;
-};
+const MA_WINDOW_MS = 7 * 24 * 3_600_000;
 
-function buildWeightSummary(
-  hist: ReturnType<typeof useWeightHistory>,
-  prefs: ReturnType<typeof useWeightPreferences>,
-): WeightSummary {
-  if (hist.latestKg === null) {
-    return {
-      latestKgLabel: '—',
-      delta: null,
-      deltaColor: tokens.ink3,
-      hint: 'no weigh-ins yet',
-    };
+function maAt(
+  entries: ReadonlyArray<{ at: Date; kg: number }>,
+  atTime: number,
+): number | null {
+  const windowStart = atTime - MA_WINDOW_MS;
+  let sum = 0;
+  let count = 0;
+  for (const e of entries) {
+    const t = e.at.getTime();
+    if (t > atTime) break;
+    if (t < windowStart) continue;
+    sum += e.kg;
+    count++;
+  }
+  return count > 0 ? sum / count : null;
+}
+
+function buildWeightDeltas(
+  points: ReturnType<typeof useWeightHistory>['points'],
+  now: Date,
+): ReadonlyArray<DeltaPoint> {
+  // Flatten to raw entries; useWeightHistory sorts ascending already.
+  const entries = points.map((p) => p.entry);
+  const todayStart = startOfDay(now);
+  const out: DeltaPoint[] = [];
+  for (let i = DELTA_BAR_DAYS - 1; i >= 0; i--) {
+    const day = addDays(todayStart, -i);
+    const prev = addDays(day, -1);
+    const a = maAt(entries, prev.getTime());
+    const b = maAt(entries, day.getTime());
+    out.push({ date: day, delta: a !== null && b !== null ? b - a : null });
+  }
+  return out;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DeltaBarChart — 7 bars centered around a 0-line. Positive = warn
+// (gain), negative = forest green (loss). Today is rightmost. The
+// scale floor of 0.5 kg keeps a near-flat week from rendering as
+// hairline bars.
+// ─────────────────────────────────────────────────────────────────────────────
+function DeltaBarChart({ deltas }: { deltas: ReadonlyArray<DeltaPoint> }) {
+  const w = 290; // matches the card inner width (22+12 padding × 2 off 346)
+  const h = DELTA_BAR_CHART_H;
+  const padT = 8;
+  const padB = 20;
+  const padL = 4;
+  const padR = 4;
+  const innerW = w - padL - padR;
+  const innerH = h - padT - padB;
+  const midY = padT + innerH / 2;
+
+  const maxAbs = Math.max(
+    DELTA_BAR_MIN_SCALE_KG,
+    ...deltas.map((d) => (d.delta === null ? 0 : Math.abs(d.delta))),
+  );
+
+  const slot = innerW / deltas.length;
+  const barW = Math.max(10, slot - 8);
+
+  // Empty state: no usable data at all.
+  const anyData = deltas.some((d) => d.delta !== null);
+  if (!anyData) {
+    return (
+      <View style={styles.deltaEmpty}>
+        <Text style={styles.deltaEmptyText}>
+          log a few weigh-ins to see daily change
+        </Text>
+      </View>
+    );
   }
 
-  // Direction: a goal-direction-aware colour for the delta. Without a
-  // target we can't tell which way the user is trying to go, so the
-  // delta renders in neutral ink.
-  const cutting =
-    prefs?.targetKg !== undefined &&
-    prefs?.targetKg !== null &&
-    prefs.targetKg < hist.latestKg;
-  const bulking =
-    prefs?.targetKg !== undefined &&
-    prefs?.targetKg !== null &&
-    prefs.targetKg > hist.latestKg;
-
-  let delta: WeightSummary['delta'] = null;
-  let deltaColor: string = tokens.ink3;
-  if (hist.sevenDayDelta !== null) {
-    const v = hist.sevenDayDelta;
-    delta = {
-      arrow: v < 0 ? '▼' : v > 0 ? '▲' : '·',
-      absLabel: formatOne(Math.abs(v)),
-    };
-    if (cutting) deltaColor = v < 0 ? '#1F7A3A' : tokens.warn;
-    else if (bulking) deltaColor = v > 0 ? '#1F7A3A' : tokens.warn;
-  }
-
-  // Hint: ETA when we can project an MA → target intersect, otherwise
-  // a status string. Computed daily-velocity from sevenDayDelta keeps
-  // the math straightforward; signs are checked so a non-trending
-  // user doesn't get a goal-impossible ETA in the past.
-  let hint = 'tracking · keep logging';
-  if (prefs?.targetKg !== null && prefs?.targetKg !== undefined) {
-    if (hist.sevenDayDelta === null || hist.latestMa === null) {
-      hint = `goal ${formatOne(prefs.targetKg)} kg · need a week of data`;
-    } else {
-      const dailyVel = hist.sevenDayDelta / 7;
-      const remaining = prefs.targetKg - hist.latestMa;
-      // Going the right direction?
-      const goodDirection =
-        (remaining < 0 && dailyVel < 0) ||
-        (remaining > 0 && dailyVel > 0) ||
-        Math.abs(remaining) < 0.1;
-      if (Math.abs(dailyVel) < 0.005 || !goodDirection) {
-        hint = `goal ${formatOne(prefs.targetKg)} kg · off pace`;
-      } else {
-        const days = Math.max(1, Math.round(remaining / dailyVel));
-        const eta = new Date(Date.now() + days * 86_400_000);
-        hint = `eta ${ETA_FMT.format(eta).toLowerCase()}`;
-      }
-    }
-  }
-
-  return {
-    latestKgLabel: formatOne(hist.latestKg),
-    delta,
-    deltaColor,
-    hint,
-  };
+  return (
+    <View style={{ width: w, height: h }}>
+      <Svg width={w} height={h}>
+        {/* center 0-line */}
+        <Line
+          x1={padL}
+          y1={midY}
+          x2={padL + innerW}
+          y2={midY}
+          stroke={tokens.ink}
+          strokeOpacity={0.25}
+          strokeWidth={0.8}
+        />
+        <G>
+          {deltas.map((d, i) => {
+            const cx = padL + slot * i + slot / 2;
+            const x = cx - barW / 2;
+            if (d.delta === null) {
+              return (
+                <Rect
+                  key={i}
+                  x={x}
+                  y={midY - 1}
+                  width={barW}
+                  height={2}
+                  rx={1}
+                  fill={tokens.line2}
+                  opacity={0.6}
+                />
+              );
+            }
+            const magnitude = Math.abs(d.delta) / maxAbs;
+            const barH = magnitude * (innerH / 2);
+            const isGain = d.delta > 0;
+            const y = isGain ? midY - barH : midY;
+            const isToday = i === deltas.length - 1;
+            return (
+              <Rect
+                key={i}
+                x={x}
+                y={y}
+                width={barW}
+                height={Math.max(2, barH)}
+                rx={2}
+                fill={isGain ? tokens.warn : '#1F7A3A'}
+                opacity={isToday ? 1 : 0.6}
+              />
+            );
+          })}
+        </G>
+      </Svg>
+      <View style={styles.deltaDowRow}>
+        {deltas.map((d, i) => {
+          const isToday = i === deltas.length - 1;
+          return (
+            <Text
+              key={i}
+              style={[
+                styles.deltaDow,
+                textStyles.cap,
+                isToday && styles.deltaDowToday,
+              ]}>
+              {DELTA_DOW_FMT.format(d.date).toLowerCase()}
+            </Text>
+          );
+        })}
+      </View>
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({
@@ -648,19 +701,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: tokens.ink3,
   },
-  weightDelta: {
-    marginLeft: 4,
-    fontFamily: fonts.monoSemibold,
-    fontSize: 11,
-  },
-  weightHint: {
-    marginTop: 4,
-    fontFamily: fonts.mono,
-    fontSize: 9.5,
-    color: tokens.ink4,
-    fontStyle: 'italic',
-    letterSpacing: 0.4,
-  },
   seeAll: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -686,15 +726,39 @@ const styles = StyleSheet.create({
     shadowRadius: 24,
     shadowOpacity: 0.04,
   },
-  weightLoading: {
-    height: WEIGHT_CHART_H,
+
+  // Delta bars
+  deltaEmpty: {
+    width: '100%',
+    height: DELTA_BAR_CHART_H,
     alignItems: 'center',
     justifyContent: 'center',
+    paddingHorizontal: 24,
   },
-  weightLoadingText: {
+  deltaEmptyText: {
     fontFamily: fonts.mono,
-    fontSize: 12,
+    fontSize: 11,
     color: tokens.ink4,
     fontStyle: 'italic',
+    textAlign: 'center',
+    letterSpacing: 0.4,
+  },
+  deltaDowRow: {
+    position: 'absolute',
+    left: 4,
+    right: 4,
+    bottom: 4,
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+  },
+  deltaDow: {
+    fontFamily: fonts.mono,
+    fontSize: 9,
+    color: tokens.ink4,
+    letterSpacing: 1.44,
+  },
+  deltaDowToday: {
+    fontFamily: fonts.monoSemibold,
+    color: tokens.ink,
   },
 });
