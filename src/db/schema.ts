@@ -80,6 +80,14 @@ export const waterPreferences = sqliteTable('water_preferences', {
 });
 
 // ─── Pantry (food library) ────────────────────────────────────────────────────
+/**
+ * Pantry categories used for grouping on the stock screen. Free-form
+ * text on the column itself so future categories don't need migrations,
+ * but this is the closed set the UI knows how to render. Anything else
+ * falls back to `pantry` (the dry-goods catch-all).
+ */
+export type PantryCategory = 'fresh' | 'protein' | 'dairy' | 'pantry';
+
 export const pantryItems = sqliteTable('pantry_items', {
   id: id(),
   name: text('name').notNull(),
@@ -91,6 +99,23 @@ export const pantryItems = sqliteTable('pantry_items', {
   proteinG: real('protein_g').notNull().default(0),
   carbsG: real('carbs_g').notNull().default(0),
   fatG: real('fat_g').notNull().default(0),
+  /** One of `PantryCategory`. Defaults to `pantry` for back-compat with
+   *  pre-stock rows; the UI groups by this. */
+  category: text('category').notNull().default('pantry').$type<PantryCategory>(),
+  /** Stock on hand, in `stockUnit`. Null = stock tracking not enabled
+   *  for this item — falls back to legacy "no stock" rendering. */
+  currentQty: real('current_qty'),
+  /** Unit for `currentQty` and `lowThreshold`. Independent of
+   *  `defaultServingUnit` (an item can be served in 'g' but stocked in
+   *  'ea' for "tuna cans"). Falls back to defaultServingUnit at the UI
+   *  layer when null. */
+  stockUnit: text('stock_unit'),
+  /** Below this `currentQty` the item reads as `low`. Null = no
+   *  threshold set, so an item only flips to `out` at qty=0. */
+  lowThreshold: real('low_threshold'),
+  /** When the user last marked the item restocked. Drives the "last
+   *  restocked Xd ago" affordance on the editor. */
+  restockedAt: integer('restocked_at', { mode: 'timestamp_ms' }),
   lastUsedAt: integer('last_used_at', { mode: 'timestamp_ms' }),
   createdAt: createdAt(),
 });

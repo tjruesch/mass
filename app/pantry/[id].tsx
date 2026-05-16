@@ -39,11 +39,18 @@ import {
   getPantryItemById,
   updatePantryItem,
 } from '@/src/db/queries/pantry';
-import type { PantryItem } from '@/src/db/schema';
+import type { PantryCategory, PantryItem } from '@/src/db/schema';
+import {
+  PANTRY_CATEGORIES,
+  PANTRY_CATEGORY_LABELS,
+} from '@/src/lib/pantry-stock';
 import { fonts, textStyles, tokens } from '@/theme/tokens';
 
 const NAME_MAX = 48;
 const BRAND_MAX = 32;
+const UNIT_MAX = 8;
+
+const COMMON_STOCK_UNITS = ['g', 'ml', 'ea'] as const;
 
 /**
  * The reference serving — fixed at 100g so macros input is always
@@ -66,6 +73,12 @@ export default function PantryItemEditorScreen() {
   const [proteinText, setProteinText] = useState('');
   const [carbsText, setCarbsText] = useState('');
   const [fatText, setFatText] = useState('');
+  // Stock + category (#90).
+  const [category, setCategory] = useState<PantryCategory>('pantry');
+  const [currentQtyText, setCurrentQtyText] = useState('');
+  const [stockUnit, setStockUnit] = useState<string>('g');
+  const [lowThresholdText, setLowThresholdText] = useState('');
+  const [restockedAt, setRestockedAt] = useState<Date | null>(null);
   const [saving, setSaving] = useState(false);
   const [hydrated, setHydrated] = useState(false);
 
@@ -105,6 +118,13 @@ export default function PantryItemEditorScreen() {
       setProteinText(formatMacro(row.proteinG));
       setCarbsText(formatMacro(row.carbsG));
       setFatText(formatMacro(row.fatG));
+      setCategory(row.category);
+      setCurrentQtyText(row.currentQty === null ? '' : formatMacro(row.currentQty));
+      setStockUnit(row.stockUnit ?? 'g');
+      setLowThresholdText(
+        row.lowThreshold === null ? '' : formatMacro(row.lowThreshold),
+      );
+      setRestockedAt(row.restockedAt ?? null);
     }
   }, [isCreate, numericId, hydrated, router]);
 
@@ -120,6 +140,9 @@ export default function PantryItemEditorScreen() {
     if (!valid || saving) return;
     setSaving(true);
     const trimmedBrand = brand.trim();
+    const parsedCurrentQty = parseDecimal(currentQtyText);
+    const parsedLowThreshold = parseDecimal(lowThresholdText);
+    const trimmedUnit = stockUnit.trim();
     const payload = {
       name: trimmedName,
       brand: trimmedBrand === '' ? null : trimmedBrand,
@@ -132,6 +155,11 @@ export default function PantryItemEditorScreen() {
       proteinG: protein,
       carbsG: carbs,
       fatG: fat,
+      category,
+      currentQty: parsedCurrentQty,
+      stockUnit: parsedCurrentQty === null || trimmedUnit === '' ? null : trimmedUnit,
+      lowThreshold: parsedLowThreshold,
+      restockedAt,
     };
 
     const op =
@@ -159,6 +187,11 @@ export default function PantryItemEditorScreen() {
     protein,
     carbs,
     fat,
+    category,
+    currentQtyText,
+    stockUnit,
+    lowThresholdText,
+    restockedAt,
     router,
   ]);
 
@@ -272,6 +305,132 @@ export default function PantryItemEditorScreen() {
               onChange={(t) => setFatText(sanitizeDecimal(t))}
               isLast
             />
+          </View>
+        </Section>
+
+        {/* CATEGORY — drives the grouping on the pantry stock screen. */}
+        <Section label="category">
+          <View style={styles.chipRow}>
+            {PANTRY_CATEGORIES.map((cat) => {
+              const active = cat === category;
+              return (
+                <Pressable
+                  key={cat}
+                  onPress={() => setCategory(cat)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Category ${cat}`}
+                  style={({ pressed }) => [
+                    styles.chip,
+                    active && styles.chipActive,
+                    pressed && !active && { opacity: 0.65 },
+                  ]}>
+                  <Text
+                    style={[
+                      styles.chipText,
+                      textStyles.cap,
+                      active && styles.chipTextActive,
+                    ]}>
+                    {PANTRY_CATEGORY_LABELS[cat]}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </Section>
+
+        {/* STOCK — current_qty + stock_unit + low_threshold + restocked. */}
+        <Section
+          label="stock"
+          sub={
+            currentQtyText.trim() === ''
+              ? 'optional · untracked when blank'
+              : restockedAt !== null
+              ? `restocked ${formatRelativeDays(restockedAt)}`
+              : undefined
+          }>
+          <View style={styles.cardList}>
+            <View style={[styles.macroRow, styles.rowBorder]}>
+              <Text style={styles.macroLabel}>on hand</Text>
+              <View style={styles.stockInputCell}>
+                <TextInput
+                  value={currentQtyText}
+                  onChangeText={(t) =>
+                    setCurrentQtyText(sanitizeDecimal(t))
+                  }
+                  keyboardType="decimal-pad"
+                  returnKeyType="done"
+                  placeholder="0"
+                  placeholderTextColor={tokens.ink4}
+                  maxLength={7}
+                  style={[styles.macroInput, textStyles.tnum]}
+                />
+                <View style={styles.unitChipRow}>
+                  {COMMON_STOCK_UNITS.map((u) => {
+                    const active = u === stockUnit;
+                    return (
+                      <Pressable
+                        key={u}
+                        onPress={() => setStockUnit(u)}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Unit ${u}`}
+                        style={({ pressed }) => [
+                          styles.unitChip,
+                          active && styles.unitChipActive,
+                          pressed && !active && { opacity: 0.6 },
+                        ]}>
+                        <Text
+                          style={[
+                            styles.unitChipText,
+                            active && styles.unitChipTextActive,
+                          ]}>
+                          {u}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+            </View>
+            <View style={[styles.macroRow, styles.rowBorder]}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.macroLabel}>low at</Text>
+                <Text style={styles.macroLabelHint}>
+                  qty under this reads as "low"
+                </Text>
+              </View>
+              <View style={styles.macroInputCell}>
+                <TextInput
+                  value={lowThresholdText}
+                  onChangeText={(t) =>
+                    setLowThresholdText(sanitizeDecimal(t))
+                  }
+                  keyboardType="decimal-pad"
+                  returnKeyType="done"
+                  placeholder="0"
+                  placeholderTextColor={tokens.ink4}
+                  maxLength={7}
+                  style={[styles.macroInput, textStyles.tnum]}
+                />
+                <Text style={styles.macroUnit}>{stockUnit}</Text>
+              </View>
+            </View>
+            <Pressable
+              onPress={() => setRestockedAt(new Date())}
+              accessibilityRole="button"
+              accessibilityLabel="Mark restocked just now"
+              style={({ pressed }) => [
+                styles.restockRow,
+                pressed && { opacity: 0.6 },
+              ]}>
+              <Text style={[styles.restockText, textStyles.cap]}>
+                mark restocked now
+              </Text>
+              <Text style={styles.restockHint}>
+                {restockedAt === null
+                  ? 'never'
+                  : formatRelativeDays(restockedAt)}
+              </Text>
+            </Pressable>
           </View>
         </Section>
 
@@ -408,6 +567,16 @@ function formatMacro(g: number): string {
   return (Math.round(g * 10) / 10).toString();
 }
 
+function formatRelativeDays(d: Date): string {
+  const diffMs = Date.now() - d.getTime();
+  const days = Math.floor(diffMs / 86_400_000);
+  if (days <= 0) return 'today';
+  if (days === 1) return 'yesterday';
+  if (days < 7) return `${days}d ago`;
+  if (days < 30) return `${Math.floor(days / 7)}w ago`;
+  return `${Math.floor(days / 30)}mo ago`;
+}
+
 // ─── Styles ─────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
@@ -534,5 +703,94 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: tokens.accentInk,
     letterSpacing: 1.92,
+  },
+
+  // Category chips
+  chipRow: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  chip: {
+    flex: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 4,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: tokens.line,
+    backgroundColor: tokens.bg2,
+    alignItems: 'center',
+  },
+  chipActive: {
+    backgroundColor: tokens.ink,
+    borderColor: tokens.ink,
+  },
+  chipText: {
+    fontFamily: fonts.monoSemibold,
+    fontSize: 10,
+    color: tokens.ink,
+    letterSpacing: 1.8,
+  },
+  chipTextActive: {
+    color: tokens.bg,
+  },
+
+  // Stock section
+  macroLabelHint: {
+    marginTop: 2,
+    fontFamily: fonts.mono,
+    fontSize: 10,
+    color: tokens.ink4,
+    fontStyle: 'italic',
+    letterSpacing: 0.4,
+  },
+  stockInputCell: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  unitChipRow: {
+    flexDirection: 'row',
+    gap: 4,
+  },
+  unitChip: {
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+    backgroundColor: tokens.bg2,
+    borderWidth: 1,
+    borderColor: tokens.line,
+  },
+  unitChipActive: {
+    backgroundColor: tokens.ink,
+    borderColor: tokens.ink,
+  },
+  unitChipText: {
+    fontFamily: fonts.monoSemibold,
+    fontSize: 10,
+    color: tokens.ink,
+  },
+  unitChipTextActive: {
+    color: tokens.bg,
+  },
+  restockRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 11,
+    paddingHorizontal: 14,
+    backgroundColor: 'rgba(0,0,0,0.012)',
+  },
+  restockText: {
+    fontFamily: fonts.monoSemibold,
+    fontSize: 11,
+    color: tokens.accentInk,
+    letterSpacing: 1.98,
+  },
+  restockHint: {
+    fontFamily: fonts.mono,
+    fontSize: 11,
+    color: tokens.ink4,
+    fontStyle: 'italic',
+    letterSpacing: 0.4,
   },
 });

@@ -1,111 +1,260 @@
 /**
- * Pantry library — flat alphabetical list of nutrition references
- * keyed by name. Used as the lookup source for meal ingredients
- * (#85 meal-log drawer, #87 new-meal composer).
+ * Pantry · stock + shopping list (#90).
  *
- * Stock tracking + shopping list live in #90; this v1 screen is
- * just a macro reference book.
+ * Three sections, top-to-bottom, matching designs/screen-pantry.jsx:
+ *   1. Stock summary chips — out / low / ok counts. The `short` chip
+ *      (some on hand but not enough for the week ahead) waits on #95's
+ *      meal_plan table so we have a "required quantity" source.
+ *   2. Auto shopping list — items currently `out` or `low`, with a
+ *      footer link to export to iOS Reminders (TODO until #90 D-part).
+ *   3. Pantry grouped by category (fresh / protein / dairy / pantry),
+ *      sorted within each section so out items surface first.
+ *
+ * Tapping a row routes to `/pantry/<id>` for editing. The SubHeader's
+ * trailing "+ add" link routes to `/pantry/new`.
+ *
+ * Untracked items (currentQty === null) skip the summary counts and
+ * render without a status pip, but still appear under their category
+ * so users can find them. Filling in stock on the editor flips them
+ * into the tracked flow.
  */
 
 import { useRouter } from 'expo-router';
-import { useMemo, useState } from 'react';
-import {
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
+import { useMemo } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { Glyph, SubHeader, TabBar } from '@/components/design';
+import { SubHeader, TabBar } from '@/components/design';
+import type { PantryCategory, PantryItem } from '@/src/db/schema';
 import { usePantryItems } from '@/src/hooks/use-pantry';
-import type { PantryItem } from '@/src/db/schema';
+import {
+  PANTRY_CATEGORIES,
+  PANTRY_CATEGORY_LABELS,
+  compareStockStatus,
+  effectiveStockUnit,
+  stockStatusFor,
+  type StockStatus,
+} from '@/src/lib/pantry-stock';
 import { fonts, textStyles, tokens } from '@/theme/tokens';
+
+// Status palette — pulled from the design source. The warn tones lean
+// terracotta (matches the Mist · Petrol accent), `low` is amber-ochre,
+// `ok` is forest green. Background swatches keep the same hue at 8-10%
+// opacity so chips stay legible against the card surface.
+const STATUS_COLORS: Record<
+  Exclude<StockStatus, 'untracked'>,
+  { fg: string; bg: string }
+> = {
+  out: { fg: tokens.warn, bg: 'rgba(180,90,30,0.10)' },
+  low: { fg: '#A07A2A', bg: 'rgba(192,138,40,0.10)' },
+  ok: { fg: '#1F7A3A', bg: 'rgba(31,122,58,0.10)' },
+};
 
 export default function PantryScreen() {
   const router = useRouter();
   const items = usePantryItems();
-  const [search, setSearch] = useState('');
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (q === '') return items;
-    return items.filter(
-      (it) =>
-        it.name.toLowerCase().includes(q) ||
-        (it.brand !== null && it.brand.toLowerCase().includes(q)),
-    );
-  }, [items, search]);
+  const summary = useMemo(() => {
+    let out = 0;
+    let low = 0;
+    let ok = 0;
+    let untracked = 0;
+    for (const item of items) {
+      switch (stockStatusFor(item)) {
+        case 'out':
+          out++;
+          break;
+        case 'low':
+          low++;
+          break;
+        case 'ok':
+          ok++;
+          break;
+        case 'untracked':
+          untracked++;
+          break;
+      }
+    }
+    return { out, low, ok, untracked };
+  }, [items]);
+
+  // Shopping list = items that need restocking. Until #95 adds week
+  // plan persistence (which sources the "required this week" total),
+  // we use the same `out + low` partition the summary chips show.
+  const shoppingList = useMemo(
+    () =>
+      items.filter((item) => {
+        const s = stockStatusFor(item);
+        return s === 'out' || s === 'low';
+      }),
+    [items],
+  );
+
+  const grouped = useMemo(() => {
+    const out: Record<PantryCategory, PantryItem[]> = {
+      fresh: [],
+      protein: [],
+      dairy: [],
+      pantry: [],
+    };
+    for (const item of items) {
+      out[item.category].push(item);
+    }
+    for (const cat of PANTRY_CATEGORIES) {
+      out[cat].sort((a, b) => {
+        const cmp = compareStockStatus(
+          stockStatusFor(a),
+          stockStatusFor(b),
+        );
+        if (cmp !== 0) return cmp;
+        return a.name.localeCompare(b.name);
+      });
+    }
+    return out;
+  }, [items]);
 
   return (
     <View style={{ flex: 1, backgroundColor: tokens.bg }}>
       <ScrollView
         contentContainerStyle={styles.scroll}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="interactive">
+        showsVerticalScrollIndicator={false}>
         <SubHeader
-          title="Pantry · library"
+          title="Pantry"
           back="Home"
           onBack={() => router.back()}
+          trailing={
+            <Pressable
+              onPress={() => router.push('/pantry/new' as never)}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel="Add pantry item"
+              style={({ pressed }) => pressed && { opacity: 0.55 }}>
+              <Text style={[styles.addLink, textStyles.cap]}>+ add</Text>
+            </Pressable>
+          }
         />
 
-        <View style={styles.searchOuter}>
-          <View style={styles.searchRow}>
-            <TextInput
-              value={search}
-              onChangeText={setSearch}
-              placeholder="search by name or brand"
-              placeholderTextColor={tokens.ink4}
-              autoCapitalize="none"
-              autoCorrect={false}
-              style={styles.searchInput}
+        {/* ── Stock summary ──────────────────────────────────────── */}
+        <View style={styles.summaryOuter}>
+          <Text style={[styles.kicker, textStyles.cap]}>stock</Text>
+          <View style={styles.summaryGrid}>
+            <SummaryChip kind="out" count={summary.out} />
+            <SummaryChip kind="low" count={summary.low} />
+            <SummaryChip kind="ok" count={summary.ok} />
+            <SummaryChip
+              kind="untracked"
+              count={summary.untracked}
+              label="untracked"
             />
           </View>
         </View>
 
-        {filtered.length === 0 ? (
-          <View style={styles.emptyOuter}>
-            <Text style={styles.emptyTitle}>
-              {items.length === 0 ? 'Pantry is empty' : 'No matches'}
-            </Text>
-            <Text style={styles.emptyHint}>
-              {items.length === 0
-                ? 'Add foods you eat often so logging meals is one tap.'
-                : `Nothing matches "${search.trim()}". Try a different name or brand.`}
-            </Text>
-          </View>
-        ) : (
-          <View style={styles.listOuter}>
-            <View style={styles.cardList}>
-              {filtered.map((it, i) => (
-                <PantryRow
-                  key={it.id}
-                  item={it}
-                  isLast={i === filtered.length - 1}
-                  onPress={() => router.push(`/pantry/${it.id}` as never)}
-                />
-              ))}
+        {/* ── Shopping list ──────────────────────────────────────── */}
+        {shoppingList.length > 0 && (
+          <View style={styles.sectionOuter}>
+            <View style={styles.sectionHeader}>
+              <Text style={[styles.kicker, textStyles.cap]}>
+                shopping list · auto
+              </Text>
+              <Text style={[styles.sectionStat, textStyles.tnum]}>
+                <Text style={styles.sectionStatStrong}>
+                  {shoppingList.length}
+                </Text>
+                <Text style={styles.sectionStatMute}>
+                  {' '}
+                  item{shoppingList.length === 1 ? '' : 's'}
+                </Text>
+              </Text>
+            </View>
+            <View style={styles.card}>
+              {shoppingList.map((it, i) => {
+                const isLast = i === shoppingList.length - 1;
+                return (
+                  <Pressable
+                    key={it.id}
+                    onPress={() => router.push(`/pantry/${it.id}` as never)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Edit ${it.name}`}
+                    style={({ pressed }) => [
+                      styles.shopRow,
+                      !isLast && styles.rowBorder,
+                      pressed && { opacity: 0.7 },
+                    ]}>
+                    <View style={styles.shopBox} />
+                    <View style={styles.shopBody}>
+                      <Text style={styles.shopName}>{it.name}</Text>
+                      <Text style={[styles.shopCat, textStyles.cap]}>
+                        {PANTRY_CATEGORY_LABELS[it.category]}
+                      </Text>
+                    </View>
+                    <Text style={[styles.shopQty, textStyles.tnum]}>
+                      {formatStockQty(it)}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+              {/* "Export to Reminders" CTA — wiring deferred until the
+                  iOS share-sheet integration lands. Renders as a hint
+                  to communicate the eventual flow. */}
+              <View style={styles.exportRow}>
+                <Text style={[styles.exportText, textStyles.cap]}>
+                  export to reminders
+                </Text>
+                <Text style={styles.exportSoon}>soon</Text>
+              </View>
             </View>
           </View>
         )}
 
-        <View style={styles.newOuter}>
-          <Pressable
-            onPress={() => router.push('/pantry/new' as never)}
-            accessibilityRole="button"
-            accessibilityLabel="Add a new pantry item"
-            style={({ pressed }) => [
-              styles.newBtn,
-              pressed && { opacity: 0.55 },
-            ]}>
-            <Glyph name="plus" color={tokens.ink3} size={11} />
-            <Text style={[styles.newBtnText, textStyles.cap]}>
-              new pantry item
+        {/* ── Empty state ─────────────────────────────────────────── */}
+        {items.length === 0 && (
+          <View style={styles.emptyOuter}>
+            <Text style={styles.emptyTitle}>Pantry is empty</Text>
+            <Text style={styles.emptyHint}>
+              Add foods you eat often so logging meals is one tap.
             </Text>
-          </Pressable>
-        </View>
+            <Pressable
+              onPress={() => router.push('/pantry/new' as never)}
+              accessibilityRole="button"
+              style={({ pressed }) => [
+                styles.emptyCta,
+                pressed && { opacity: 0.7 },
+              ]}>
+              <Text style={[styles.emptyCtaText, textStyles.cap]}>
+                + add first item
+              </Text>
+            </Pressable>
+          </View>
+        )}
+
+        {/* ── Pantry by category ──────────────────────────────────── */}
+        {PANTRY_CATEGORIES.map((cat) => {
+          const rows = grouped[cat];
+          if (rows.length === 0) return null;
+          return (
+            <View key={cat} style={styles.sectionOuter}>
+              <View style={styles.sectionHeader}>
+                <Text style={[styles.kicker, textStyles.cap]}>
+                  {PANTRY_CATEGORY_LABELS[cat]}
+                </Text>
+                <Text style={[styles.sectionStat, textStyles.tnum]}>
+                  <Text style={styles.sectionStatMute}>
+                    {rows.length} item{rows.length === 1 ? '' : 's'}
+                  </Text>
+                </Text>
+              </View>
+              <View style={styles.card}>
+                {rows.map((it, i) => (
+                  <CategoryRow
+                    key={it.id}
+                    item={it}
+                    isLast={i === rows.length - 1}
+                    onPress={() => router.push(`/pantry/${it.id}` as never)}
+                  />
+                ))}
+              </View>
+            </View>
+          );
+        })}
       </ScrollView>
 
       <TabBar active="home" />
@@ -114,9 +263,42 @@ export default function PantryScreen() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PantryRow — one item line in the library list.
+// SummaryChip — top-of-page status tile. `untracked` uses neutral inks
+// so it doesn't compete with the warn / amber / green status hierarchy.
 // ─────────────────────────────────────────────────────────────────────────────
-function PantryRow({
+function SummaryChip({
+  kind,
+  count,
+  label,
+}: {
+  kind: StockStatus;
+  count: number;
+  label?: string;
+}) {
+  const palette =
+    kind === 'untracked'
+      ? { fg: tokens.ink4, bg: 'rgba(0,0,0,0.02)' }
+      : STATUS_COLORS[kind];
+  return (
+    <View style={[styles.summaryChip, { backgroundColor: palette.bg }]}>
+      <Text
+        style={[
+          styles.summaryChipLabel,
+          textStyles.cap,
+          { color: palette.fg },
+        ]}>
+        {label ?? kind}
+      </Text>
+      <Text style={[styles.summaryChipCount, textStyles.tnum]}>{count}</Text>
+    </View>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CategoryRow — single line within a category card. Tappable to edit.
+// Renders a status pip (or none for untracked) + name + current qty.
+// ─────────────────────────────────────────────────────────────────────────────
+function CategoryRow({
   item,
   isLast,
   onPress,
@@ -125,52 +307,81 @@ function PantryRow({
   isLast: boolean;
   onPress: () => void;
 }) {
+  const status = stockStatusFor(item);
+  const struckOut = status === 'out';
   return (
     <Pressable
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={`Edit ${item.name}`}
       style={({ pressed }) => [
-        styles.row,
+        styles.catRow,
         !isLast && styles.rowBorder,
+        struckOut && { opacity: 0.85 },
         pressed && { opacity: 0.7 },
       ]}>
-      <View style={styles.rowBody}>
-        <Text style={styles.rowName}>{item.name}</Text>
-        <Text style={styles.rowSub} numberOfLines={1}>
-          {formatRowSub(item)}
+      <View style={styles.catBody}>
+        <Text
+          numberOfLines={1}
+          style={[
+            styles.catName,
+            struckOut && {
+              textDecorationLine: 'line-through',
+              textDecorationColor: tokens.ink4,
+            },
+          ]}>
+          {item.name}
+        </Text>
+        <Text style={styles.catSub} numberOfLines={1}>
+          {formatCatSub(item)}
         </Text>
       </View>
-      <View style={styles.rowKcalCol}>
-        <Text style={[styles.rowKcal, textStyles.tnum]}>
-          {Math.round(item.kcalPerServing)}
-        </Text>
-        <Text style={styles.rowKcalUnit}>kcal / 100g</Text>
-      </View>
-      <Glyph name="chev" color={tokens.ink3} />
+      {status !== 'untracked' && <StatusPip status={status} />}
+      <Text
+        style={[
+          styles.catQty,
+          textStyles.tnum,
+          item.currentQty === 0 && { color: tokens.ink4 },
+        ]}>
+        {formatStockQty(item)}
+      </Text>
     </Pressable>
   );
 }
 
-function formatRowSub(item: PantryItem): string {
-  // All macros are per 100g (the editor enforces that). We show brand
-  // first when set, then non-zero macros as P/C/F. Always-100g serving
-  // is implicit on the right column (`kcal / 100g`).
-  const parts: string[] = [];
-  if (item.brand !== null && item.brand.trim() !== '') {
-    parts.push(item.brand);
-  }
-  const macroParts: string[] = [];
-  if (item.proteinG > 0) macroParts.push(`P ${formatMacro(item.proteinG)}`);
-  if (item.carbsG > 0) macroParts.push(`C ${formatMacro(item.carbsG)}`);
-  if (item.fatG > 0) macroParts.push(`F ${formatMacro(item.fatG)}`);
-  if (macroParts.length > 0) parts.push(macroParts.join(' · '));
-  return parts.length === 0 ? '—' : parts.join(' · ');
+function StatusPip({ status }: { status: Exclude<StockStatus, 'untracked'> }) {
+  const palette = STATUS_COLORS[status];
+  return (
+    <View style={[styles.statusPip, { backgroundColor: palette.bg }]}>
+      <Text
+        style={[
+          styles.statusPipText,
+          textStyles.cap,
+          { color: palette.fg },
+        ]}>
+        {status}
+      </Text>
+    </View>
+  );
 }
 
-function formatMacro(g: number): string {
-  if (Number.isInteger(g)) return `${g}g`;
-  return `${Math.round(g * 10) / 10}g`;
+// ─── Formatters ────────────────────────────────────────────────────────────
+function formatStockQty(item: PantryItem): string {
+  if (item.currentQty === null) return '—';
+  const unit = effectiveStockUnit(item);
+  return `${formatNum(item.currentQty)} ${unit}`;
+}
+
+function formatCatSub(item: PantryItem): string {
+  // Brand first when set; otherwise show kcal/100g so the row isn't
+  // empty. Status pip + qty handle the stock side on the right.
+  if (item.brand !== null && item.brand.trim() !== '') return item.brand;
+  return `${Math.round(item.kcalPerServing)} kcal / 100g`;
+}
+
+function formatNum(n: number): string {
+  if (Number.isInteger(n)) return n.toString();
+  return (Math.round(n * 10) / 10).toString();
 }
 
 // ─── Styles ────────────────────────────────────────────────────────────────
@@ -178,30 +389,201 @@ function formatMacro(g: number): string {
 const styles = StyleSheet.create({
   scroll: {
     paddingTop: 54,
-    paddingBottom: 130,
+    paddingBottom: 120,
+  },
+  addLink: {
+    fontFamily: fonts.monoSemibold,
+    fontSize: 12,
+    color: tokens.accentInk,
+    letterSpacing: 2.2,
+  },
+  kicker: {
+    fontFamily: fonts.mono,
+    fontSize: 9,
+    color: tokens.ink4,
+    letterSpacing: 1.98,
   },
 
-  searchOuter: {
-    paddingTop: 12,
+  // Summary
+  summaryOuter: {
+    paddingTop: 8,
     paddingHorizontal: 22,
   },
-  searchRow: {
-    backgroundColor: tokens.bg2,
+  summaryGrid: {
+    marginTop: 8,
+    flexDirection: 'row',
+    gap: 6,
+  },
+  summaryChip: {
+    flex: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: tokens.line,
-    borderRadius: 10,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
+    gap: 2,
   },
-  searchInput: {
-    fontFamily: fonts.mono,
-    fontSize: 14,
+  summaryChipLabel: {
+    fontFamily: fonts.monoSemibold,
+    fontSize: 9,
+    letterSpacing: 1.8,
+  },
+  summaryChipCount: {
+    fontFamily: fonts.monoSemibold,
+    fontSize: 20,
     color: tokens.ink,
-    paddingVertical: 0,
+    letterSpacing: -0.6,
   },
 
+  // Section
+  sectionOuter: {
+    paddingTop: 18,
+    paddingHorizontal: 22,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
+    marginBottom: 8,
+  },
+  sectionStat: {
+    fontFamily: fonts.mono,
+    fontSize: 10,
+    letterSpacing: 0.4,
+  },
+  sectionStatStrong: {
+    color: tokens.ink,
+    fontFamily: fonts.monoSemibold,
+  },
+  sectionStatMute: {
+    color: tokens.ink4,
+  },
+
+  card: {
+    backgroundColor: tokens.card,
+    borderWidth: 1,
+    borderColor: tokens.line,
+    borderRadius: 14,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowRadius: 3,
+    shadowOpacity: 0.02,
+  },
+  rowBorder: {
+    borderBottomWidth: 1,
+    borderBottomColor: tokens.line,
+  },
+
+  // Shopping list row
+  shopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 11,
+    paddingHorizontal: 14,
+    gap: 10,
+  },
+  shopBox: {
+    width: 14,
+    height: 14,
+    borderRadius: 4,
+    borderWidth: 1.5,
+    borderColor: tokens.line2,
+    backgroundColor: 'transparent',
+  },
+  shopBody: {
+    flex: 1,
+    minWidth: 0,
+  },
+  shopName: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 13,
+    color: tokens.ink,
+    letterSpacing: -0.07,
+  },
+  shopCat: {
+    marginTop: 1,
+    fontFamily: fonts.mono,
+    fontSize: 9,
+    color: tokens.ink4,
+    letterSpacing: 1.62,
+  },
+  shopQty: {
+    fontFamily: fonts.monoSemibold,
+    fontSize: 12,
+    color: tokens.ink,
+  },
+  exportRow: {
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderTopWidth: 1,
+    borderTopColor: tokens.line,
+    backgroundColor: 'rgba(0,0,0,0.012)',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  exportText: {
+    fontFamily: fonts.monoSemibold,
+    fontSize: 9.5,
+    color: tokens.ink3,
+    letterSpacing: 1.71,
+  },
+  exportSoon: {
+    fontFamily: fonts.mono,
+    fontSize: 9.5,
+    color: tokens.ink4,
+    fontStyle: 'italic',
+    letterSpacing: 0.4,
+  },
+
+  // Category row
+  catRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 11,
+    paddingHorizontal: 14,
+    gap: 10,
+  },
+  catBody: {
+    flex: 1,
+    minWidth: 0,
+  },
+  catName: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 13,
+    color: tokens.ink,
+    letterSpacing: -0.07,
+  },
+  catSub: {
+    marginTop: 2,
+    fontFamily: fonts.mono,
+    fontSize: 10,
+    color: tokens.ink4,
+    fontStyle: 'italic',
+    letterSpacing: 0.4,
+  },
+  statusPip: {
+    paddingVertical: 2,
+    paddingHorizontal: 7,
+    borderRadius: 999,
+  },
+  statusPipText: {
+    fontFamily: fonts.monoSemibold,
+    fontSize: 9,
+    letterSpacing: 1.8,
+  },
+  catQty: {
+    fontFamily: fonts.monoSemibold,
+    fontSize: 12,
+    color: tokens.ink,
+    minWidth: 50,
+    textAlign: 'right',
+  },
+
+  // Empty state
   emptyOuter: {
-    paddingTop: 24,
+    paddingTop: 30,
     paddingHorizontal: 22,
     alignItems: 'center',
   },
@@ -221,81 +603,16 @@ const styles = StyleSheet.create({
     letterSpacing: 0.4,
     maxWidth: 280,
   },
-
-  listOuter: {
-    paddingTop: 12,
-    paddingHorizontal: 22,
-  },
-  cardList: {
-    backgroundColor: tokens.card,
-    borderWidth: 1,
-    borderColor: tokens.line,
-    borderRadius: 14,
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowRadius: 3,
-    shadowOpacity: 0.02,
-  },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    gap: 12,
-  },
-  rowBorder: {
-    borderBottomWidth: 1,
-    borderBottomColor: tokens.line,
-  },
-  rowBody: {
-    flex: 1,
-    minWidth: 0,
-  },
-  rowName: {
-    fontFamily: fonts.sansMedium,
-    fontSize: 15,
-    color: tokens.ink,
-  },
-  rowSub: {
-    marginTop: 2,
-    fontFamily: fonts.mono,
-    fontSize: 11,
-    color: tokens.ink4,
-    fontStyle: 'italic',
-    letterSpacing: 0.4,
-  },
-  rowKcalCol: {
-    alignItems: 'flex-end',
-  },
-  rowKcal: {
-    fontFamily: fonts.monoSemibold,
-    fontSize: 15,
-    color: tokens.ink,
-  },
-  rowKcalUnit: {
-    fontFamily: fonts.mono,
-    fontSize: 10,
-    color: tokens.ink4,
-  },
-
-  newOuter: {
-    paddingTop: 12,
-    paddingHorizontal: 22,
-  },
-  newBtn: {
+  emptyCta: {
+    marginTop: 18,
     paddingVertical: 12,
-    paddingHorizontal: 12,
+    paddingHorizontal: 22,
     borderRadius: 10,
     borderWidth: 1,
     borderColor: tokens.line2,
     borderStyle: 'dashed',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 7,
   },
-  newBtnText: {
+  emptyCtaText: {
     fontFamily: fonts.monoSemibold,
     fontSize: 12,
     color: tokens.ink3,
