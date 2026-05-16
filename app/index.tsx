@@ -594,13 +594,19 @@ export default function HomeScreen() {
                 )}
               </Pressable>
               <View style={styles.legendDivider} />
-              <Legend
-                swatch={tokens.accentInk}
-                label="move"
-                value={moveValueLabel}
-                target={moveTargetLabel}
-                pct={movePctLabel}
-              />
+              <Pressable onPress={() => router.push('/workouts')}>
+                {({ pressed }) => (
+                  <View style={pressed && { opacity: 0.6 }}>
+                    <Legend
+                      swatch={tokens.accentInk}
+                      label="move"
+                      value={moveValueLabel}
+                      target={moveTargetLabel}
+                      pct={movePctLabel}
+                    />
+                  </View>
+                )}
+              </Pressable>
             </View>
           </View>
         </View>
