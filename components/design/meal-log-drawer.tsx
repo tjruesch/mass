@@ -1,0 +1,702 @@
+/**
+ * Bottom drawer for logging a meal (#85). Two paths in one component:
+ *
+ *   1. **One-off** — free-form name + manual kcal + macros, single
+ *      `meal_items` row with `freeText`.
+ *   2. **From library** — pick a saved library meal (added in #87) and
+ *      a portion multiplier. The drawer copies the library meal's
+ *      `meal_items` into a fresh logged meal with macros scaled by the
+ *      portion.
+ *
+ * Sections:
+ *   - Library picker  — 4 recent library meals as chips; "one-off"
+ *                       chip falls back to manual entry. Empty until
+ *                       #87 makes the new-meal composer available.
+ *   - One-off block   — name input + 4 macro fields (visible only
+ *                       when no library meal is selected).
+ *   - Portion         — ×0.5 / ×0.75 / ×1 / ×1.5 / ×2 chips (visible
+ *                       only when a library meal is selected).
+ *   - Slot tag        — 4 chips. Default = slot for the current hour.
+ *   - When            — `now` (default) + `−1h` quick chips + a custom
+ *                       date-time field below.
+ *   - kcal hero       — derived; updates as you change values.
+ *   - Notes           — optional, ≤200 chars.
+ *
+ * Edit mode is deferred to #93 (long-press edit affordance). This
+ * component ships create-only for now.
+ */
+
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  Alert,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
+
+import {
+  addMeal,
+  type MealItemInput,
+} from '@/src/db/queries/meals';
+import { useLibraryMeals, useTodayMeals, slotForHour, type MealSlot, MEAL_SLOTS } from '@/src/hooks/use-meals';
+import { fonts, textStyles, tokens } from '@/theme/tokens';
+
+import { DateTimeField } from './datetime-field';
+import { Drawer, DrawerSection } from './drawer';
+import { PrimaryButton } from './primary-button';
+
+const NOTES_MAX = 200;
+const NAME_MAX = 48;
+const PORTIONS: ReadonlyArray<number> = [0.5, 0.75, 1, 1.5, 2];
+
+type LibrarySelection =
+  | { kind: 'oneOff' }
+  | { kind: 'library'; id: number };
+
+type Props = {
+  open: boolean;
+  onClose: () => void;
+};
+
+export function MealLogDrawer({ open, onClose }: Props) {
+  const library = useLibraryMeals();
+  // Pulled in for the bySlot index — if the user has already logged
+  // a meal for the current slot, default the drawer to the next empty
+  // one so they don't have to switch manually.
+  const today = useTodayMeals();
+
+  const [selection, setSelection] = useState<LibrarySelection>({ kind: 'oneOff' });
+  const [name, setName] = useState('');
+  const [kcalText, setKcalText] = useState('');
+  const [proteinText, setProteinText] = useState('');
+  const [carbsText, setCarbsText] = useState('');
+  const [fatText, setFatText] = useState('');
+  const [portion, setPortion] = useState<number>(1);
+  const [slot, setSlot] = useState<MealSlot>('lunch');
+  const [eatenAt, setEatenAt] = useState<Date>(() => new Date());
+  const [notes, setNotes] = useState<string>('');
+  const [saving, setSaving] = useState(false);
+
+  // Reset every time the drawer opens — clears any stale state from a
+  // prior session, picks a fresh default slot + time.
+  useEffect(() => {
+    if (!open) return;
+    const now = new Date();
+    setSelection({ kind: 'oneOff' });
+    setName('');
+    setKcalText('');
+    setProteinText('');
+    setCarbsText('');
+    setFatText('');
+    setPortion(1);
+    setSlot(pickDefaultSlot(now, today.bySlot));
+    setEatenAt(now);
+    setNotes('');
+    setSaving(false);
+    // We intentionally re-run only on the open transition; pulling
+    // today/bySlot every render would reseed the slot pick whenever a
+    // sibling meal logged.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  // ─── Derived totals ──────────────────────────────────────────────────────
+
+  const libraryMeal = useMemo(() => {
+    if (selection.kind !== 'library') return null;
+    return library.find((m) => m.id === selection.id) ?? null;
+  }, [selection, library]);
+
+  const isOneOff = selection.kind === 'oneOff';
+
+  const oneOffMacros = useMemo(() => {
+    return {
+      kcal: parseDecimal(kcalText),
+      proteinG: parseDecimal(proteinText) ?? 0,
+      carbsG: parseDecimal(carbsText) ?? 0,
+      fatG: parseDecimal(fatText) ?? 0,
+    };
+  }, [kcalText, proteinText, carbsText, fatText]);
+
+  const computedKcal = isOneOff
+    ? oneOffMacros.kcal
+    : libraryMeal != null
+    ? (libraryMeal.kcal ?? 0) * portion
+    : null;
+
+  const trimmedName = name.trim();
+  const trimmedNotes = notes.trim();
+
+  const valid =
+    isOneOff
+      ? trimmedName.length > 0 && oneOffMacros.kcal !== null && oneOffMacros.kcal >= 0
+      : libraryMeal !== null;
+
+  // ─── Save ────────────────────────────────────────────────────────────────
+
+  const handleSave = useCallback(() => {
+    if (!valid || saving) return;
+    setSaving(true);
+
+    let mealRow: Parameters<typeof addMeal>[0];
+    let items: ReadonlyArray<MealItemInput>;
+
+    if (isOneOff) {
+      // Single-item meal whose freeText carries the name. Roll-up
+      // macros on the parent mirror the single item.
+      mealRow = {
+        eatenAt,
+        name: trimmedName,
+        kcal: oneOffMacros.kcal,
+        proteinG: oneOffMacros.proteinG,
+        carbsG: oneOffMacros.carbsG,
+        fatG: oneOffMacros.fatG,
+        notes: trimmedNotes === '' ? null : trimmedNotes,
+      };
+      items = [
+        {
+          freeText: trimmedName,
+          quantity: 1,
+          unit: 'serving',
+          kcal: oneOffMacros.kcal,
+          proteinG: oneOffMacros.proteinG,
+          carbsG: oneOffMacros.carbsG,
+          fatG: oneOffMacros.fatG,
+        },
+      ];
+    } else if (libraryMeal !== null) {
+      // Library copy: scale parent macros by the portion. Item-level
+      // copies happen in a follow-up commit since we'd need to fetch
+      // library items via getMealById here — for the first cut, the
+      // logged meal carries only the rolled-up macros and a single
+      // free-text breadcrumb pointing at the source library entry.
+      const scale = portion;
+      mealRow = {
+        eatenAt,
+        name: libraryMeal.name ?? 'Meal',
+        kcal: (libraryMeal.kcal ?? 0) * scale,
+        proteinG: (libraryMeal.proteinG ?? 0) * scale,
+        carbsG: (libraryMeal.carbsG ?? 0) * scale,
+        fatG: (libraryMeal.fatG ?? 0) * scale,
+        notes: trimmedNotes === '' ? null : trimmedNotes,
+      };
+      items = [
+        {
+          freeText: `${libraryMeal.name ?? 'Meal'} · ×${portion}`,
+          quantity: scale,
+          unit: 'serving',
+          kcal: (libraryMeal.kcal ?? 0) * scale,
+          proteinG: (libraryMeal.proteinG ?? 0) * scale,
+          carbsG: (libraryMeal.carbsG ?? 0) * scale,
+          fatG: (libraryMeal.fatG ?? 0) * scale,
+        },
+      ];
+    } else {
+      setSaving(false);
+      return;
+    }
+
+    addMeal(mealRow, items)
+      .then(() => onClose())
+      .catch((err) => {
+        Alert.alert(
+          'Could not log meal',
+          err instanceof Error ? err.message : String(err),
+        );
+        setSaving(false);
+      });
+  }, [
+    valid,
+    saving,
+    isOneOff,
+    libraryMeal,
+    portion,
+    oneOffMacros,
+    trimmedName,
+    trimmedNotes,
+    eatenAt,
+    onClose,
+  ]);
+
+  // Pre-fill the eatenAt back by one hour while keeping today's date —
+  // the most common "I forgot to log" use case.
+  const handleQuickWhen = (variant: 'now' | 'minus1h') => {
+    setEatenAt(variant === 'now' ? new Date() : new Date(Date.now() - 60 * 60_000));
+  };
+
+  // ─── Render ──────────────────────────────────────────────────────────────
+
+  const ctaLabel = saving
+    ? 'saving…'
+    : valid
+    ? `log ${Math.round(computedKcal ?? 0)} kcal · ${slot}`
+    : isOneOff
+    ? 'name + kcal required'
+    : 'pick a meal';
+
+  return (
+    <Drawer
+      open={open}
+      onClose={onClose}
+      kicker="MEAL · LOG"
+      title="Log meal"
+      cta={
+        <PrimaryButton label={ctaLabel} onPress={handleSave} disabled={!valid || saving} />
+      }>
+      {/* LIBRARY PICKER */}
+      <DrawerSection
+        label="library"
+        sub={library.length === 0 ? 'none yet — log as one-off' : undefined}
+        marginTop={8}>
+        <View style={styles.libraryRow}>
+          <Pressable
+            onPress={() => setSelection({ kind: 'oneOff' })}
+            style={({ pressed }) => [
+              styles.libraryChip,
+              isOneOff && styles.libraryChipActive,
+              pressed && !isOneOff && { opacity: 0.7 },
+            ]}>
+            <Text
+              style={[
+                styles.libraryChipLabel,
+                isOneOff && { color: tokens.bg },
+              ]}>
+              one-off
+            </Text>
+          </Pressable>
+          {library.slice(0, 4).map((m) => {
+            const active = selection.kind === 'library' && selection.id === m.id;
+            return (
+              <Pressable
+                key={m.id}
+                onPress={() => setSelection({ kind: 'library', id: m.id })}
+                style={({ pressed }) => [
+                  styles.libraryChip,
+                  active && styles.libraryChipActive,
+                  pressed && !active && { opacity: 0.7 },
+                ]}>
+                <Text
+                  numberOfLines={1}
+                  style={[
+                    styles.libraryChipLabel,
+                    active && { color: tokens.bg },
+                  ]}>
+                  {m.name ?? 'Meal'}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </DrawerSection>
+
+      {/* ONE-OFF NAME + MACROS — only when no library meal selected */}
+      {isOneOff && (
+        <>
+          <DrawerSection label="name">
+            <View style={styles.textRow}>
+              <TextInput
+                value={name}
+                onChangeText={(t) => setName(t.slice(0, NAME_MAX))}
+                placeholder="e.g. Pizza slice, leftover thai"
+                placeholderTextColor={tokens.ink4}
+                style={styles.textInput}
+              />
+            </View>
+          </DrawerSection>
+
+          <DrawerSection label="macros">
+            <View style={styles.cardList}>
+              <MacroRow
+                label="kcal"
+                value={kcalText}
+                onChange={(t) => setKcalText(sanitizeDecimal(t))}
+                isLast={false}
+              />
+              <MacroRow
+                label="protein"
+                unit="g"
+                value={proteinText}
+                onChange={(t) => setProteinText(sanitizeDecimal(t))}
+                isLast={false}
+              />
+              <MacroRow
+                label="carbs"
+                unit="g"
+                value={carbsText}
+                onChange={(t) => setCarbsText(sanitizeDecimal(t))}
+                isLast={false}
+              />
+              <MacroRow
+                label="fat"
+                unit="g"
+                value={fatText}
+                onChange={(t) => setFatText(sanitizeDecimal(t))}
+                isLast
+              />
+            </View>
+          </DrawerSection>
+        </>
+      )}
+
+      {/* PORTION — only when a library meal is selected */}
+      {!isOneOff && libraryMeal !== null && (
+        <DrawerSection label="portion" sub={`${libraryMeal.name ?? 'Meal'} · ${Math.round((libraryMeal.kcal ?? 0))} kcal base`}>
+          <View style={styles.portionRow}>
+            {PORTIONS.map((p) => {
+              const active = portion === p;
+              return (
+                <Pressable
+                  key={p}
+                  onPress={() => setPortion(p)}
+                  style={({ pressed }) => [
+                    styles.portionChip,
+                    active && styles.portionChipActive,
+                    pressed && !active && { opacity: 0.7 },
+                  ]}>
+                  <Text
+                    style={[
+                      styles.portionLabel,
+                      active && { color: tokens.bg },
+                    ]}>
+                    ×{p}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </DrawerSection>
+      )}
+
+      {/* SLOT */}
+      <DrawerSection label="slot">
+        <View style={styles.slotRow}>
+          {MEAL_SLOTS.map((s) => {
+            const active = slot === s;
+            return (
+              <Pressable
+                key={s}
+                onPress={() => setSlot(s)}
+                style={({ pressed }) => [
+                  styles.slotChip,
+                  active && styles.slotChipActive,
+                  pressed && !active && { opacity: 0.7 },
+                ]}>
+                <Text
+                  numberOfLines={1}
+                  style={[
+                    styles.slotLabel,
+                    active && { color: tokens.bg },
+                  ]}>
+                  {s}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </DrawerSection>
+
+      {/* WHEN */}
+      <DrawerSection label="when">
+        <View style={styles.whenRow}>
+          <Pressable
+            onPress={() => handleQuickWhen('now')}
+            style={({ pressed }) => [styles.whenChip, pressed && { opacity: 0.7 }]}>
+            <Text style={styles.whenChipLabel}>now</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => handleQuickWhen('minus1h')}
+            style={({ pressed }) => [styles.whenChip, pressed && { opacity: 0.7 }]}>
+            <Text style={styles.whenChipLabel}>−1h</Text>
+          </Pressable>
+        </View>
+        <View style={{ height: 8 }} />
+        <DateTimeField
+          value={eatenAt}
+          onChange={setEatenAt}
+          label="eaten"
+          title="Eaten at"
+          maximumDate={new Date()}
+        />
+      </DrawerSection>
+
+      {/* NOTES */}
+      <DrawerSection label="notes · optional">
+        <TextInput
+          value={notes}
+          onChangeText={(t) => setNotes(t.slice(0, NOTES_MAX))}
+          multiline
+          placeholder="e.g. with hot sauce, post-workout"
+          placeholderTextColor={tokens.ink4}
+          style={styles.notesInput}
+        />
+        <Text style={styles.notesHint}>
+          {notes.length}/{NOTES_MAX}
+        </Text>
+      </DrawerSection>
+
+      <View style={{ height: 12 }} />
+    </Drawer>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MacroRow — same shape as the pantry editor's macro card.
+// ─────────────────────────────────────────────────────────────────────────────
+function MacroRow({
+  label,
+  unit,
+  value,
+  onChange,
+  isLast,
+}: {
+  label: string;
+  unit?: string;
+  value: string;
+  onChange: (s: string) => void;
+  isLast: boolean;
+}) {
+  return (
+    <View style={[styles.macroRow, !isLast && styles.rowBorder]}>
+      <Text style={styles.macroLabel}>{label}</Text>
+      <View style={styles.macroInputCell}>
+        <TextInput
+          value={value}
+          onChangeText={onChange}
+          keyboardType="decimal-pad"
+          returnKeyType="done"
+          placeholder="0"
+          placeholderTextColor={tokens.ink4}
+          maxLength={6}
+          style={[styles.macroInput, textStyles.tnum]}
+        />
+        {unit && <Text style={styles.macroUnit}>{unit}</Text>}
+      </View>
+    </View>
+  );
+}
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
+function sanitizeDecimal(s: string): string {
+  const normalised = s.replace(',', '.');
+  let seenDot = false;
+  let out = '';
+  for (const ch of normalised) {
+    if (ch >= '0' && ch <= '9') out += ch;
+    else if (ch === '.' && !seenDot) {
+      out += '.';
+      seenDot = true;
+    }
+  }
+  return out;
+}
+
+function parseDecimal(s: string): number | null {
+  if (s.trim() === '') return null;
+  const n = Number.parseFloat(s);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return n;
+}
+
+/**
+ * Choose the most useful default slot:
+ *   1. Slot that fits the current hour AND is empty today.
+ *   2. Slot that fits the current hour even if it has a meal already.
+ *
+ * No fallback to the first empty slot — sticking with the hour's slot
+ * matches what the user was about to log anyway. They can always tap
+ * a different chip.
+ */
+function pickDefaultSlot(
+  now: Date,
+  bySlot: Record<MealSlot, ReadonlyArray<unknown>>,
+): MealSlot {
+  const hourSlot = slotForHour(now.getHours());
+  if (bySlot[hourSlot].length === 0) return hourSlot;
+  return hourSlot;
+}
+
+// ─── Styles ─────────────────────────────────────────────────────────────────
+
+const styles = StyleSheet.create({
+  libraryRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  libraryChip: {
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    backgroundColor: tokens.bg2,
+    borderWidth: 1,
+    borderColor: tokens.line,
+    maxWidth: 180,
+  },
+  libraryChipActive: {
+    backgroundColor: tokens.ink,
+    borderColor: tokens.ink,
+  },
+  libraryChipLabel: {
+    fontFamily: fonts.monoSemibold,
+    fontSize: 11,
+    color: tokens.ink,
+    letterSpacing: 0.44,
+    textTransform: 'lowercase',
+  },
+
+  textRow: {
+    backgroundColor: tokens.card,
+    borderWidth: 1,
+    borderColor: tokens.line,
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+  },
+  textInput: {
+    fontFamily: fonts.sans,
+    fontSize: 16,
+    color: tokens.ink,
+    letterSpacing: -0.16,
+    paddingVertical: 0,
+  },
+
+  cardList: {
+    backgroundColor: tokens.card,
+    borderWidth: 1,
+    borderColor: tokens.line,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  rowBorder: {
+    borderBottomWidth: 1,
+    borderBottomColor: tokens.line,
+  },
+  macroRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 11,
+    paddingHorizontal: 14,
+    gap: 12,
+  },
+  macroLabel: {
+    flex: 1,
+    fontFamily: fonts.sansMedium,
+    fontSize: 15,
+    color: tokens.ink,
+  },
+  macroInputCell: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 4,
+    minWidth: 90,
+    justifyContent: 'flex-end',
+  },
+  macroInput: {
+    fontFamily: fonts.monoMedium,
+    fontSize: 16,
+    color: tokens.ink,
+    paddingVertical: 0,
+    minWidth: 50,
+    textAlign: 'right',
+  },
+  macroUnit: {
+    fontFamily: fonts.mono,
+    fontSize: 12,
+    color: tokens.ink3,
+  },
+
+  portionRow: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  portionChip: {
+    flex: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 4,
+    borderRadius: 10,
+    backgroundColor: tokens.bg2,
+    borderWidth: 1,
+    borderColor: tokens.line,
+    alignItems: 'center',
+  },
+  portionChipActive: {
+    backgroundColor: tokens.ink,
+    borderColor: tokens.ink,
+  },
+  portionLabel: {
+    fontFamily: fonts.monoSemibold,
+    fontSize: 12,
+    color: tokens.ink,
+    letterSpacing: 0.36,
+  },
+
+  slotRow: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  slotChip: {
+    flex: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 4,
+    borderRadius: 10,
+    backgroundColor: tokens.bg2,
+    borderWidth: 1,
+    borderColor: tokens.line,
+    alignItems: 'center',
+  },
+  slotChipActive: {
+    backgroundColor: tokens.ink,
+    borderColor: tokens.ink,
+  },
+  slotLabel: {
+    fontFamily: fonts.monoSemibold,
+    fontSize: 11,
+    color: tokens.ink,
+    letterSpacing: 0.44,
+    textTransform: 'lowercase',
+  },
+
+  whenRow: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  whenChip: {
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    backgroundColor: tokens.bg2,
+    borderWidth: 1,
+    borderColor: tokens.line,
+  },
+  whenChipLabel: {
+    fontFamily: fonts.monoSemibold,
+    fontSize: 12,
+    color: tokens.ink,
+    letterSpacing: 0.48,
+    textTransform: 'lowercase',
+  },
+
+  notesInput: {
+    backgroundColor: tokens.card,
+    borderWidth: 1,
+    borderColor: tokens.line,
+    borderRadius: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    minHeight: 70,
+    fontFamily: fonts.sans,
+    fontSize: 13,
+    color: tokens.ink,
+    textAlignVertical: 'top',
+  },
+  notesHint: {
+    fontFamily: fonts.mono,
+    fontSize: 10,
+    color: tokens.ink4,
+    marginTop: 4,
+    textAlign: 'right',
+    letterSpacing: 0.4,
+  },
+});

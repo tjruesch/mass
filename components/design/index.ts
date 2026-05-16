@@ -22,5 +22,6 @@ export { TabBar, type TabId } from './tab-bar';
 export { WaterLogDrawer } from './water-log-drawer';
 export { WeightChart, type ChartRange } from './weight-chart';
 export { WeightLogDrawer } from './weight-log-drawer';
+export { MealLogDrawer } from './meal-log-drawer';
 export { WorkoutLogDrawer } from './workout-log-drawer';
 export { WindowStrip } from './window-strip';
