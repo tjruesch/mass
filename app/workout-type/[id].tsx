@@ -294,7 +294,10 @@ export default function WorkoutTypeEditorScreen() {
     <View style={{ flex: 1, backgroundColor: tokens.bg }}>
       <ScrollView
         contentContainerStyle={styles.scroll}
-        keyboardShouldPersistTaps="handled">
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
+        automaticallyAdjustKeyboardInsets
+        automaticallyAdjustsScrollIndicatorInsets>
         <SubHeader
           title={mode === 'edit' ? 'Edit type' : 'New type'}
           back="Settings"
