@@ -106,7 +106,10 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
         <Stack screenOptions={{ headerShown: false }}>
-          <Stack.Screen name="index" />
+          {/* Top-level tab destinations get `animation: none` so the
+              bottom tab bar feels instant — slide-from-side is a
+              sub-screen affordance, not a sibling-tab one. */}
+          <Stack.Screen name="index" options={{ animation: 'none' }} />
           <Stack.Screen name="fasting" />
           <Stack.Screen name="fasting-settings" />
           <Stack.Screen name="water" />
@@ -121,8 +124,11 @@ export default function RootLayout() {
           <Stack.Screen name="meals/index" />
           <Stack.Screen name="meals/[id]" />
           <Stack.Screen name="meals-settings" />
-          <Stack.Screen name="meals-plan" />
-          <Stack.Screen name="trends" />
+          <Stack.Screen
+            name="meals-plan"
+            options={{ animation: 'none' }}
+          />
+          <Stack.Screen name="trends" options={{ animation: 'none' }} />
           <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal', headerShown: true }} />
         </Stack>
         <StatusBar style="auto" />
