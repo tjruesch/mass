@@ -7,7 +7,7 @@ import Animated, {
   useSharedValue,
   withTiming,
 } from 'react-native-reanimated';
-import Svg, { Circle, G } from 'react-native-svg';
+import Svg, { Circle, G, Path } from 'react-native-svg';
 
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
@@ -37,6 +37,36 @@ function formatMacroG(g: number): string {
   if (g === 0) return '0g';
   if (Number.isInteger(g)) return `${g}g`;
   return `${Math.round(g * 10) / 10}g`;
+}
+
+type MacroIndicatorKind = 'above' | 'below' | 'on-point';
+
+/** ±5% counts as on-point. Zero/missing target collapses to on-point
+ *  so unconfigured macros don't render a confusing "below" arrow. */
+function macroIndicator(current: number, target: number): MacroIndicatorKind {
+  if (target <= 0) return 'on-point';
+  const ratio = current / target;
+  if (Math.abs(ratio - 1) <= 0.05) return 'on-point';
+  return ratio > 1 ? 'above' : 'below';
+}
+
+function MacroIndicator({ kind }: { kind: MacroIndicatorKind }) {
+  // Colour by status, not by macro, so the dot pops as "you nailed it"
+  // and the arrows read as neutral over/under deltas.
+  if (kind === 'on-point') {
+    return (
+      <Svg width={7} height={7} viewBox="0 0 8 8">
+        <Circle cx={4} cy={4} r={2.2} fill="#1F7A3A" />
+      </Svg>
+    );
+  }
+  const path =
+    kind === 'above' ? 'M1.5 5.5 L4 2 L6.5 5.5 Z' : 'M1.5 2.5 L4 6 L6.5 2.5 Z';
+  return (
+    <Svg width={8} height={8} viewBox="0 0 8 8">
+      <Path d={path} fill={tokens.ink3} />
+    </Svg>
+  );
 }
 
 
@@ -643,11 +673,36 @@ export default function HomeScreen() {
                 </View>
                 <View style={styles.macrosGrid}>
                   {[
-                    { k: 'P', v: formatMacroG(today.totalProteinG), c: tokens.ink },
-                    { k: 'C', v: formatMacroG(today.totalCarbsG), c: tokens.cool },
-                    { k: 'F', v: formatMacroG(today.totalFatG), c: tokens.accentInk },
+                    {
+                      k: 'P',
+                      v: formatMacroG(today.totalProteinG),
+                      c: tokens.ink,
+                      indicator: macroIndicator(
+                        today.totalProteinG,
+                        mealPrefs.proteinTargetG,
+                      ),
+                    },
+                    {
+                      k: 'C',
+                      v: formatMacroG(today.totalCarbsG),
+                      c: tokens.cool,
+                      indicator: macroIndicator(
+                        today.totalCarbsG,
+                        mealPrefs.carbsTargetG,
+                      ),
+                    },
+                    {
+                      k: 'F',
+                      v: formatMacroG(today.totalFatG),
+                      c: tokens.accentInk,
+                      indicator: macroIndicator(
+                        today.totalFatG,
+                        mealPrefs.fatTargetG,
+                      ),
+                    },
                   ].map((m) => (
                     <View key={m.k} style={styles.macroCell}>
+                      <MacroIndicator kind={m.indicator} />
                       <Text
                         style={{
                           fontFamily: fonts.monoMedium,
@@ -998,7 +1053,10 @@ const styles = StyleSheet.create({
   macroCell: {
     flex: 1,
     flexDirection: 'row',
-    alignItems: 'baseline',
+    // center so the leading svg indicator sits visually with the
+    // letter/value baseline. true 'baseline' clips the indicator since
+    // svg doesn't have one.
+    alignItems: 'center',
     gap: 5,
   },
   macroValue: {
