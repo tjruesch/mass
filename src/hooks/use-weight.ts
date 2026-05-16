@@ -102,17 +102,24 @@ export function useWeightHistory({ days = 90 }: { days?: number } = {}): WeightH
     });
 
     const latest = points[points.length - 1];
-    // Find the MA point closest to (latest.at - 7d) for the rollup delta.
-    const targetTime = latest.entry.at.getTime() - MA_WINDOW_MS;
-    let prior: WeightHistoryPoint | null = null;
-    for (let i = points.length - 2; i >= 0; i--) {
-      const t = points[i].entry.at.getTime();
-      if (t <= targetTime) {
-        prior = points[i];
-        break;
-      }
+    // 7d delta = MA evaluated at `latest.at` minus MA evaluated at
+    // exactly `latest.at - 7d`. Previously we picked the most recent
+    // *entry* ≤ 7d back and used its stored MA, which gave a 10+ day
+    // delta whenever logging was sparse. Synthesising the trailing
+    // MA at the 7-day-prior moment is closer to what the user expects
+    // from "▼ X.X / 7d" — the change over a one-week window.
+    const priorTime = latest.entry.at.getTime() - MA_WINDOW_MS;
+    let priorSum = 0;
+    let priorCount = 0;
+    for (const e of asc) {
+      const t = e.at.getTime();
+      if (t > priorTime) break;
+      if (t < priorTime - MA_WINDOW_MS) continue;
+      priorSum += e.kg;
+      priorCount++;
     }
-    const sevenDayDelta = prior ? latest.ma - prior.ma : null;
+    const sevenDayDelta =
+      priorCount > 0 ? latest.ma - priorSum / priorCount : null;
 
     return {
       points,
