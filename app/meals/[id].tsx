@@ -638,10 +638,10 @@ function PantryPickerSheet({
     }
   }, [open]);
 
-  // Lift the sheet above the keyboard so the search field's results stay
-  // visible while the user is typing. BottomSheet anchors the sheet at
-  // `bottom: 0`; we override that with the keyboard height while it's
-  // showing so the sheet's bottom edge sits flush with the keyboard's top.
+  // Pad the scroll content by the keyboard height so the search field's
+  // matches can scroll above the keyboard. The sheet itself stays
+  // anchored to the bottom — lifting the whole sheet pushed it too high
+  // and felt cramped at the top.
   const [kbHeight, setKbHeight] = useState(0);
   useEffect(() => {
     // `keyboardWillShow` fires earlier than `keyboardDidShow` on iOS,
@@ -669,10 +669,7 @@ function PantryPickerSheet({
   }, [pantry, search]);
 
   return (
-    <BottomSheet
-      open={open}
-      onClose={onClose}
-      sheetStyle={[styles.sheet, kbHeight > 0 && { bottom: kbHeight }]}>
+    <BottomSheet open={open} onClose={onClose} sheetStyle={styles.sheet}>
       <View style={styles.sheetHandleWrap}>
         <View style={styles.sheetHandle} />
       </View>
@@ -712,6 +709,7 @@ function PantryPickerSheet({
       </View>
       <ScrollView
         style={styles.sheetScroll}
+        contentContainerStyle={{ paddingBottom: 24 + kbHeight }}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}>
         {search.trim() === '' && recent.length > 0 && (
@@ -813,7 +811,6 @@ function PantryPickerSheet({
             </View>
           )}
         </View>
-        <View style={{ height: 24 }} />
       </ScrollView>
     </BottomSheet>
   );
