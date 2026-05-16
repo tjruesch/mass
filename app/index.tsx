@@ -492,6 +492,19 @@ export default function HomeScreen() {
           </View>
         </View>
 
+        {/* Temporary entry to /weight. The design surfaces weight on
+            Trends (Slice 7), not Home — once that page ships, this link
+            goes away and the real entry point is a tile inside Trends. */}
+        <View style={styles.tempWeightLinkOuter}>
+          <Pressable
+            onPress={() => router.push('/weight')}
+            style={({ pressed }) => pressed && { opacity: 0.6 }}>
+            <Text style={[styles.tempWeightLinkText, textStyles.cap]}>
+              → weight (temp)
+            </Text>
+          </Pressable>
+        </View>
+
         {/* ── 3. Fasting card ───────────────────────────────────── */}
         <View style={styles.cardOuterTight}>
           <Pressable onPress={() => router.push('/fasting')}>
@@ -637,6 +650,18 @@ const styles = StyleSheet.create({
   },
   greetingSubMute: {
     color: tokens.ink4,
+  },
+
+  // Temp — replaced by #56's proper home weight surface.
+  tempWeightLinkOuter: {
+    paddingTop: 12,
+    paddingHorizontal: 22,
+  },
+  tempWeightLinkText: {
+    fontFamily: fonts.mono,
+    fontSize: 10,
+    color: tokens.ink4,
+    letterSpacing: 1.8,
   },
 
   // Cards

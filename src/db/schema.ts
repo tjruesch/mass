@@ -229,6 +229,39 @@ export const fastingPreferences = sqliteTable('fasting_preferences', {
   weeklyAdherenceTarget: integer('weekly_adherence_target').notNull().default(5),
 });
 
+// ─── Weight preferences (singleton, always id=1) ─────────────────────────────
+export const weightPreferences = sqliteTable('weight_preferences', {
+  id: integer('id').primaryKey(),
+  /**
+   * Anchor for the trajectory math — typically the user's weight when they
+   * set a goal. Defaults to null; if null at chart time, we use the first
+   * entry's weight as the implicit start.
+   */
+  startKg: real('start_kg'),
+  /** Target weight. Null = no active goal (display falls back to maintain). */
+  targetKg: real('target_kg'),
+  /** Goal date (timestamp). Null = no active goal. */
+  targetDate: integer('target_date', { mode: 'timestamp_ms' }),
+  /** Display unit. Storage stays in kg; this controls formatting. */
+  unit: text('unit', { enum: ['kg', 'lb', 'st'] })
+    .notNull()
+    .default('kg'),
+  /** Chart toggle: render the start→goal optimal trajectory line. */
+  showOptimal: integer('show_optimal', { mode: 'boolean' }).notNull().default(true),
+  /** Chart toggle: render the 7-day moving average path. */
+  showMovingAvg: integer('show_moving_avg', { mode: 'boolean' }).notNull().default(true),
+  /** Chart toggle: extrapolate the MA to project an ETA dashed line. */
+  showProjected: integer('show_projected', { mode: 'boolean' }).notNull().default(true),
+  /** Chart toggle: clamp y-axis to ±5kg around current rather than full range. */
+  snapToGoalRange: integer('snap_to_goal_range', { mode: 'boolean' }).notNull().default(false),
+  /** Weekday bitmask. Bit 0 = Monday … bit 6 = Sunday. 127 = every day on. */
+  weekdayBitmask: integer('weekday_bitmask').notNull().default(127),
+  /** When true: pulled from HK on app foreground + manual entries pushed to HK. */
+  autoImportHealthKit: integer('auto_import_healthkit', { mode: 'boolean' })
+    .notNull()
+    .default(true),
+});
+
 // ─── HealthKit sync state — one row per HK type we mirror ─────────────────────
 export const hkSyncCursor = sqliteTable('hk_sync_cursor', {
   /** HKQuantityTypeIdentifier / 'workouts' / etc. */
@@ -274,6 +307,11 @@ export type NewFastingPreferences = typeof fastingPreferences.$inferInsert;
 
 export type WaterPreferences = typeof waterPreferences.$inferSelect;
 export type NewWaterPreferences = typeof waterPreferences.$inferInsert;
+
+export type WeightPreferences = typeof weightPreferences.$inferSelect;
+export type NewWeightPreferences = typeof weightPreferences.$inferInsert;
+
+export type WeightUnit = NonNullable<NewWeightPreferences['unit']>;
 
 export type WaterKind = NonNullable<NewWaterLog['kind']>;
 export type WaterSource = NonNullable<NewWaterLog['source']>;

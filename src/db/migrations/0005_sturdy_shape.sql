@@ -1,0 +1,1 @@
+ALTER TABLE `weight_preferences` DROP COLUMN `rate_preset_kg_per_week`;

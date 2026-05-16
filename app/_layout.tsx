@@ -22,6 +22,8 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import { db, migrations, useMigrations } from '@/src/db';
 import { getPreferences as getFastingPreferences } from '@/src/db/queries/fasting-preferences';
 import { getPreferences as getWaterPreferences } from '@/src/db/queries/water-preferences';
+import { getPreferences as getWeightPreferences } from '@/src/db/queries/weight-preferences';
+import { useWeightAutoSync } from '@/src/hooks/use-weight-sync';
 import { tokens } from '@/theme/tokens';
 
 SplashScreen.preventAutoHideAsync();
@@ -38,6 +40,11 @@ export default function RootLayout() {
   });
   const { success: migrationsReady, error: migrationsError } = useMigrations(db, migrations);
 
+  // Pulls HK body-mass samples into the local mirror on auth-granted +
+  // every app foreground. Gated on migrations so the query layer has
+  // tables to write into.
+  useWeightAutoSync({ enabled: migrationsReady });
+
   // Seed singleton rows once migrations succeed so screens can assume they exist.
   useEffect(() => {
     if (!migrationsReady) return;
@@ -46,6 +53,9 @@ export default function RootLayout() {
     });
     getWaterPreferences().catch((err) => {
       console.warn('Failed to seed water preferences:', err);
+    });
+    getWeightPreferences().catch((err) => {
+      console.warn('Failed to seed weight preferences:', err);
     });
   }, [migrationsReady]);
 
@@ -77,6 +87,8 @@ export default function RootLayout() {
           <Stack.Screen name="fasting-settings" />
           <Stack.Screen name="water" />
           <Stack.Screen name="water-settings" />
+          <Stack.Screen name="weight" />
+          <Stack.Screen name="weight-settings" />
           <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal', headerShown: true }} />
         </Stack>
         <StatusBar style="auto" />
