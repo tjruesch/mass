@@ -492,15 +492,21 @@ export default function HomeScreen() {
           </View>
         </View>
 
-        {/* Temporary entry to /weight. The design surfaces weight on
-            Trends (Slice 7), not Home — once that page ships, this link
-            goes away and the real entry point is a tile inside Trends. */}
+        {/* Temporary entries — real navigation comes via Trends (weight)
+            and Plan (workouts) when those slices ship. */}
         <View style={styles.tempWeightLinkOuter}>
           <Pressable
             onPress={() => router.push('/weight')}
             style={({ pressed }) => pressed && { opacity: 0.6 }}>
             <Text style={[styles.tempWeightLinkText, textStyles.cap]}>
               → weight (temp)
+            </Text>
+          </Pressable>
+          <Pressable
+            onPress={() => router.push('/workouts')}
+            style={({ pressed }) => pressed && { opacity: 0.6 }}>
+            <Text style={[styles.tempWeightLinkText, textStyles.cap]}>
+              → workouts (temp)
             </Text>
           </Pressable>
         </View>

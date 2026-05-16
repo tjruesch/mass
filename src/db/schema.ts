@@ -155,14 +155,17 @@ export const workoutEntries = sqliteTable(
     id: id(),
     startedAt: integer('started_at', { mode: 'timestamp_ms' }).notNull(),
     endedAt: integer('ended_at', { mode: 'timestamp_ms' }).notNull(),
-    /** Mirrors HKWorkoutActivityType keys: 'functionalStrengthTraining', 'cycling'... */
+    /**
+     * Stores the raw HKWorkoutActivityType enum NAME (e.g.
+     * 'functionalStrengthTraining', 'tennis', 'walking'). Higher-level
+     * type IDs from our library (push/pull/legs/etc.) are derived at
+     * display time via the planned-slot linking algorithm.
+     */
     type: text('type').notNull(),
     kcal: real('kcal'),
     distanceM: real('distance_m'),
     notes: text('notes'),
-    source: text('source', { enum: ['healthkit', 'manual'] })
-      .notNull()
-      .default('manual'),
+    /** HealthKit sample UUID — non-null when this row mirrors an HK workout. */
     healthkitUuid: text('healthkit_uuid'),
     createdAt: createdAt(),
   },
@@ -170,6 +173,50 @@ export const workoutEntries = sqliteTable(
     uniqHkUuid: uniqueIndex('workout_entries_hk_uuid_unique').on(t.healthkitUuid),
   }),
 );
+
+// ─── Workout preferences (singleton, always id=1) ─────────────────────────────
+export const workoutPreferences = sqliteTable('workout_preferences', {
+  id: integer('id').primaryKey(),
+  // Weekly template — each weekday's planned type id (push / pull / legs /
+  // tennis / cardio) or null for rest. Stored as 7 columns rather than a
+  // child table so reads + writes are single-row, matching the singleton
+  // pattern we use across the app.
+  monType: text('mon_type'),
+  tueType: text('tue_type'),
+  wedType: text('wed_type'),
+  thuType: text('thu_type'),
+  friType: text('fri_type'),
+  satType: text('sat_type'),
+  sunType: text('sun_type'),
+  // Optional planned time per weekday — minutes since midnight (0..1439).
+  // Null = no specific time set; linking logic falls back to matching by
+  // day + type only.
+  monTimeMin: integer('mon_time_min'),
+  tueTimeMin: integer('tue_time_min'),
+  wedTimeMin: integer('wed_time_min'),
+  thuTimeMin: integer('thu_time_min'),
+  friTimeMin: integer('fri_time_min'),
+  satTimeMin: integer('sat_time_min'),
+  sunTimeMin: integer('sun_time_min'),
+  // Optional planned duration per weekday — minutes (typ. 15..120). Null =
+  // open-ended; surfaces as "planned HH:MM" without a duration suffix.
+  monDurationMin: integer('mon_duration_min'),
+  tueDurationMin: integer('tue_duration_min'),
+  wedDurationMin: integer('wed_duration_min'),
+  thuDurationMin: integer('thu_duration_min'),
+  friDurationMin: integer('fri_duration_min'),
+  satDurationMin: integer('sat_duration_min'),
+  sunDurationMin: integer('sun_duration_min'),
+  /** Pull HK workouts on app foreground when granted. */
+  autoImportHealthKit: integer('auto_import_healthkit', { mode: 'boolean' })
+    .notNull()
+    .default(true),
+  /**
+   * Linking tolerance: an HK workout counts toward a planned slot if it's
+   * within ± this many minutes of the slot's planned time. Default 120.
+   */
+  linkWindowMinutes: integer('link_window_minutes').notNull().default(120),
+});
 
 // ─── Goals (programs / phases like "cut-04 · day 14/28") ──────────────────────
 export const goals = sqliteTable('goals', {
@@ -316,6 +363,9 @@ export type WeightPreferences = typeof weightPreferences.$inferSelect;
 export type NewWeightPreferences = typeof weightPreferences.$inferInsert;
 
 export type WeightUnit = NonNullable<NewWeightPreferences['unit']>;
+
+export type WorkoutPreferences = typeof workoutPreferences.$inferSelect;
+export type NewWorkoutPreferences = typeof workoutPreferences.$inferInsert;
 
 export type WaterKind = NonNullable<NewWaterLog['kind']>;
 export type WaterSource = NonNullable<NewWaterLog['source']>;

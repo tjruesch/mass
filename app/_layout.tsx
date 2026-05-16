@@ -23,7 +23,9 @@ import { db, migrations, useMigrations } from '@/src/db';
 import { getPreferences as getFastingPreferences } from '@/src/db/queries/fasting-preferences';
 import { getPreferences as getWaterPreferences } from '@/src/db/queries/water-preferences';
 import { getPreferences as getWeightPreferences } from '@/src/db/queries/weight-preferences';
+import { getPreferences as getWorkoutPreferences } from '@/src/db/queries/workout-preferences';
 import { useWeightAutoSync } from '@/src/hooks/use-weight-sync';
+import { useWorkoutAutoSync } from '@/src/hooks/use-workout-sync';
 import { tokens } from '@/theme/tokens';
 
 SplashScreen.preventAutoHideAsync();
@@ -40,10 +42,11 @@ export default function RootLayout() {
   });
   const { success: migrationsReady, error: migrationsError } = useMigrations(db, migrations);
 
-  // Pulls HK body-mass samples into the local mirror on auth-granted +
-  // every app foreground. Gated on migrations so the query layer has
-  // tables to write into.
+  // Pulls HK body-mass + workout samples into the local mirror on
+  // auth-granted + every app foreground. Gated on migrations so the
+  // query layer has tables to write into.
   useWeightAutoSync({ enabled: migrationsReady });
+  useWorkoutAutoSync({ enabled: migrationsReady });
 
   // Seed singleton rows once migrations succeed so screens can assume they exist.
   useEffect(() => {
@@ -56,6 +59,9 @@ export default function RootLayout() {
     });
     getWeightPreferences().catch((err) => {
       console.warn('Failed to seed weight preferences:', err);
+    });
+    getWorkoutPreferences().catch((err) => {
+      console.warn('Failed to seed workout preferences:', err);
     });
   }, [migrationsReady]);
 
@@ -89,6 +95,8 @@ export default function RootLayout() {
           <Stack.Screen name="water-settings" />
           <Stack.Screen name="weight" />
           <Stack.Screen name="weight-settings" />
+          <Stack.Screen name="workouts" />
+          <Stack.Screen name="workouts-settings" />
           <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal', headerShown: true }} />
         </Stack>
         <StatusBar style="auto" />

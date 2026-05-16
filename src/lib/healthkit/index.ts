@@ -14,9 +14,12 @@ export {
 
 export {
   syncQuantityType,
+  syncWorkoutType,
   getLastSyncedAt,
+  WORKOUTS_CURSOR_KEY,
   type SyncQuantityResult,
   type SyncQuantityTypeOptions,
+  type SyncWorkoutsOptions,
 } from './sync';
 
 export {
@@ -24,3 +27,9 @@ export {
   logWeight,
   syncWeightFromHealthKit,
 } from './weight';
+
+export {
+  WORKOUT_PERMISSIONS,
+  logWorkout,
+  syncWorkoutsFromHealthKit,
+} from './workouts';

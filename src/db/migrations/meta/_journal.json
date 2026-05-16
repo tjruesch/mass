@@ -57,6 +57,20 @@
       "when": 1778931619130,
       "tag": "0007_kind_daredevil",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1778935446888,
+      "tag": "0008_faithful_fixer",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1778938282332,
+      "tag": "0009_complex_doctor_octopus",
+      "breakpoints": true
     }
   ]
 }
