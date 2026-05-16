@@ -710,7 +710,8 @@ const styles = StyleSheet.create({
     fontSize: 22,
     color: tokens.ink,
     letterSpacing: -0.77,
-    lineHeight: 22,
+    // ~1.2× — same ascender-clip fix as weightHeroNumber.
+    lineHeight: 28,
   },
   featureMean: {
     marginTop: 2,
@@ -758,7 +759,10 @@ const styles = StyleSheet.create({
     fontSize: 30,
     color: tokens.ink,
     letterSpacing: -1.05,
-    lineHeight: 30,
+    // Natural ~1.2× line-height so JetBrains Mono digit ascenders
+    // don't clip against the kicker above. Same fix the meals hero
+    // got after the same symptom.
+    lineHeight: 36,
   },
   weightUnit: {
     fontFamily: fonts.mono,
