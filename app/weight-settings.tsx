@@ -34,6 +34,12 @@ import type { WeightPreferences } from '@/src/db/schema';
 import { useLatestWeight } from '@/src/hooks/use-weight';
 import { useWeightPreferences } from '@/src/hooks/use-weight-preferences';
 import { useLastWeightSyncAt } from '@/src/hooks/use-weight-sync';
+import {
+  ensureHkAuthorization,
+  useHkAuthState,
+  type HkAuthState,
+} from '@/src/lib/healthkit/auth';
+import { BODY_MASS_PERMISSIONS } from '@/src/lib/healthkit/weight';
 import { addDays, startOfDay } from '@/src/lib/time';
 import { fonts, textStyles, tokens } from '@/theme/tokens';
 
@@ -81,6 +87,7 @@ export default function WeightSettingsScreen() {
   const prefs = useWeightPreferences();
   const latest = useLatestWeight();
   const lastSyncAt = useLastWeightSyncAt();
+  const auth = useHkAuthState(BODY_MASS_PERMISSIONS);
   // Tap-to-edit sheets for target kg + target date. Booleans declared above
   // the early return so hook order stays stable across renders.
   const [editingDate, setEditingDate] = useState(false);
@@ -243,24 +250,16 @@ export default function WeightSettingsScreen() {
           </View>
         </Section>
 
-        {/* APPLE HEALTH */}
+        {/* APPLE HEALTH — state-driven: connect CTA when unprompted, hint
+            when denied or unavailable, toggle when granted. */}
         <Section label="apple health">
-          <View style={styles.cardList}>
-            <View style={styles.cardRow}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.cardRowName}>Auto-import from Apple Health</Text>
-                <Text style={styles.cardRowSub}>
-                  {lastSyncAt
-                    ? `last sync ${formatClock(lastSyncAt)}`
-                    : 'pulls body-mass samples on app foreground'}
-                </Text>
-              </View>
-              <Switch
-                on={prefs.autoImportHealthKit}
-                onToggle={onToggleAutoImport}
-              />
-            </View>
-          </View>
+          <AppleHealthSection
+            auth={auth}
+            autoImport={prefs.autoImportHealthKit}
+            lastSyncAt={lastSyncAt}
+            onConnect={() => ensureHkAuthorization(BODY_MASS_PERMISSIONS)}
+            onToggleAutoImport={onToggleAutoImport}
+          />
         </Section>
       </ScrollView>
 
@@ -482,6 +481,94 @@ function Section({
   );
 }
 
+/**
+ * Apple Health section body. The settings page owns the auth lifecycle
+ * for body-mass now — what used to be a banner on /weight lives here as
+ * a state-driven section so the user has one place to connect / disconnect
+ * / inspect the integration.
+ */
+function AppleHealthSection({
+  auth,
+  autoImport,
+  lastSyncAt,
+  onConnect,
+  onToggleAutoImport,
+}: {
+  auth: HkAuthState;
+  autoImport: boolean;
+  lastSyncAt: Date | null;
+  onConnect: () => void;
+  onToggleAutoImport: () => void;
+}) {
+  if (auth === 'checking') {
+    // Brief one-frame window before the auth state lands — render nothing
+    // rather than a flash of a wrong state.
+    return null;
+  }
+  if (auth === 'unavailable') {
+    return (
+      <View style={styles.cardList}>
+        <View style={styles.cardRow}>
+          <Text style={styles.cardRowSub}>
+            Apple Health not available on this device.
+          </Text>
+        </View>
+      </View>
+    );
+  }
+  if (auth === 'unknown') {
+    return (
+      <View style={styles.cardList}>
+        <View style={styles.cardRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.cardRowName}>Connect to import weigh-ins</Text>
+            <Text style={styles.cardRowSub}>
+              Mirrors existing body-mass samples and pushes manual entries back.
+            </Text>
+          </View>
+          <Pressable
+            onPress={onConnect}
+            accessibilityRole="button"
+            style={({ pressed }) => [
+              styles.connectCta,
+              pressed && { opacity: 0.7 },
+            ]}>
+            <Text style={styles.connectCtaText}>connect</Text>
+          </Pressable>
+        </View>
+      </View>
+    );
+  }
+  if (auth === 'denied') {
+    return (
+      <View style={styles.cardList}>
+        <View style={styles.cardRow}>
+          <Text style={styles.cardRowSub}>
+            Apple Health off — re-enable read + write for Body Mass in iOS
+            Settings → Privacy &amp; Security → Health → Maß.
+          </Text>
+        </View>
+      </View>
+    );
+  }
+  // auth === 'granted'
+  return (
+    <View style={styles.cardList}>
+      <View style={styles.cardRow}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.cardRowName}>Auto-import from Apple Health</Text>
+          <Text style={styles.cardRowSub}>
+            {lastSyncAt
+              ? `last sync ${formatClock(lastSyncAt)}`
+              : 'pulls body-mass samples on app foreground'}
+          </Text>
+        </View>
+        <Switch on={autoImport} onToggle={onToggleAutoImport} />
+      </View>
+    </View>
+  );
+}
+
 function Switch({ on, onToggle }: { on: boolean; onToggle: () => void }) {
   return (
     <Pressable
@@ -691,6 +778,20 @@ const styles = StyleSheet.create({
     color: tokens.ink4,
     marginTop: 2,
     fontStyle: 'italic',
+  },
+
+  connectCta: {
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    backgroundColor: tokens.ink,
+  },
+  connectCtaText: {
+    fontFamily: fonts.monoSemibold,
+    fontSize: 10,
+    color: tokens.bg,
+    letterSpacing: 1.6,
+    textTransform: 'uppercase',
   },
 
   // Switch

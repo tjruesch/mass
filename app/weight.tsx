@@ -41,7 +41,7 @@ import { useLastWeightSyncAt } from '@/src/hooks/use-weight-sync';
 import type { WeightEntry } from '@/src/db/schema';
 import { useNow } from '@/src/lib/use-now';
 import { seedWeightDataDev } from '@/src/lib/dev-seed';
-import { ensureHkAuthorization, useHkAuthState } from '@/src/lib/healthkit/auth';
+import { useHkAuthState } from '@/src/lib/healthkit/auth';
 import { BODY_MASS_PERMISSIONS } from '@/src/lib/healthkit/weight';
 import { fonts, textStyles, tokens } from '@/theme/tokens';
 
@@ -92,8 +92,6 @@ export default function WeightScreen() {
             </Pressable>
           }
         />
-
-        <AuthBanner state={auth} onConnect={() => ensureHkAuthorization(BODY_MASS_PERMISSIONS)} />
 
         <StatHero
           latestKg={latest?.kg ?? null}
@@ -154,50 +152,6 @@ export default function WeightScreen() {
 // ─────────────────────────────────────────────────────────────────────────────
 // AuthBanner — prompts for HK auth or hints at manual-only mode. Hidden on
 // the simulator (`unavailable`) and once auth is granted.
-// ─────────────────────────────────────────────────────────────────────────────
-function AuthBanner({
-  state,
-  onConnect,
-}: {
-  state: ReturnType<typeof useHkAuthState>;
-  onConnect: () => void;
-}) {
-  if (state === 'granted' || state === 'unavailable' || state === 'checking') {
-    return null;
-  }
-  if (state === 'denied') {
-    return (
-      <View style={styles.bannerOuter}>
-        <Text style={styles.bannerText}>
-          Apple Health off — manual entries only. Re-enable in iOS
-          Settings → Privacy → Health.
-        </Text>
-      </View>
-    );
-  }
-  // 'unknown' — show a CTA.
-  return (
-    <View style={styles.bannerOuter}>
-      <View style={styles.bannerCard}>
-        <View style={{ flex: 1 }}>
-          <Text style={[styles.bannerKicker, textStyles.cap]}>apple health</Text>
-          <Text style={styles.bannerTitle}>Connect to import weigh-ins</Text>
-          <Text style={styles.bannerSub}>
-            We&apos;ll mirror existing body-mass samples and push manual entries back.
-          </Text>
-        </View>
-        <Pressable
-          onPress={onConnect}
-          accessibilityRole="button"
-          style={({ pressed }) => [styles.bannerCta, pressed && { opacity: 0.7 }]}>
-          <Text style={styles.bannerCtaText}>connect</Text>
-        </Pressable>
-      </View>
-    </View>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // StatHero — big kg readout + 7d/to-goal/eta strip. No card frame, matches
 // the inline-rings treatment we did on home.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -511,67 +465,6 @@ const styles = StyleSheet.create({
     borderColor: tokens.line,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-
-  // Auth banner
-  bannerOuter: {
-    paddingTop: 8,
-    paddingHorizontal: 22,
-  },
-  bannerCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    backgroundColor: tokens.card,
-    borderRadius: 14,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowRadius: 3,
-    shadowOpacity: 0.03,
-  },
-  bannerKicker: {
-    fontFamily: fonts.mono,
-    fontSize: 8.5,
-    color: tokens.ink4,
-    letterSpacing: 1.87,
-  },
-  bannerTitle: {
-    fontFamily: fonts.sansSemibold,
-    fontSize: 13,
-    color: tokens.ink,
-    marginTop: 3,
-  },
-  bannerSub: {
-    fontFamily: fonts.mono,
-    fontSize: 9.5,
-    color: tokens.ink4,
-    marginTop: 2,
-    fontStyle: 'italic',
-  },
-  bannerCta: {
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    borderRadius: 10,
-    backgroundColor: tokens.ink,
-  },
-  bannerCtaText: {
-    fontFamily: fonts.monoSemibold,
-    fontSize: 10,
-    color: tokens.bg,
-    letterSpacing: 1.6,
-    textTransform: 'uppercase',
-  },
-  bannerText: {
-    fontFamily: fonts.mono,
-    fontSize: 11,
-    color: tokens.ink3,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    backgroundColor: tokens.bg2,
-    borderRadius: 12,
-    fontStyle: 'italic',
   },
 
   // Stat hero
