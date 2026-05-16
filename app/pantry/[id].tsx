@@ -21,7 +21,7 @@
  */
 
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
   Pressable,
@@ -40,11 +40,7 @@ import {
   updatePantryItem,
 } from '@/src/db/queries/pantry';
 import type { PantryCategory, PantryItem } from '@/src/db/schema';
-import {
-  FOOD_DB_MIN_QUERY,
-  searchFoodDb,
-  type FoodEntry,
-} from '@/src/lib/food-db';
+import { inferFoodMacros, isFoodLlmEnabled } from '@/src/lib/food-llm';
 import {
   PANTRY_CATEGORIES,
   PANTRY_CATEGORY_LABELS,
@@ -73,10 +69,6 @@ export default function PantryItemEditorScreen() {
   const mode: 'create' | 'edit' = isCreate ? 'create' : 'edit';
 
   const [name, setName] = useState('');
-  /** True after the user accepts a food-DB suggestion; suppresses the
-   *  suggestion list until they edit the name again so we don't hide
-   *  the macro fields they're now reviewing. */
-  const [autofillDismissed, setAutofillDismissed] = useState(false);
   const [brand, setBrand] = useState('');
   const [kcalText, setKcalText] = useState('');
   const [proteinText, setProteinText] = useState('');
@@ -145,26 +137,49 @@ export default function PantryItemEditorScreen() {
 
   const valid = trimmedName.length > 0 && kcal !== null && kcal >= 0;
 
-  /**
-   * Food-DB suggestions (#91). Only surface in create mode — edit
-   * mode already has known values, so a popup of "did you mean…?"
-   * would just be in the way.
-   */
-  const suggestions = useMemo<ReadonlyArray<FoodEntry>>(() => {
-    if (mode === 'edit') return [];
-    if (autofillDismissed) return [];
-    return searchFoodDb(name, 6);
-  }, [name, mode, autofillDismissed]);
+  // ── Food-LLM autofill (#91) ──────────────────────────────────────
+  // Debounced: fires ~700ms after the user stops typing. Only fills
+  // fields that are still blank so the user's manual edits always win.
+  // Edit mode skips this entirely — existing rows already have values.
+  const [autofilling, setAutofilling] = useState(false);
+  const lastFilledNameRef = useRef<string>('');
+  useEffect(() => {
+    if (mode === 'edit') return;
+    if (!isFoodLlmEnabled()) return;
+    const target = trimmedName.toLowerCase();
+    if (target.length < 3) return;
+    if (target === lastFilledNameRef.current) return;
 
-  const applySuggestion = (entry: FoodEntry) => {
-    setName(entry.name);
-    setCategory(entry.category);
-    setKcalText(formatMacro(entry.kcal));
-    setProteinText(formatMacro(entry.proteinG));
-    setCarbsText(formatMacro(entry.carbsG));
-    setFatText(formatMacro(entry.fatG));
-    setAutofillDismissed(true);
-  };
+    const controller = new AbortController();
+    const handle = setTimeout(async () => {
+      setAutofilling(true);
+      const result = await inferFoodMacros(trimmedName, {
+        signal: controller.signal,
+      });
+      setAutofilling(false);
+      if (controller.signal.aborted || result === null) return;
+      // Only fill empties — manual entries are sacred. Category gets
+      // overwritten regardless since `pantry` is the default value the
+      // form ships in with, and the LLM is better at guessing.
+      setKcalText((cur) => (cur.trim() === '' ? formatMacro(result.kcal) : cur));
+      setProteinText((cur) =>
+        cur.trim() === '' ? formatMacro(result.proteinG) : cur,
+      );
+      setCarbsText((cur) =>
+        cur.trim() === '' ? formatMacro(result.carbsG) : cur,
+      );
+      setFatText((cur) =>
+        cur.trim() === '' ? formatMacro(result.fatG) : cur,
+      );
+      setCategory(result.category);
+      lastFilledNameRef.current = target;
+    }, 700);
+
+    return () => {
+      clearTimeout(handle);
+      controller.abort();
+    };
+  }, [trimmedName, mode]);
 
   const handleSave = useCallback(() => {
     if (!valid || saving) return;
@@ -288,70 +303,21 @@ export default function PantryItemEditorScreen() {
         />
 
         {/* NAME */}
-        <Section label="name" marginTop={12}>
+        <Section
+          label="name"
+          marginTop={12}
+          sub={
+            autofilling
+              ? 'looking up macros…'
+              : mode === 'create' && !isFoodLlmEnabled()
+              ? 'set EXPO_PUBLIC_ANTHROPIC_API_KEY for autofill'
+              : undefined
+          }>
           <TextField
             value={name}
-            onChangeText={(t) => {
-              setName(t.slice(0, NAME_MAX));
-              // Any edit re-enables the food-DB suggestion list.
-              setAutofillDismissed(false);
-            }}
+            onChangeText={(t) => setName(t.slice(0, NAME_MAX))}
             placeholder="e.g. Whole-milk yoghurt"
           />
-          {suggestions.length > 0 && (
-            <View style={styles.suggestionCard}>
-              <View style={styles.suggestionHeader}>
-                <Text style={[styles.suggestionKicker, textStyles.cap]}>
-                  food db · autofill
-                </Text>
-                <Pressable
-                  onPress={() => setAutofillDismissed(true)}
-                  hitSlop={8}
-                  accessibilityRole="button"
-                  accessibilityLabel="Dismiss suggestions"
-                  style={({ pressed }) => pressed && { opacity: 0.55 }}>
-                  <Text style={styles.suggestionDismiss}>dismiss</Text>
-                </Pressable>
-              </View>
-              {suggestions.map((s, i) => {
-                const isLast = i === suggestions.length - 1;
-                return (
-                  <Pressable
-                    key={s.name}
-                    onPress={() => applySuggestion(s)}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Use ${s.name}`}
-                    style={({ pressed }) => [
-                      styles.suggestionRow,
-                      !isLast && styles.suggestionRowBorder,
-                      pressed && { opacity: 0.7 },
-                    ]}>
-                    <View style={styles.suggestionBody}>
-                      <Text style={styles.suggestionName}>{s.name}</Text>
-                      <Text
-                        style={[styles.suggestionMacros, textStyles.tnum]}>
-                        {Math.round(s.kcal)} kcal · P{' '}
-                        {formatMacro(s.proteinG) || '0'}g · C{' '}
-                        {formatMacro(s.carbsG) || '0'}g · F{' '}
-                        {formatMacro(s.fatG) || '0'}g
-                      </Text>
-                    </View>
-                    <Text
-                      style={[styles.suggestionCat, textStyles.cap]}>
-                      {s.category}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-          )}
-          {!autofillDismissed &&
-            name.trim().length >= FOOD_DB_MIN_QUERY &&
-            suggestions.length === 0 && (
-              <Text style={styles.suggestionEmpty}>
-                no food-db match — fill macros below
-              </Text>
-            )}
         </Section>
 
         {/* BRAND */}
@@ -875,81 +841,6 @@ const styles = StyleSheet.create({
     letterSpacing: 1.98,
   },
   restockHint: {
-    fontFamily: fonts.mono,
-    fontSize: 11,
-    color: tokens.ink4,
-    fontStyle: 'italic',
-    letterSpacing: 0.4,
-  },
-
-  // Food-DB autofill (#91)
-  suggestionCard: {
-    marginTop: 8,
-    backgroundColor: tokens.card,
-    borderWidth: 1,
-    borderColor: tokens.line,
-    borderRadius: 12,
-    overflow: 'hidden',
-  },
-  suggestionHeader: {
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    backgroundColor: 'rgba(0,0,0,0.012)',
-    borderBottomWidth: 1,
-    borderBottomColor: tokens.line,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  suggestionKicker: {
-    fontFamily: fonts.monoSemibold,
-    fontSize: 9,
-    color: tokens.ink4,
-    letterSpacing: 1.8,
-  },
-  suggestionDismiss: {
-    fontFamily: fonts.mono,
-    fontSize: 9.5,
-    color: tokens.ink4,
-    fontStyle: 'italic',
-    letterSpacing: 0.4,
-  },
-  suggestionRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    gap: 10,
-  },
-  suggestionRowBorder: {
-    borderBottomWidth: 1,
-    borderBottomColor: tokens.line,
-  },
-  suggestionBody: {
-    flex: 1,
-    minWidth: 0,
-  },
-  suggestionName: {
-    fontFamily: fonts.sansMedium,
-    fontSize: 14,
-    color: tokens.ink,
-    letterSpacing: -0.07,
-  },
-  suggestionMacros: {
-    marginTop: 2,
-    fontFamily: fonts.mono,
-    fontSize: 10,
-    color: tokens.ink4,
-    letterSpacing: 0.3,
-  },
-  suggestionCat: {
-    fontFamily: fonts.monoSemibold,
-    fontSize: 9,
-    color: tokens.ink3,
-    letterSpacing: 1.8,
-  },
-  suggestionEmpty: {
-    marginTop: 8,
     fontFamily: fonts.mono,
     fontSize: 11,
     color: tokens.ink4,
