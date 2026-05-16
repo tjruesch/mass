@@ -107,15 +107,23 @@ export default function MealsScreen() {
   const paceState = pace(today.totalKcal, budgetKcal);
   const pacePalette = PACE_COLORS[paceState];
 
-  // Rolling 7-day deficit. Positive = cut (under budget on avg);
-  // negative = surplus.
-  const sevenDayDeficit = useMemo(
-    () =>
-      last7.reduce((acc, d) => acc + (budgetKcal - d.kcal), 0),
-    [last7, budgetKcal],
-  );
-  // 7700 kcal ≈ 1 kg of body fat. Used to project the weight impact.
-  const sevenDayKgEquivalent = sevenDayDeficit / 7700;
+  // Rolling deficit. Only counts days that actually have logged meals
+  // — including a zero-kcal day in the sum would treat any unlogged
+  // day as a full-budget deficit and inflate the number wildly.
+  // Positive = cut (under budget on avg); negative = surplus.
+  const rollingDeficit = useMemo(() => {
+    const loggedDays = last7.filter((d) => d.kcal > 0);
+    const totalDeficit = loggedDays.reduce(
+      (acc, d) => acc + (budgetKcal - d.kcal),
+      0,
+    );
+    return {
+      totalDeficit,
+      // 7700 kcal ≈ 1 kg of body fat. Used to project the weight impact.
+      kgEquivalent: totalDeficit / 7700,
+      dayCount: loggedDays.length,
+    };
+  }, [last7, budgetKcal]);
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerSlot, setDrawerSlot] = useState<MealSlot | undefined>(undefined);
@@ -236,23 +244,28 @@ export default function MealsScreen() {
               </Text>
             </View>
 
-            {/* 7d deficit row */}
-            <View style={styles.sevenDayRow}>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.kickerSmall, textStyles.cap]}>
-                  7d deficit
-                </Text>
-                <Text style={[styles.sevenDayValue, textStyles.tnum]}>
-                  {formatSignedKcalLong(sevenDayDeficit)}
-                  <Text style={styles.heroSubMute}> kcal </Text>
-                  <Text style={styles.heroSubMute}>≈ </Text>
-                  <Text style={styles.heroSubStrong}>
-                    {formatKgDelta(sevenDayKgEquivalent)}
+            {/* Rolling deficit row — labelled `Nd deficit` where N is
+                the number of logged days (skips unlogged days so the
+                total isn't inflated by full-budget zeros). Hides when
+                nothing has been logged in the window. */}
+            {rollingDeficit.dayCount > 0 && (
+              <View style={styles.sevenDayRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.kickerSmall, textStyles.cap]}>
+                    {rollingDeficit.dayCount}d deficit
                   </Text>
-                </Text>
+                  <Text style={[styles.sevenDayValue, textStyles.tnum]}>
+                    {formatSignedKcalLong(rollingDeficit.totalDeficit)}
+                    <Text style={styles.heroSubMute}> kcal </Text>
+                    <Text style={styles.heroSubMute}>≈ </Text>
+                    <Text style={styles.heroSubStrong}>
+                      {formatKgDelta(rollingDeficit.kgEquivalent)}
+                    </Text>
+                  </Text>
+                </View>
+                <SevenDayBars days={last7} budgetKcal={budgetKcal} />
               </View>
-              <SevenDayBars days={last7} budgetKcal={budgetKcal} />
-            </View>
+            )}
           </View>
         </View>
 
@@ -584,6 +597,22 @@ function SevenDayBars({
       <G>
         {days.map((d, i) => {
           const x = i * (barW + gap);
+          // Empty days render as a tiny placeholder tick so the row
+          // still reads as "7 buckets" without inflating the deficit.
+          if (d.kcal <= 0) {
+            return (
+              <Rect
+                key={i}
+                x={x}
+                y={height - 2}
+                width={barW}
+                height={2}
+                rx={1}
+                fill={tokens.line2}
+                opacity={0.6}
+              />
+            );
+          }
           // Deficit magnitude (cut OR surplus) drives bar height.
           const deficit = budgetKcal - d.kcal;
           const magnitude = Math.min(Math.abs(deficit), max);
