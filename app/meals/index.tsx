@@ -1110,7 +1110,10 @@ const styles = StyleSheet.create({
   libraryHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'baseline',
+    // center, not baseline — the right-side CTA wraps a Pressable
+    // containing a Glyph (SVG, no text baseline) so the baseline
+    // align fell back to the View's bottom and dropped the row.
+    alignItems: 'center',
     paddingHorizontal: 22,
     marginBottom: 10,
   },
