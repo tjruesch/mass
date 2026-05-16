@@ -15,11 +15,51 @@
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { TabBar } from '@/components/design';
+import { useCombinedStreak } from '@/src/hooks/use-combined-streak';
 import { useNow } from '@/src/lib/use-now';
 import { fonts, textStyles, tokens } from '@/theme/tokens';
 
 const WEEKDAY_FMT = new Intl.DateTimeFormat('en', { weekday: 'short' });
 const MONTH_FMT = new Intl.DateTimeFormat('en', { month: 'short' });
+const SINCE_FMT = new Intl.DateTimeFormat('en', {
+  weekday: 'short',
+  day: '2-digit',
+  month: 'short',
+});
+
+const DOT_DAYS = 14;
+const LEGEND_ITEMS = [
+  { hits: 3, label: '3/3' },
+  { hits: 2, label: '2/3' },
+  { hits: 1, label: '1/3' },
+  { hits: 0, label: '0/3' },
+] as const;
+
+// Heat steps mirror the heatmap palette in `designs/screen-trends.jsx`
+// — accent-ink for 3, then progressively diluted ink against bg.
+function dotBackground(hits: number): string {
+  if (hits === 3) return tokens.accentInk;
+  if (hits === 2) return mix(tokens.ink, tokens.bg, 0.55);
+  if (hits === 1) return mix(tokens.ink, tokens.bg, 0.22);
+  return tokens.bg2;
+}
+
+/** Cheap linear color blend in sRGB. Approximation good enough for
+ *  static UI tints; produces the same visual mix the design source's
+ *  `color-mix(in oklab, ...)` lands on. */
+function mix(a: string, b: string, t: number): string {
+  const [ar, ag, ab] = hexToRgb(a);
+  const [br, bg, bb] = hexToRgb(b);
+  const r = Math.round(ar * t + br * (1 - t));
+  const g = Math.round(ag * t + bg * (1 - t));
+  const bl = Math.round(ab * t + bb * (1 - t));
+  return `rgb(${r}, ${g}, ${bl})`;
+}
+function hexToRgb(hex: string): [number, number, number] {
+  const h = hex.replace('#', '');
+  const v = parseInt(h, 16);
+  return [(v >> 16) & 0xff, (v >> 8) & 0xff, v & 0xff];
+}
 
 function formatDateline(d: Date): string {
   const w = WEEKDAY_FMT.format(d).toLowerCase();
@@ -38,6 +78,9 @@ export default function TrendsScreen() {
   // Once-a-minute tick keeps the dateline live across midnight without
   // a manual refresh, same cadence as the home greeting.
   const now = useNow(60_000);
+  const combined = useCombinedStreak();
+  // Last DOT_DAYS slice of the 90-day window for the row of dots.
+  const dotWindow = combined.hitsPerDay.slice(-DOT_DAYS);
 
   return (
     <View style={{ flex: 1, backgroundColor: tokens.bg }}>
@@ -53,11 +96,76 @@ export default function TrendsScreen() {
           <Text style={styles.title}>Trends</Text>
         </View>
 
-        {/* Placeholder until #98–#101 fill the sections. */}
+        {/* ── Combined streak hero ─────────────────────────────────── */}
+        <View style={styles.streakOuter}>
+          <Text style={[styles.kicker, textStyles.cap]}>
+            streak · combined
+          </Text>
+
+          <View style={styles.streakHeroRow}>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <View style={styles.streakNumberRow}>
+                <Text style={[styles.streakNumber, textStyles.tnum]}>
+                  {combined.currentStreak}d
+                </Text>
+                <Text style={styles.streakNumberSub}>all three goals</Text>
+              </View>
+              <Text style={styles.streakHint}>
+                {combined.since
+                  ? `since ${SINCE_FMT.format(combined.since).toLowerCase()}`
+                  : 'no current streak'}
+                <Text style={styles.streakHintSep}>{' · '}</Text>
+                <Text>best {combined.bestStreak}d</Text>
+              </Text>
+            </View>
+
+            <View style={styles.dotRow}>
+              {dotWindow.map((hits, i) => {
+                const isToday = i === dotWindow.length - 1;
+                const is3 = hits === 3;
+                const is0 = hits === 0;
+                return (
+                  <View
+                    key={i}
+                    style={[
+                      styles.dot,
+                      { backgroundColor: dotBackground(hits) },
+                      is0 && styles.dotOutlined,
+                      isToday && styles.dotToday,
+                      isToday && is3 && styles.dotTodayGlow,
+                    ]}
+                  />
+                );
+              })}
+            </View>
+          </View>
+
+          {/* Legend */}
+          <View style={styles.legendRow}>
+            {LEGEND_ITEMS.map((item) => (
+              <View key={item.hits} style={styles.legendChip}>
+                <View
+                  style={[
+                    styles.legendSwatch,
+                    { backgroundColor: dotBackground(item.hits) },
+                    item.hits === 0 && styles.dotOutlined,
+                  ]}
+                />
+                <Text style={[styles.legendText, textStyles.cap]}>
+                  {item.label}
+                </Text>
+              </View>
+            ))}
+          </View>
+
+          <View style={styles.divider} />
+        </View>
+
+        {/* Placeholder until #99–#101 fill the remaining sections. */}
         <View style={styles.placeholderOuter}>
           <Text style={[styles.kicker, textStyles.cap]}>coming next</Text>
           <Text style={styles.placeholder}>
-            streak hero · per-feature breakdown · weight chart · 7d deficit bars
+            per-feature breakdown · weight chart · 7d deficit bars
           </Text>
         </View>
       </ScrollView>
@@ -102,7 +210,7 @@ const styles = StyleSheet.create({
     fontSize: 9,
     color: tokens.ink4,
     letterSpacing: 1.98,
-    marginBottom: 8,
+    marginBottom: 12,
   },
   placeholder: {
     fontFamily: fonts.mono,
@@ -111,5 +219,100 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
     letterSpacing: 0.4,
     lineHeight: 18,
+  },
+
+  // Combined streak
+  streakOuter: {
+    paddingTop: 18,
+    paddingHorizontal: 22,
+  },
+  streakHeroRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    gap: 14,
+  },
+  streakNumberRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 6,
+  },
+  streakNumber: {
+    fontFamily: fonts.monoSemibold,
+    fontSize: 44,
+    color: tokens.ink,
+    letterSpacing: -2,
+    lineHeight: 48,
+  },
+  streakNumberSub: {
+    fontFamily: fonts.mono,
+    fontSize: 12,
+    color: tokens.ink3,
+    letterSpacing: 0.4,
+  },
+  streakHint: {
+    marginTop: 6,
+    fontFamily: fonts.mono,
+    fontSize: 10,
+    color: tokens.ink4,
+    fontStyle: 'italic',
+    letterSpacing: 0.4,
+  },
+  streakHintSep: {
+    color: tokens.ink4,
+  },
+  dotRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingBottom: 2,
+  },
+  dot: {
+    width: 11,
+    height: 14,
+    borderRadius: 2,
+  },
+  dotOutlined: {
+    borderWidth: 1,
+    borderColor: tokens.line,
+  },
+  dotToday: {
+    borderWidth: 1,
+    borderColor: tokens.ink,
+  },
+  dotTodayGlow: {
+    shadowColor: tokens.accent,
+    shadowOffset: { width: 0, height: 0 },
+    shadowRadius: 6,
+    shadowOpacity: 1,
+  },
+
+  legendRow: {
+    marginTop: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+  },
+  legendChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  legendSwatch: {
+    width: 9,
+    height: 9,
+    borderRadius: 2,
+  },
+  legendText: {
+    fontFamily: fonts.mono,
+    fontSize: 9,
+    color: tokens.ink4,
+    letterSpacing: 1.62,
+  },
+
+  divider: {
+    height: 1,
+    backgroundColor: tokens.line,
+    marginTop: 18,
   },
 });
