@@ -32,7 +32,7 @@ import {
 } from '@/src/hooks/use-feature-streaks';
 import { useWeightHistory } from '@/src/hooks/use-weight';
 import { useNow } from '@/src/lib/use-now';
-import { addDays, startOfDay } from '@/src/lib/time';
+import { addDays, dowMondayFirst, startOfDay } from '@/src/lib/time';
 import { fonts, textStyles, tokens } from '@/theme/tokens';
 
 const WEEKDAY_FMT = new Intl.DateTimeFormat('en', { weekday: 'short' });
@@ -96,18 +96,31 @@ function formatClockTime(d: Date): string {
   return `${h}:${m}`;
 }
 
-// 7-day delta bar chart. Each bar = MA(day_i) − MA(day_i-1) for the
-// last 7 calendar days. Centered 0-line; green below (loss), warn
-// above (gain). Scale floor of 0.5 kg keeps a flat week from
-// rendering hairline bars.
-const DELTA_BAR_DAYS = 7;
+// Mon→Sun delta bars. Each bar = MA(day) − MA(day - 1). Scale adapts
+// to the week's largest swing with a tiny 0.1 kg floor so flat weeks
+// don't divide by zero. Bars above midline = gain (warn terracotta),
+// below = loss (forest green). Days in the future render as a
+// midline tick — same treatment as missing-data days. Today's bar
+// is full opacity; prior days are dimmed.
 const DELTA_BAR_CHART_H = 96;
-const DELTA_BAR_MIN_SCALE_KG = 0.5;
-const DELTA_DOW_FMT = new Intl.DateTimeFormat('en', { weekday: 'short' });
+const DELTA_BAR_MIN_SCALE_KG = 0.1;
+const DAYS_IN_WEEK = 7;
+const DOW_LABELS_MON_FIRST = [
+  'mon',
+  'tue',
+  'wed',
+  'thu',
+  'fri',
+  'sat',
+  'sun',
+] as const;
 
 type DeltaPoint = {
   readonly date: Date;
   readonly delta: number | null;
+  /** Future days (relative to today) get a placeholder bar — the
+   *  chart still spans Mon-Sun so the user reads it as the week. */
+  readonly future: boolean;
 };
 
 export default function TrendsScreen() {
@@ -357,13 +370,26 @@ function buildWeightDeltas(
   // Flatten to raw entries; useWeightHistory sorts ascending already.
   const entries = points.map((p) => p.entry);
   const todayStart = startOfDay(now);
+  // Walk from Monday of the current week through Sunday so the chart
+  // always reads as "this week" — the rest of the app uses the same
+  // Monday-first convention.
+  const weekStart = addDays(todayStart, -dowMondayFirst(todayStart));
   const out: DeltaPoint[] = [];
-  for (let i = DELTA_BAR_DAYS - 1; i >= 0; i--) {
-    const day = addDays(todayStart, -i);
+  for (let i = 0; i < DAYS_IN_WEEK; i++) {
+    const day = addDays(weekStart, i);
+    const isFuture = day.getTime() > todayStart.getTime();
+    if (isFuture) {
+      out.push({ date: day, delta: null, future: true });
+      continue;
+    }
     const prev = addDays(day, -1);
     const a = maAt(entries, prev.getTime());
     const b = maAt(entries, day.getTime());
-    out.push({ date: day, delta: a !== null && b !== null ? b - a : null });
+    out.push({
+      date: day,
+      delta: a !== null && b !== null ? b - a : null,
+      future: false,
+    });
   }
   return out;
 }
@@ -385,15 +411,24 @@ function DeltaBarChart({ deltas }: { deltas: ReadonlyArray<DeltaPoint> }) {
   const innerH = h - padT - padB;
   const midY = padT + innerH / 2;
 
+  // Scale to the week's actual max so a 0.15 kg day uses the full
+  // half-height of the chart. Tiny floor prevents divide-by-zero on
+  // a perfectly flat week.
   const maxAbs = Math.max(
     DELTA_BAR_MIN_SCALE_KG,
     ...deltas.map((d) => (d.delta === null ? 0 : Math.abs(d.delta))),
   );
 
   const slot = innerW / deltas.length;
-  const barW = Math.max(10, slot - 8);
+  const barW = Math.max(12, slot - 6);
 
-  // Empty state: no usable data at all.
+  // todayDow within the Mon-Sun array — gives us "the last bar with
+  // real data" instead of "the last bar in the array" so dow labels
+  // and today highlighting stay correct on a Wednesday view.
+  const todayIdx = deltas.findIndex((d) => d.future) - 1;
+  const todayDow =
+    todayIdx >= 0 ? todayIdx : deltas.length - 1; // Sunday-of-this-week is today
+
   const anyData = deltas.some((d) => d.delta !== null);
   if (!anyData) {
     return (
@@ -422,6 +457,7 @@ function DeltaBarChart({ deltas }: { deltas: ReadonlyArray<DeltaPoint> }) {
           {deltas.map((d, i) => {
             const cx = padL + slot * i + slot / 2;
             const x = cx - barW / 2;
+            // Future or missing-data days collapse to a midline tick.
             if (d.delta === null) {
               return (
                 <Rect
@@ -432,7 +468,7 @@ function DeltaBarChart({ deltas }: { deltas: ReadonlyArray<DeltaPoint> }) {
                   height={2}
                   rx={1}
                   fill={tokens.line2}
-                  opacity={0.6}
+                  opacity={d.future ? 0.35 : 0.6}
                 />
               );
             }
@@ -440,7 +476,7 @@ function DeltaBarChart({ deltas }: { deltas: ReadonlyArray<DeltaPoint> }) {
             const barH = magnitude * (innerH / 2);
             const isGain = d.delta > 0;
             const y = isGain ? midY - barH : midY;
-            const isToday = i === deltas.length - 1;
+            const isToday = i === todayDow;
             return (
               <Rect
                 key={i}
@@ -457,8 +493,8 @@ function DeltaBarChart({ deltas }: { deltas: ReadonlyArray<DeltaPoint> }) {
         </G>
       </Svg>
       <View style={styles.deltaDowRow}>
-        {deltas.map((d, i) => {
-          const isToday = i === deltas.length - 1;
+        {deltas.map((_, i) => {
+          const isToday = i === todayDow;
           return (
             <Text
               key={i}
@@ -467,7 +503,7 @@ function DeltaBarChart({ deltas }: { deltas: ReadonlyArray<DeltaPoint> }) {
                 textStyles.cap,
                 isToday && styles.deltaDowToday,
               ]}>
-              {DELTA_DOW_FMT.format(d.date).toLowerCase()}
+              {DOW_LABELS_MON_FIRST[i]}
             </Text>
           );
         })}
