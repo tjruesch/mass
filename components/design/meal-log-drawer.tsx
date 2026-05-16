@@ -38,6 +38,10 @@ import {
 
 import {
   addMeal,
+  deleteMeal,
+  getMealById,
+  replaceMealItems,
+  updateMeal,
   type MealItemInput,
 } from '@/src/db/queries/meals';
 import { useLibraryMeals, useTodayMeals, slotForHour, type MealSlot, MEAL_SLOTS } from '@/src/hooks/use-meals';
@@ -61,9 +65,25 @@ type Props = {
   /** Pre-select a slot when the drawer opens — used by /meals slot cards
    *  so tapping "+ log dinner" defaults to dinner instead of hour-of-day. */
   initialSlot?: MealSlot;
+  /**
+   * Edit mode (#93). When set, the drawer hydrates from this meal and
+   * save calls updateMeal + replaceMealItems instead of addMeal.
+   *
+   * v1 simplification: edit always re-saves as a single-item "one-off"
+   * row, regardless of whether the source was a library copy. Macros
+   * are editable directly; ingredient-level editing lives on the meal
+   * composer (#87). The library breadcrumb is preserved by leaving the
+   * meal name intact.
+   */
+  editingMealId?: number;
 };
 
-export function MealLogDrawer({ open, onClose, initialSlot }: Props) {
+export function MealLogDrawer({
+  open,
+  onClose,
+  initialSlot,
+  editingMealId,
+}: Props) {
   const library = useLibraryMeals();
   // Pulled in for the bySlot index — if the user has already logged
   // a meal for the current slot, default the drawer to the next empty
@@ -81,9 +101,15 @@ export function MealLogDrawer({ open, onClose, initialSlot }: Props) {
   const [eatenAt, setEatenAt] = useState<Date>(() => new Date());
   const [notes, setNotes] = useState<string>('');
   const [saving, setSaving] = useState(false);
+  /** True while the edit-mode hydration is in flight. Prevents the
+   *  form from reading stale defaults the user starts typing into. */
+  const [hydrating, setHydrating] = useState(false);
+
+  const isEdit = editingMealId !== undefined;
 
   // Reset every time the drawer opens — clears any stale state from a
-  // prior session, picks a fresh default slot + time.
+  // prior session, picks a fresh default slot + time. In edit mode we
+  // then hydrate from the meal row.
   useEffect(() => {
     if (!open) return;
     const now = new Date();
@@ -98,11 +124,43 @@ export function MealLogDrawer({ open, onClose, initialSlot }: Props) {
     setEatenAt(now);
     setNotes('');
     setSaving(false);
+
+    if (editingMealId === undefined) return;
+    setHydrating(true);
+    let cancelled = false;
+    getMealById(editingMealId)
+      .then((row) => {
+        if (cancelled || !row) return;
+        const m = row.meal;
+        setName(m.name ?? '');
+        setKcalText(m.kcal === null ? '' : formatNum(m.kcal));
+        setProteinText(m.proteinG === null ? '' : formatNum(m.proteinG));
+        setCarbsText(m.carbsG === null ? '' : formatNum(m.carbsG));
+        setFatText(m.fatG === null ? '' : formatNum(m.fatG));
+        if (m.eatenAt !== null) {
+          setEatenAt(m.eatenAt);
+          setSlot(slotForHour(m.eatenAt.getHours()));
+        }
+        setNotes(m.notes ?? '');
+      })
+      .catch((err) => {
+        Alert.alert(
+          'Could not load meal',
+          err instanceof Error ? err.message : String(err),
+        );
+        if (!cancelled) onClose();
+      })
+      .finally(() => {
+        if (!cancelled) setHydrating(false);
+      });
+    return () => {
+      cancelled = true;
+    };
     // We intentionally re-run only on the open transition; pulling
     // today/bySlot every render would reseed the slot pick whenever a
     // sibling meal logged.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+  }, [open, editingMealId]);
 
   // ─── Derived totals ──────────────────────────────────────────────────────
 
@@ -131,8 +189,13 @@ export function MealLogDrawer({ open, onClose, initialSlot }: Props) {
   const trimmedName = name.trim();
   const trimmedNotes = notes.trim();
 
+  // Edit mode is always the one-off path — see the prop docstring.
   const valid =
-    isOneOff
+    isEdit
+      ? trimmedName.length > 0 &&
+        oneOffMacros.kcal !== null &&
+        oneOffMacros.kcal >= 0
+      : isOneOff
       ? trimmedName.length > 0 && oneOffMacros.kcal !== null && oneOffMacros.kcal >= 0
       : libraryMeal !== null;
 
@@ -144,6 +207,43 @@ export function MealLogDrawer({ open, onClose, initialSlot }: Props) {
 
     let mealRow: Parameters<typeof addMeal>[0];
     let items: ReadonlyArray<MealItemInput>;
+
+    // Edit mode treats the form as one-off regardless of original source.
+    if (isEdit) {
+      mealRow = {
+        eatenAt,
+        name: trimmedName,
+        kcal: oneOffMacros.kcal,
+        proteinG: oneOffMacros.proteinG,
+        carbsG: oneOffMacros.carbsG,
+        fatG: oneOffMacros.fatG,
+        notes: trimmedNotes === '' ? null : trimmedNotes,
+      };
+      items = [
+        {
+          freeText: trimmedName,
+          quantity: 1,
+          unit: 'serving',
+          kcal: oneOffMacros.kcal,
+          proteinG: oneOffMacros.proteinG,
+          carbsG: oneOffMacros.carbsG,
+          fatG: oneOffMacros.fatG,
+        },
+      ];
+      (async () => {
+        await updateMeal(editingMealId!, mealRow);
+        await replaceMealItems(editingMealId!, items);
+      })()
+        .then(() => onClose())
+        .catch((err) => {
+          Alert.alert(
+            'Could not save changes',
+            err instanceof Error ? err.message : String(err),
+          );
+          setSaving(false);
+        });
+      return;
+    }
 
     if (isOneOff) {
       // Single-item meal whose freeText carries the name. Roll-up
@@ -212,6 +312,8 @@ export function MealLogDrawer({ open, onClose, initialSlot }: Props) {
   }, [
     valid,
     saving,
+    isEdit,
+    editingMealId,
     isOneOff,
     libraryMeal,
     portion,
@@ -221,6 +323,33 @@ export function MealLogDrawer({ open, onClose, initialSlot }: Props) {
     eatenAt,
     onClose,
   ]);
+
+  const handleDelete = useCallback(() => {
+    if (!isEdit || editingMealId === undefined || saving) return;
+    Alert.alert(
+      'Delete this meal?',
+      "Today's totals + the home kcal ring will update. This can't be undone.",
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            setSaving(true);
+            deleteMeal(editingMealId)
+              .then(() => onClose())
+              .catch((err) => {
+                Alert.alert(
+                  'Could not delete',
+                  err instanceof Error ? err.message : String(err),
+                );
+                setSaving(false);
+              });
+          },
+        },
+      ],
+    );
+  }, [isEdit, editingMealId, saving, onClose]);
 
   // Pre-fill the eatenAt back by one hour while keeping today's date —
   // the most common "I forgot to log" use case.
@@ -232,6 +361,10 @@ export function MealLogDrawer({ open, onClose, initialSlot }: Props) {
 
   const ctaLabel = saving
     ? 'saving…'
+    : isEdit
+    ? valid
+      ? `save changes · ${Math.round(computedKcal ?? 0)} kcal`
+      : 'name + kcal required'
     : valid
     ? `log ${Math.round(computedKcal ?? 0)} kcal · ${slot}`
     : isOneOff
@@ -242,59 +375,63 @@ export function MealLogDrawer({ open, onClose, initialSlot }: Props) {
     <Drawer
       open={open}
       onClose={onClose}
-      kicker="MEAL · LOG"
-      title="Log meal"
+      kicker={isEdit ? 'MEAL · EDIT' : 'MEAL · LOG'}
+      title={isEdit ? 'Edit meal' : 'Log meal'}
       cta={
         <PrimaryButton label={ctaLabel} onPress={handleSave} disabled={!valid || saving} />
       }>
-      {/* LIBRARY PICKER */}
-      <DrawerSection
-        label="library"
-        sub={library.length === 0 ? 'none yet — log as one-off' : undefined}
-        marginTop={8}>
-        <View style={styles.libraryRow}>
-          <Pressable
-            onPress={() => setSelection({ kind: 'oneOff' })}
-            style={({ pressed }) => [
-              styles.libraryChip,
-              isOneOff && styles.libraryChipActive,
-              pressed && !isOneOff && { opacity: 0.7 },
-            ]}>
-            <Text
-              style={[
-                styles.libraryChipLabel,
-                isOneOff && { color: tokens.bg },
+      {/* LIBRARY PICKER — create mode only. Edit mode flattens to the
+          one-off form (see prop docstring) so the picker is hidden. */}
+      {!isEdit && (
+        <DrawerSection
+          label="library"
+          sub={library.length === 0 ? 'none yet — log as one-off' : undefined}
+          marginTop={8}>
+          <View style={styles.libraryRow}>
+            <Pressable
+              onPress={() => setSelection({ kind: 'oneOff' })}
+              style={({ pressed }) => [
+                styles.libraryChip,
+                isOneOff && styles.libraryChipActive,
+                pressed && !isOneOff && { opacity: 0.7 },
               ]}>
-              one-off
-            </Text>
-          </Pressable>
-          {library.slice(0, 4).map((m) => {
-            const active = selection.kind === 'library' && selection.id === m.id;
-            return (
-              <Pressable
-                key={m.id}
-                onPress={() => setSelection({ kind: 'library', id: m.id })}
-                style={({ pressed }) => [
-                  styles.libraryChip,
-                  active && styles.libraryChipActive,
-                  pressed && !active && { opacity: 0.7 },
+              <Text
+                style={[
+                  styles.libraryChipLabel,
+                  isOneOff && { color: tokens.bg },
                 ]}>
-                <Text
-                  numberOfLines={1}
-                  style={[
-                    styles.libraryChipLabel,
-                    active && { color: tokens.bg },
+                one-off
+              </Text>
+            </Pressable>
+            {library.slice(0, 4).map((m) => {
+              const active =
+                selection.kind === 'library' && selection.id === m.id;
+              return (
+                <Pressable
+                  key={m.id}
+                  onPress={() => setSelection({ kind: 'library', id: m.id })}
+                  style={({ pressed }) => [
+                    styles.libraryChip,
+                    active && styles.libraryChipActive,
+                    pressed && !active && { opacity: 0.7 },
                   ]}>
-                  {m.name ?? 'Meal'}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-      </DrawerSection>
+                  <Text
+                    numberOfLines={1}
+                    style={[
+                      styles.libraryChipLabel,
+                      active && { color: tokens.bg },
+                    ]}>
+                    {m.name ?? 'Meal'}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </DrawerSection>
+      )}
 
-      {/* ONE-OFF NAME + MACROS — only when no library meal selected */}
-      {isOneOff && (
+      {/* ONE-OFF NAME + MACROS — both in create-one-off and in edit mode. */}
+      {(isOneOff || isEdit) && (
         <>
           <DrawerSection label="name">
             <View style={styles.textRow}>
@@ -342,8 +479,8 @@ export function MealLogDrawer({ open, onClose, initialSlot }: Props) {
         </>
       )}
 
-      {/* PORTION — only when a library meal is selected */}
-      {!isOneOff && libraryMeal !== null && (
+      {/* PORTION — only when a library meal is selected (create only). */}
+      {!isEdit && !isOneOff && libraryMeal !== null && (
         <DrawerSection label="portion" sub={`${libraryMeal.name ?? 'Meal'} · ${Math.round((libraryMeal.kcal ?? 0))} kcal base`}>
           <View style={styles.portionRow}>
             {PORTIONS.map((p) => {
@@ -438,6 +575,22 @@ export function MealLogDrawer({ open, onClose, initialSlot }: Props) {
         </Text>
       </DrawerSection>
 
+      {isEdit && (
+        <Pressable
+          onPress={handleDelete}
+          accessibilityRole="button"
+          accessibilityLabel="Delete this meal"
+          disabled={saving}
+          style={({ pressed }) => [
+            styles.deleteBtn,
+            pressed && { opacity: 0.6 },
+          ]}>
+          <Text style={[styles.deleteText, textStyles.cap]}>
+            delete meal
+          </Text>
+        </Pressable>
+      )}
+
       <View style={{ height: 12 }} />
     </Drawer>
   );
@@ -500,6 +653,12 @@ function parseDecimal(s: string): number | null {
   const n = Number.parseFloat(s);
   if (!Number.isFinite(n) || n < 0) return null;
   return n;
+}
+
+function formatNum(n: number): string {
+  if (n === 0) return '0';
+  if (Number.isInteger(n)) return n.toString();
+  return (Math.round(n * 10) / 10).toString();
 }
 
 /**
@@ -701,5 +860,18 @@ const styles = StyleSheet.create({
     marginTop: 4,
     textAlign: 'right',
     letterSpacing: 0.4,
+  },
+
+  deleteBtn: {
+    marginTop: 18,
+    alignSelf: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 22,
+  },
+  deleteText: {
+    fontFamily: fonts.monoSemibold,
+    fontSize: 12,
+    color: tokens.accentInk,
+    letterSpacing: 1.92,
   },
 });

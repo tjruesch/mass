@@ -119,8 +119,17 @@ export default function MealsScreen() {
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerSlot, setDrawerSlot] = useState<MealSlot | undefined>(undefined);
+  const [editingMealId, setEditingMealId] = useState<number | undefined>(
+    undefined,
+  );
   const openDrawerForSlot = useCallback((slot?: MealSlot) => {
+    setEditingMealId(undefined);
     setDrawerSlot(slot);
+    setDrawerOpen(true);
+  }, []);
+  const openDrawerForEdit = useCallback((mealId: number) => {
+    setDrawerSlot(undefined);
+    setEditingMealId(mealId);
     setDrawerOpen(true);
   }, []);
   const closeDrawer = useCallback(() => setDrawerOpen(false), []);
@@ -336,6 +345,7 @@ export default function MealsScreen() {
                 meals={selectedDay.bySlot[slot]}
                 canLog={selectedDow === todayDow}
                 onLog={() => openDrawerForSlot(slot)}
+                onEditMeal={openDrawerForEdit}
               />
             ))}
           </View>
@@ -357,6 +367,7 @@ export default function MealsScreen() {
         open={drawerOpen}
         onClose={closeDrawer}
         initialSlot={drawerSlot}
+        editingMealId={editingMealId}
       />
     </View>
   );
@@ -374,11 +385,15 @@ function SlotCard({
   meals,
   canLog,
   onLog,
+  onEditMeal,
 }: {
   slot: MealSlot;
   meals: ReadonlyArray<Meal>;
   canLog: boolean;
   onLog: () => void;
+  /** Long-press handler — opens the drawer in edit mode for the
+   *  primary (first) meal in the slot. */
+  onEditMeal: (mealId: number) => void;
 }) {
   if (meals.length === 0) {
     if (!canLog) {
@@ -425,8 +440,11 @@ function SlotCard({
   return (
     <Pressable
       onPress={canLog ? onLog : undefined}
+      onLongPress={() => onEditMeal(primary.id)}
+      delayLongPress={350}
       accessibilityRole="button"
       accessibilityLabel={`${slot} · ${primaryName}`}
+      accessibilityHint="Long-press to edit"
       style={({ pressed }) => [
         styles.slotCard,
         styles.slotCardFilled,
