@@ -36,10 +36,11 @@ import { Glyph } from './glyph';
 const REST_TILE_KEY = '__rest__' as const;
 
 /**
- * Three coarse time slots. The drawer commits the chip's `min` to
- * `workout_preferences.<dow>TimeMin`; selecting "any time" persists null.
- * Custom HH:MM entry was removed — three buckets cover the linker's needs
- * (linkWindowMinutes already smooths the boundary).
+ * Three coarse time slots + "any time". The drawer commits the chip's
+ * `min` to `workout_preferences.<dow>TimeMin`; selecting "any time"
+ * persists null. The linker doesn't use this for matching (day-only
+ * matching since linking-rules dropped) — it's purely informational
+ * for the today card and week strip display.
  */
 const TIME_PRESETS: ReadonlyArray<{
   key: string;

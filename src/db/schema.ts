@@ -251,11 +251,6 @@ export const workoutPreferences = sqliteTable('workout_preferences', {
   autoImportHealthKit: integer('auto_import_healthkit', { mode: 'boolean' })
     .notNull()
     .default(true),
-  /**
-   * Linking tolerance: an HK workout counts toward a planned slot if it's
-   * within ± this many minutes of the slot's planned time. Default 120.
-   */
-  linkWindowMinutes: integer('link_window_minutes').notNull().default(120),
 });
 
 // ─── Goals (programs / phases like "cut-04 · day 14/28") ──────────────────────

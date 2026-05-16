@@ -1,0 +1,1 @@
+ALTER TABLE `workout_preferences` DROP COLUMN `link_window_minutes`;
