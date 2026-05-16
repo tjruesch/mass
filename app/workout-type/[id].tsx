@@ -31,8 +31,6 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import Svg, { Path } from 'react-native-svg';
-
 import { Glyph, SubHeader } from '@/components/design';
 import { WorkoutGlyph, toneColor } from '@/components/design/plan-day-drawer';
 import {
@@ -70,7 +68,6 @@ const DURATION_STEP = 5;
 const DURATION_MIN = 5;
 const DURATION_MAX = 180;
 const NAME_MAX = 32;
-const KEY_MAX = 32;
 
 type StepDraft = {
   /** Stable client id for keying + reorder. */
@@ -93,8 +90,13 @@ export default function WorkoutTypeEditorScreen() {
   const mode: 'create' | 'edit' = isCreate ? 'create' : 'edit';
 
   const [name, setName] = useState('');
-  const [key, setKey] = useState('');
-  const [keyTouched, setKeyTouched] = useState(false);
+  /**
+   * Key is always derived from the name — the user doesn't manage it.
+   * Computed at save time via `slugifyKey(trimmedName)`. Edit mode keeps
+   * the existing key stable unless the user changes the name; this
+   * avoids breaking links from workout_preferences if a key change isn't
+   * intentional.
+   */
   const [tone, setTone] = useState<WorkoutTypeTone>('ink');
   const [icon, setIcon] = useState<'lift' | 'tennis' | 'walk' | 'rest'>('lift');
   const [steps, setSteps] = useState<StepDraft[]>([]);
@@ -110,8 +112,6 @@ export default function WorkoutTypeEditorScreen() {
     if (isCreate) {
       if (hydrated) return;
       setName('');
-      setKey('');
-      setKeyTouched(false);
       setTone('ink');
       setIcon('lift');
       setSteps([
@@ -126,8 +126,6 @@ export default function WorkoutTypeEditorScreen() {
     }
     if (!type || hydrated) return;
     setName(type.label);
-    setKey(type.key);
-    setKeyTouched(true);
     setTone(type.tone);
     setIcon(type.icon);
     setSteps(
@@ -140,25 +138,25 @@ export default function WorkoutTypeEditorScreen() {
     setHydrated(true);
   }, [isCreate, type, hydrated]);
 
-  // Auto-derive key from name until the user edits the key field.
-  useEffect(() => {
-    if (keyTouched) return;
-    setKey(slugifyKey(name));
-  }, [name, keyTouched]);
-
   const trimmedName = name.trim();
-  const trimmedKey = key.trim();
+  // In create mode the key derives from the typed name. In edit mode the
+  // existing key stays unless the name actually changed — protects
+  // workout_preferences references from accidental rename.
+  const derivedKey = useMemo(() => {
+    if (!isCreate && type && type.label === trimmedName) return type.key;
+    return slugifyKey(trimmedName);
+  }, [isCreate, type, trimmedName]);
   const keyConflict = useMemo(() => {
-    if (trimmedKey === '') return false;
-    return types.some((t) => t.key === trimmedKey && t.id !== type?.id);
-  }, [trimmedKey, types, type?.id]);
+    if (derivedKey === '') return false;
+    return types.some((t) => t.key === derivedKey && t.id !== type?.id);
+  }, [derivedKey, types, type?.id]);
   const totalMin = useMemo(
     () => steps.reduce((a, s) => a + s.durationMin, 0),
     [steps],
   );
   const valid =
     trimmedName.length > 0 &&
-    trimmedKey.length > 0 &&
+    derivedKey.length > 0 &&
     !keyConflict &&
     steps.length > 0;
 
@@ -168,17 +166,6 @@ export default function WorkoutTypeEditorScreen() {
     setSteps((prev) =>
       prev.map((s) => (s.tempId === stepId ? { ...s, ...patch } : s)),
     );
-
-  const moveStep = (stepId: string, dir: -1 | 1) =>
-    setSteps((prev) => {
-      const idx = prev.findIndex((s) => s.tempId === stepId);
-      if (idx < 0) return prev;
-      const next = idx + dir;
-      if (next < 0 || next >= prev.length) return prev;
-      const copy = [...prev];
-      [copy[idx], copy[next]] = [copy[next], copy[idx]];
-      return copy;
-    });
 
   const deleteStep = (stepId: string) =>
     setSteps((prev) =>
@@ -221,7 +208,7 @@ export default function WorkoutTypeEditorScreen() {
       type != null
         ? (async () => {
             await updateWorkoutType(type.id, {
-              key: trimmedKey,
+              key: derivedKey,
               label: trimmedName,
               tone,
               icon,
@@ -229,7 +216,7 @@ export default function WorkoutTypeEditorScreen() {
             await replaceWorkoutTypeSteps(type.id, stepInputs);
           })()
         : createWorkoutType({
-            key: trimmedKey,
+            key: derivedKey,
             label: trimmedName,
             tone,
             icon,
@@ -245,7 +232,7 @@ export default function WorkoutTypeEditorScreen() {
         );
         setSaving(false);
       });
-  }, [valid, saving, type, trimmedKey, trimmedName, tone, icon, steps, router]);
+  }, [valid, saving, type, derivedKey, trimmedName, tone, icon, steps, router]);
 
   const handleDelete = useCallback(() => {
     if (!type || saving) return;
@@ -321,7 +308,7 @@ export default function WorkoutTypeEditorScreen() {
           }
         />
 
-        {/* NAME + KEY */}
+        {/* NAME */}
         <Section label="name" marginTop={12}>
           <View style={styles.textRow}>
             <TextInput
@@ -332,26 +319,9 @@ export default function WorkoutTypeEditorScreen() {
               style={styles.textInput}
             />
           </View>
-        </Section>
-
-        <Section label="key" sub="kebab-case · unique">
-          <View style={styles.textRow}>
-            <TextInput
-              value={key}
-              onChangeText={(t) => {
-                setKeyTouched(true);
-                setKey(t.slice(0, KEY_MAX));
-              }}
-              autoCapitalize="none"
-              autoCorrect={false}
-              placeholder="marathon-prep"
-              placeholderTextColor={tokens.ink4}
-              style={[styles.textInput, { fontFamily: fonts.mono }]}
-            />
-          </View>
           {keyConflict && (
             <Text style={styles.errorText}>
-              key already in use by another type
+              a type with that name already exists
             </Text>
           )}
         </Section>
@@ -427,7 +397,6 @@ export default function WorkoutTypeEditorScreen() {
             {steps.map((s, idx) => (
               <StepRow
                 key={s.tempId}
-                index={idx}
                 total={steps.length}
                 step={s}
                 pickerOpen={pickerStepId === s.tempId}
@@ -439,8 +408,6 @@ export default function WorkoutTypeEditorScreen() {
                 onTogglePicker={() => togglePicker(s.tempId)}
                 onSearchChange={setPickerSearch}
                 onSelectActivity={(key) => onSelectActivity(s.tempId, key)}
-                onMoveUp={() => moveStep(s.tempId, -1)}
-                onMoveDown={() => moveStep(s.tempId, 1)}
                 onDelete={() => deleteStep(s.tempId)}
               />
             ))}
@@ -518,7 +485,6 @@ function Section({
 // with a search input and the full HK activity catalog.
 // ─────────────────────────────────────────────────────────────────────────────
 function StepRow({
-  index,
   total,
   step,
   pickerOpen,
@@ -528,11 +494,8 @@ function StepRow({
   onTogglePicker,
   onSearchChange,
   onSelectActivity,
-  onMoveUp,
-  onMoveDown,
   onDelete,
 }: {
-  index: number;
   total: number;
   step: StepDraft;
   pickerOpen: boolean;
@@ -542,96 +505,76 @@ function StepRow({
   onTogglePicker: () => void;
   onSearchChange: (s: string) => void;
   onSelectActivity: (key: string) => void;
-  onMoveUp: () => void;
-  onMoveDown: () => void;
   onDelete: () => void;
 }) {
   const decrement = () =>
     onChangeDuration(Math.max(DURATION_MIN, step.durationMin - DURATION_STEP));
   const increment = () =>
     onChangeDuration(Math.min(DURATION_MAX, step.durationMin + DURATION_STEP));
+  const canDelete = total > 1;
   return (
     <View style={styles.stepRow}>
-      <View style={styles.stepHeadRow}>
-        <Text style={[styles.stepIdx, textStyles.tnum]}>{index + 1}</Text>
-        <View style={styles.stepBody}>
+      <Pressable
+        onPress={onTogglePicker}
+        accessibilityRole="button"
+        accessibilityLabel="Pick activity"
+        style={({ pressed }) => [
+          styles.activityBtn,
+          pickerOpen && styles.activityBtnOpen,
+          pressed && { opacity: 0.7 },
+        ]}>
+        <Text
+          numberOfLines={1}
+          style={[
+            styles.activityLabel,
+            pickerOpen && { color: tokens.bg },
+          ]}>
+          {fallbackLabelForHkActivity(step.hkActivityKey).toLowerCase()}
+        </Text>
+        <Glyph name="chev" color={pickerOpen ? tokens.bg : tokens.ink3} />
+      </Pressable>
+
+      <View style={styles.stepFootRow}>
+        <View style={styles.durRow}>
           <Pressable
-            onPress={onTogglePicker}
-            accessibilityRole="button"
-            accessibilityLabel={`Pick activity for step ${index + 1}`}
+            onPress={decrement}
+            disabled={step.durationMin <= DURATION_MIN}
+            hitSlop={6}
             style={({ pressed }) => [
-              styles.activityBtn,
-              pickerOpen && styles.activityBtnOpen,
-              pressed && { opacity: 0.7 },
-            ]}>
-            <Text
-              numberOfLines={1}
-              style={[
-                styles.activityLabel,
-                pickerOpen && { color: tokens.bg },
-              ]}>
-              {fallbackLabelForHkActivity(step.hkActivityKey).toLowerCase()}
-            </Text>
-            <Glyph name="chev" color={pickerOpen ? tokens.bg : tokens.ink3} />
-          </Pressable>
-          <View style={styles.durRow}>
-            <Pressable
-              onPress={decrement}
-              disabled={step.durationMin <= DURATION_MIN}
-              hitSlop={4}
-              style={({ pressed }) => [
-                styles.durStepBtn,
-                step.durationMin <= DURATION_MIN && { opacity: 0.35 },
-                pressed && { opacity: 0.6 },
-              ]}>
-              <Text style={styles.durStepLabel}>−</Text>
-            </Pressable>
-            <Text style={[styles.durValue, textStyles.tnum]}>
-              {step.durationMin}m
-            </Text>
-            <Pressable
-              onPress={increment}
-              disabled={step.durationMin >= DURATION_MAX}
-              hitSlop={4}
-              style={({ pressed }) => [
-                styles.durStepBtn,
-                step.durationMin >= DURATION_MAX && { opacity: 0.35 },
-                pressed && { opacity: 0.6 },
-              ]}>
-              <Text style={styles.durStepLabel}>+</Text>
-            </Pressable>
-          </View>
-        </View>
-        <View style={styles.stepCtrls}>
-          <ArrowBtn
-            dir="up"
-            disabled={index === 0}
-            onPress={onMoveUp}
-          />
-          <ArrowBtn
-            dir="down"
-            disabled={index === total - 1}
-            onPress={onMoveDown}
-          />
-          <Pressable
-            onPress={onDelete}
-            disabled={total <= 1}
-            hitSlop={4}
-            style={({ pressed }) => [
-              styles.delBtn,
-              total <= 1 && { opacity: 0.35 },
+              styles.durStepBtn,
+              step.durationMin <= DURATION_MIN && { opacity: 0.35 },
               pressed && { opacity: 0.6 },
             ]}>
-            <Svg width={10} height={10} viewBox="0 0 12 12">
-              <Path
-                d="M2.5 2.5l7 7M9.5 2.5l-7 7"
-                stroke={tokens.ink3}
-                strokeWidth={1.6}
-                strokeLinecap="round"
-              />
-            </Svg>
+            <Text style={styles.durStepLabel}>−</Text>
+          </Pressable>
+          <Text style={[styles.durValue, textStyles.tnum]}>
+            {step.durationMin}m
+          </Text>
+          <Pressable
+            onPress={increment}
+            disabled={step.durationMin >= DURATION_MAX}
+            hitSlop={6}
+            style={({ pressed }) => [
+              styles.durStepBtn,
+              step.durationMin >= DURATION_MAX && { opacity: 0.35 },
+              pressed && { opacity: 0.6 },
+            ]}>
+            <Text style={styles.durStepLabel}>+</Text>
           </Pressable>
         </View>
+        <Pressable
+          onPress={onDelete}
+          disabled={!canDelete}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel="Remove step"
+          style={({ pressed }) => [
+            styles.delLink,
+            !canDelete && { opacity: 0.3 },
+            pressed && canDelete && { opacity: 0.55 },
+          ]}>
+          <Text style={[styles.delLinkText, textStyles.cap]}>remove</Text>
+        </Pressable>
       </View>
 
       {pickerOpen && (
@@ -681,30 +624,6 @@ function StepRow({
   );
 }
 
-function ArrowBtn({
-  dir,
-  disabled,
-  onPress,
-}: {
-  dir: 'up' | 'down';
-  disabled?: boolean;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      disabled={disabled}
-      hitSlop={4}
-      style={({ pressed }) => [
-        styles.arrowBtn,
-        disabled && { opacity: 0.35 },
-        pressed && !disabled && { opacity: 0.6 },
-      ]}>
-      <Glyph name={dir === 'up' ? 'arrUp' : 'arrDn'} color={tokens.ink3} size={9} />
-    </Pressable>
-  );
-}
-
 // ─── Styles ────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
@@ -714,39 +633,39 @@ const styles = StyleSheet.create({
   },
 
   saveBtn: {
-    paddingVertical: 6,
-    paddingHorizontal: 14,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
     borderRadius: 8,
     backgroundColor: tokens.ink,
   },
   saveBtnText: {
     fontFamily: fonts.monoSemibold,
-    fontSize: 10,
+    fontSize: 12,
     color: tokens.bg,
-    letterSpacing: 1.6,
+    letterSpacing: 1.92,
   },
 
   sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'baseline',
-    marginBottom: 8,
+    marginBottom: 10,
     gap: 12,
   },
   sectionLabel: {
     fontFamily: fonts.mono,
-    fontSize: 9,
+    fontSize: 11,
     color: tokens.ink4,
-    letterSpacing: 1.98,
+    letterSpacing: 2.2,
   },
   sectionSub: {
     flex: 1,
     fontFamily: fonts.mono,
-    fontSize: 9,
+    fontSize: 11,
     color: tokens.ink3,
     fontStyle: 'italic',
     textAlign: 'right',
-    letterSpacing: 0.36,
+    letterSpacing: 0.4,
   },
 
   textRow: {
@@ -754,23 +673,23 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: tokens.line,
     borderRadius: 12,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
   },
   textInput: {
     fontFamily: fonts.sans,
-    fontSize: 14,
+    fontSize: 16,
     color: tokens.ink,
-    letterSpacing: -0.14,
+    letterSpacing: -0.16,
     paddingVertical: 0,
   },
   errorText: {
     marginTop: 6,
     fontFamily: fonts.mono,
-    fontSize: 9.5,
+    fontSize: 12,
     color: tokens.warn,
     fontStyle: 'italic',
-    letterSpacing: 0.38,
+    letterSpacing: 0.48,
   },
 
   // Tone + icon chips
@@ -780,7 +699,7 @@ const styles = StyleSheet.create({
   },
   chip: {
     flex: 1,
-    paddingVertical: 9,
+    paddingVertical: 11,
     paddingHorizontal: 8,
     borderRadius: 10,
     backgroundColor: tokens.bg2,
@@ -797,13 +716,13 @@ const styles = StyleSheet.create({
   },
   chipLabel: {
     fontFamily: fonts.monoSemibold,
-    fontSize: 10,
+    fontSize: 12,
     color: tokens.ink,
-    letterSpacing: 0.4,
+    letterSpacing: 0.48,
   },
   toneSwatch: {
-    width: 10,
-    height: 10,
+    width: 12,
+    height: 12,
     borderRadius: 999,
   },
 
@@ -813,14 +732,14 @@ const styles = StyleSheet.create({
   },
   iconTile: {
     flex: 1,
-    paddingVertical: 12,
+    paddingVertical: 14,
     paddingHorizontal: 6,
     borderRadius: 12,
     backgroundColor: tokens.bg2,
     borderWidth: 1,
     borderColor: tokens.line,
     alignItems: 'center',
-    gap: 6,
+    gap: 7,
   },
   iconTileActive: {
     backgroundColor: tokens.ink,
@@ -828,119 +747,86 @@ const styles = StyleSheet.create({
   },
   iconLabel: {
     fontFamily: fonts.monoSemibold,
-    fontSize: 9.5,
+    fontSize: 12,
     color: tokens.ink,
-    letterSpacing: 0.38,
+    letterSpacing: 0.48,
   },
 
   // Steps
   stepList: {
-    gap: 6,
+    gap: 8,
   },
   stepRow: {
     backgroundColor: tokens.card,
-    borderWidth: 1,
-    borderColor: tokens.line,
-    borderRadius: 12,
-    paddingVertical: 10,
-    paddingHorizontal: 10,
-  },
-  stepHeadRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  stepIdx: {
-    width: 14,
-    textAlign: 'center',
-    fontFamily: fonts.monoSemibold,
-    fontSize: 10,
-    color: tokens.ink4,
-  },
-  stepBody: {
-    flex: 1,
-    minWidth: 0,
-    gap: 6,
+    borderRadius: 14,
+    paddingTop: 14,
+    paddingBottom: 12,
+    paddingHorizontal: 14,
+    gap: 12,
   },
   activityBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: tokens.bg2,
-    borderWidth: 1,
-    borderColor: tokens.line,
-    borderRadius: 8,
-    paddingVertical: 7,
-    paddingHorizontal: 10,
+    borderRadius: 10,
+    paddingVertical: 11,
+    paddingHorizontal: 14,
     gap: 6,
   },
   activityBtnOpen: {
     backgroundColor: tokens.ink,
-    borderColor: tokens.ink,
   },
   activityLabel: {
     flex: 1,
-    fontFamily: fonts.mono,
-    fontSize: 11,
+    fontFamily: fonts.sansMedium,
+    fontSize: 14,
     color: tokens.ink,
-    letterSpacing: 0.22,
+    letterSpacing: -0.07,
+  },
+  stepFootRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   durRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 12,
   },
   durStepBtn: {
-    width: 24,
-    height: 24,
-    borderRadius: 6,
+    width: 30,
+    height: 30,
+    borderRadius: 999,
     backgroundColor: tokens.bg2,
-    borderWidth: 1,
-    borderColor: tokens.line,
     alignItems: 'center',
     justifyContent: 'center',
   },
   durStepLabel: {
     fontFamily: fonts.monoSemibold,
-    fontSize: 13,
+    fontSize: 16,
     color: tokens.ink,
   },
   durValue: {
-    minWidth: 38,
+    minWidth: 48,
     textAlign: 'center',
     fontFamily: fonts.monoSemibold,
-    fontSize: 12,
+    fontSize: 14,
     color: tokens.ink,
-    letterSpacing: -0.06,
+    letterSpacing: -0.07,
   },
-  stepCtrls: {
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 4,
+  delLink: {
+    paddingVertical: 6,
+    paddingHorizontal: 10,
   },
-  arrowBtn: {
-    width: 22,
-    height: 18,
-    borderRadius: 5,
-    backgroundColor: tokens.bg2,
-    borderWidth: 1,
-    borderColor: tokens.line,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  delBtn: {
-    width: 22,
-    height: 22,
-    borderRadius: 999,
-    backgroundColor: tokens.bg2,
-    borderWidth: 1,
-    borderColor: tokens.line,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 2,
+  delLinkText: {
+    fontFamily: fonts.monoSemibold,
+    fontSize: 11,
+    color: tokens.ink4,
+    letterSpacing: 1.76,
   },
   addStepBtn: {
-    marginTop: 8,
-    paddingVertical: 9,
+    marginTop: 10,
+    paddingVertical: 11,
     paddingHorizontal: 12,
     borderRadius: 10,
     borderWidth: 1,
@@ -949,19 +835,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
+    gap: 7,
   },
   addStepText: {
     fontFamily: fonts.monoSemibold,
-    fontSize: 9.5,
+    fontSize: 12,
     color: tokens.ink3,
-    letterSpacing: 1.71,
+    letterSpacing: 1.92,
   },
 
   // Inline picker
   inlinePicker: {
-    marginTop: 10,
-    paddingTop: 10,
+    marginTop: 12,
+    paddingTop: 12,
     borderTopWidth: 1,
     borderTopColor: tokens.line,
   },
@@ -970,23 +856,23 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: tokens.line,
     borderRadius: 8,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    marginBottom: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    marginBottom: 10,
   },
   searchInput: {
     fontFamily: fonts.mono,
-    fontSize: 12,
+    fontSize: 14,
     color: tokens.ink,
     paddingVertical: 0,
   },
   searchEmpty: {
     fontFamily: fonts.mono,
-    fontSize: 10,
+    fontSize: 12,
     color: tokens.ink4,
     fontStyle: 'italic',
     textAlign: 'center',
-    paddingVertical: 14,
+    paddingVertical: 16,
   },
   pickerGrid: {
     flexDirection: 'row',
@@ -996,7 +882,7 @@ const styles = StyleSheet.create({
   pickerChip: {
     flexGrow: 1,
     flexBasis: '48%',
-    paddingVertical: 9,
+    paddingVertical: 11,
     paddingHorizontal: 10,
     borderRadius: 8,
     backgroundColor: tokens.bg2,
@@ -1010,28 +896,28 @@ const styles = StyleSheet.create({
   },
   pickerChipLabel: {
     fontFamily: fonts.mono,
-    fontSize: 10.5,
+    fontSize: 13,
     color: tokens.ink,
-    letterSpacing: 0.21,
+    letterSpacing: 0.26,
     textTransform: 'lowercase',
   },
 
   deleteBtn: {
     marginTop: 28,
     alignSelf: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 20,
+    paddingVertical: 12,
+    paddingHorizontal: 22,
   },
   deleteText: {
     fontFamily: fonts.monoSemibold,
-    fontSize: 10,
+    fontSize: 12,
     color: tokens.accentInk,
-    letterSpacing: 1.6,
+    letterSpacing: 1.92,
   },
   bottomHint: {
     marginTop: 16,
     fontFamily: fonts.mono,
-    fontSize: 9.5,
+    fontSize: 12,
     color: tokens.ink4,
     fontStyle: 'italic',
     textAlign: 'center',
