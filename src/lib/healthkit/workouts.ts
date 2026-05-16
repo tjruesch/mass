@@ -36,6 +36,7 @@ import { hkActivityKeyForValue, hkActivityValueForKey } from '@/src/lib/workouts
 
 import { getHkAuthState, type HkPermissionRequest } from './auth';
 import { syncWorkoutType, type SyncQuantityResult } from './sync';
+import { quantityToKcal, quantityToMeters } from './units';
 
 const WORKOUT_TYPE_IDENTIFIER = 'HKWorkoutTypeIdentifier' as const;
 
@@ -77,11 +78,11 @@ export async function syncWorkoutsFromHealthKit(): Promise<SyncQuantityResult> {
   return syncWorkoutType({
     since,
     onWorkout: async (workout, tx) => {
-      // HK reports totals as Quantity { unit, quantity }. We assume the
-      // default units (kcal for energy, m for distance) — Apple Health
-      // exposes them in those by default. Refine when locale issues arise.
-      const kcal = workout.totalEnergyBurned?.quantity ?? null;
-      const distanceM = workout.totalDistance?.quantity ?? null;
+      // HK reports each total in the user's Health-app locale (kcal vs
+      // kJ, m vs mi vs km). Normalise to canonical kcal + m before
+      // persisting; unknown units → null + console warn (see #74).
+      const kcal = quantityToKcal(workout.totalEnergyBurned);
+      const distanceM = quantityToMeters(workout.totalDistance);
       await addWorkoutEntry(
         {
           startedAt: workout.startDate,

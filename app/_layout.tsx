@@ -25,7 +25,10 @@ import { getPreferences as getWaterPreferences } from '@/src/db/queries/water-pr
 import { getPreferences as getWeightPreferences } from '@/src/db/queries/weight-preferences';
 import { getPreferences as getWorkoutPreferences } from '@/src/db/queries/workout-preferences';
 import { seedBuiltinWorkoutTypes } from '@/src/db/queries/workout-types';
-import { backfillLegacyActivityKeys } from '@/src/db/queries/workouts';
+import {
+  backfillLegacyActivityKeys,
+  resetWorkoutsCursorForUnitsFix,
+} from '@/src/db/queries/workouts';
 import { useWeightAutoSync } from '@/src/hooks/use-weight-sync';
 import { useWorkoutAutoSync } from '@/src/hooks/use-workout-sync';
 import { tokens } from '@/theme/tokens';
@@ -70,6 +73,9 @@ export default function RootLayout() {
     });
     backfillLegacyActivityKeys().catch((err) => {
       console.warn('Failed to backfill legacy activity keys:', err);
+    });
+    resetWorkoutsCursorForUnitsFix().catch((err) => {
+      console.warn('Failed to reset workouts cursor for units fix:', err);
     });
   }, [migrationsReady]);
 

@@ -10,6 +10,7 @@ import { and, desc, eq, gte, like, lt } from 'drizzle-orm';
 
 import { db, type DbClient } from '@/src/db';
 import {
+  hkSyncCursor,
   workoutEntries,
   type NewWorkoutEntry,
   type WorkoutEntry,
@@ -132,6 +133,45 @@ export async function listInRange(start: Date, end: Date): Promise<WorkoutEntry[
     .from(workoutEntries)
     .where(and(gte(workoutEntries.startedAt, start), lt(workoutEntries.startedAt, end)))
     .orderBy(desc(workoutEntries.startedAt));
+}
+
+/** Sentinel cursor key indicating the units-normalisation reset has run. */
+const UNITS_NORMALIZED_MARKER = 'workouts_units_normalized_v1';
+
+/**
+ * One-shot reset of the workouts HK cursor so the next sync re-pulls
+ * every sample and upserts with corrected canonical units. Slice 4
+ * persisted `quantity.quantity` directly under the assumption that HK
+ * always emits kcal + meters; on a non-US Health locale (kJ + km/mi)
+ * those values are wrong (#74).
+ *
+ * The fix's pull-path now normalises via `quantityToKcal` /
+ * `quantityToMeters` so all *new* writes are correct. To fix the rows
+ * already on disk we just clear the anchor — the next sync re-fetches
+ * everything since the initial 2-year bound, and `addWorkoutEntry`'s
+ * ON CONFLICT (healthkit_uuid) DO UPDATE clause overwrites the bad
+ * kcal/distanceM with the new canonical values.
+ *
+ * Sentinel pattern: a row in `hk_sync_cursor` keyed by
+ * `workouts_units_normalized_v1` indicates the reset already ran.
+ * Idempotent: a second boot finds the marker and no-ops.
+ */
+export async function resetWorkoutsCursorForUnitsFix(): Promise<boolean> {
+  const marker = await db
+    .select({ type: hkSyncCursor.type })
+    .from(hkSyncCursor)
+    .where(eq(hkSyncCursor.type, UNITS_NORMALIZED_MARKER))
+    .limit(1);
+  if (marker.length > 0) return false;
+  await db.transaction(async (tx) => {
+    await tx.delete(hkSyncCursor).where(eq(hkSyncCursor.type, 'workouts'));
+    await tx.insert(hkSyncCursor).values({
+      type: UNITS_NORMALIZED_MARKER,
+      lastAnchor: null,
+      lastSyncedAt: new Date(),
+    });
+  });
+  return true;
 }
 
 /**
