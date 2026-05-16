@@ -31,6 +31,16 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import Animated, {
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  type SharedValue,
+} from 'react-native-reanimated';
+import Svg, { Circle } from 'react-native-svg';
+
 import { Glyph, SubHeader } from '@/components/design';
 import { WorkoutGlyph, toneColor } from '@/components/design/plan-day-drawer';
 import {
@@ -68,6 +78,14 @@ const DURATION_STEP = 5;
 const DURATION_MIN = 5;
 const DURATION_MAX = 180;
 const NAME_MAX = 32;
+
+/**
+ * Approximate height of a collapsed step row including the inter-row gap.
+ * Used by the drag-reorder math to compute how many slots a drag has
+ * crossed. Doesn't need to be exact — `Math.round` rounds away small
+ * mismatches, and rows snap into place on release.
+ */
+const ROW_HEIGHT = 116;
 
 type StepDraft = {
   /** Stable client id for keying + reorder. */
@@ -192,6 +210,31 @@ export default function WorkoutTypeEditorScreen() {
     setPickerStepId(null);
     setPickerSearch('');
   };
+
+  // ─── Drag reorder ────────────────────────────────────────────────────────
+  // Hand-rolled with Reanimated worklets — no extra dep, no nested
+  // scrollable conflict with the page's outer ScrollView.
+  //
+  // Per-frame state lives in two shared values: which row index is being
+  // dragged (-1 when idle) and how far the finger has moved. Each row's
+  // `useAnimatedStyle` derives its own transform from those two values:
+  // the active row tracks the finger; other rows shift by ROW_HEIGHT
+  // when the active row crosses their position.
+  const draggingIndex = useSharedValue<number>(-1);
+  const dragTranslateY = useSharedValue<number>(0);
+
+  const commitReorder = useCallback((from: number, to: number) => {
+    if (from === to) return;
+    setSteps((prev) => {
+      if (from < 0 || from >= prev.length) return prev;
+      const clamped = Math.max(0, Math.min(prev.length - 1, to));
+      if (from === clamped) return prev;
+      const copy = [...prev];
+      const [moved] = copy.splice(from, 1);
+      copy.splice(clamped, 0, moved);
+      return copy;
+    });
+  }, []);
 
   // ─── Save / Delete ───────────────────────────────────────────────────────
 
@@ -397,6 +440,7 @@ export default function WorkoutTypeEditorScreen() {
             {steps.map((s, idx) => (
               <StepRow
                 key={s.tempId}
+                index={idx}
                 total={steps.length}
                 step={s}
                 pickerOpen={pickerStepId === s.tempId}
@@ -404,11 +448,14 @@ export default function WorkoutTypeEditorScreen() {
                 filteredActivities={
                   pickerStepId === s.tempId ? filteredActivities : []
                 }
+                draggingIndex={draggingIndex}
+                dragTranslateY={dragTranslateY}
                 onChangeDuration={(d) => updateStep(s.tempId, { durationMin: d })}
                 onTogglePicker={() => togglePicker(s.tempId)}
                 onSearchChange={setPickerSearch}
                 onSelectActivity={(key) => onSelectActivity(s.tempId, key)}
                 onDelete={() => deleteStep(s.tempId)}
+                onCommitReorder={commitReorder}
               />
             ))}
           </View>
@@ -485,54 +532,143 @@ function Section({
 // with a search input and the full HK activity catalog.
 // ─────────────────────────────────────────────────────────────────────────────
 function StepRow({
+  index,
   total,
   step,
   pickerOpen,
   searchValue,
   filteredActivities,
+  draggingIndex,
+  dragTranslateY,
   onChangeDuration,
   onTogglePicker,
   onSearchChange,
   onSelectActivity,
   onDelete,
+  onCommitReorder,
 }: {
+  index: number;
   total: number;
   step: StepDraft;
   pickerOpen: boolean;
   searchValue: string;
   filteredActivities: ReadonlyArray<string>;
+  draggingIndex: SharedValue<number>;
+  dragTranslateY: SharedValue<number>;
   onChangeDuration: (d: number) => void;
   onTogglePicker: () => void;
   onSearchChange: (s: string) => void;
   onSelectActivity: (key: string) => void;
   onDelete: () => void;
+  onCommitReorder: (from: number, to: number) => void;
 }) {
   const decrement = () =>
     onChangeDuration(Math.max(DURATION_MIN, step.durationMin - DURATION_STEP));
   const increment = () =>
     onChangeDuration(Math.min(DURATION_MAX, step.durationMin + DURATION_STEP));
   const canDelete = total > 1;
+  const canDrag = total > 1 && !pickerOpen;
+
+  /**
+   * Row's animated transform. Two cases:
+   *  - This row IS the active drag → translate by the finger delta + lift
+   *    visually (scale + elevated z-index so it floats over neighbours).
+   *  - Another row IS active → if the active row has crossed this row's
+   *    position, shift this row up/down by ROW_HEIGHT to make room.
+   *
+   * Runs on the UI thread (worklet) so it doesn't bounce through JS on
+   * every frame.
+   */
+  const animatedStyle = useAnimatedStyle(() => {
+    const from = draggingIndex.value;
+    if (from === index) {
+      return {
+        transform: [{ translateY: dragTranslateY.value }, { scale: 1.02 }],
+        zIndex: 10,
+        elevation: 6,
+        shadowOpacity: 0.18,
+      };
+    }
+    if (from < 0) {
+      return { transform: [{ translateY: 0 }], zIndex: 1 };
+    }
+    // Number of slots the active row has displaced.
+    const shifted = Math.round(dragTranslateY.value / ROW_HEIGHT);
+    if (shifted > 0 && index > from && index <= from + shifted) {
+      return { transform: [{ translateY: -ROW_HEIGHT }], zIndex: 1 };
+    }
+    if (shifted < 0 && index < from && index >= from + shifted) {
+      return { transform: [{ translateY: ROW_HEIGHT }], zIndex: 1 };
+    }
+    return { transform: [{ translateY: 0 }], zIndex: 1 };
+  });
+
+  const pan = useMemo(
+    () =>
+      Gesture.Pan()
+        .enabled(canDrag)
+        .activateAfterLongPress(220)
+        .onStart(() => {
+          draggingIndex.value = index;
+          dragTranslateY.value = 0;
+        })
+        .onUpdate((e) => {
+          dragTranslateY.value = e.translationY;
+        })
+        .onEnd(() => {
+          const shifted = Math.round(dragTranslateY.value / ROW_HEIGHT);
+          const target = index + shifted;
+          // Reset visuals first so the new order doesn't render with a
+          // stale offset still applied to the moved row.
+          draggingIndex.value = -1;
+          dragTranslateY.value = withSpring(0, { damping: 22, stiffness: 220 });
+          if (shifted !== 0) runOnJS(onCommitReorder)(index, target);
+        })
+        .onFinalize(() => {
+          // Covers the cancellation case (interrupted gesture, app blur).
+          if (draggingIndex.value === index) {
+            draggingIndex.value = -1;
+            dragTranslateY.value = 0;
+          }
+        }),
+    // index changes on reorder; the gesture needs to know its current row.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [index, canDrag, onCommitReorder],
+  );
+
   return (
-    <View style={styles.stepRow}>
-      <Pressable
-        onPress={onTogglePicker}
-        accessibilityRole="button"
-        accessibilityLabel="Pick activity"
-        style={({ pressed }) => [
-          styles.activityBtn,
-          pickerOpen && styles.activityBtnOpen,
-          pressed && { opacity: 0.7 },
-        ]}>
-        <Text
-          numberOfLines={1}
-          style={[
-            styles.activityLabel,
-            pickerOpen && { color: tokens.bg },
+    <Animated.View style={[styles.stepRow, animatedStyle]}>
+      <View style={styles.stepHeadRow}>
+        <GestureDetector gesture={pan}>
+          <View
+            accessibilityLabel="Drag to reorder"
+            style={[
+              styles.dragHandle,
+              !canDrag && { opacity: 0.25 },
+            ]}>
+            <DragGripIcon />
+          </View>
+        </GestureDetector>
+        <Pressable
+          onPress={onTogglePicker}
+          accessibilityRole="button"
+          accessibilityLabel="Pick activity"
+          style={({ pressed }) => [
+            styles.activityBtn,
+            pickerOpen && styles.activityBtnOpen,
+            pressed && { opacity: 0.7 },
           ]}>
-          {fallbackLabelForHkActivity(step.hkActivityKey).toLowerCase()}
-        </Text>
-        <Glyph name="chev" color={pickerOpen ? tokens.bg : tokens.ink3} />
-      </Pressable>
+          <Text
+            numberOfLines={1}
+            style={[
+              styles.activityLabel,
+              pickerOpen && { color: tokens.bg },
+            ]}>
+            {fallbackLabelForHkActivity(step.hkActivityKey).toLowerCase()}
+          </Text>
+          <Glyph name="chev" color={pickerOpen ? tokens.bg : tokens.ink3} />
+        </Pressable>
+      </View>
 
       <View style={styles.stepFootRow}>
         <View style={styles.durRow}>
@@ -620,7 +756,24 @@ function StepRow({
           )}
         </View>
       )}
-    </View>
+    </Animated.View>
+  );
+}
+
+// ─── Drag grip icon — 6-dot vertical handle, classic reorder affordance. ─────
+function DragGripIcon() {
+  const dot = (cx: number, cy: number) => (
+    <Circle key={`${cx}-${cy}`} cx={cx} cy={cy} r={1.2} fill={tokens.ink4} />
+  );
+  return (
+    <Svg width={12} height={18} viewBox="0 0 12 18">
+      {dot(4, 4)}
+      {dot(8, 4)}
+      {dot(4, 9)}
+      {dot(8, 9)}
+      {dot(4, 14)}
+      {dot(8, 14)}
+    </Svg>
   );
 }
 
@@ -763,8 +916,26 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
     paddingHorizontal: 14,
     gap: 12,
+    // Shadow values that the animated style nudges up while dragging so
+    // the lifted card visually separates from neighbours.
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 8,
+    shadowOpacity: 0,
+  },
+  stepHeadRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  dragHandle: {
+    width: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 6,
   },
   activityBtn: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: tokens.bg2,
