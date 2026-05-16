@@ -566,25 +566,21 @@ function LibraryStrip({
         <Text style={[styles.kicker, textStyles.cap]}>
           your library · {meals.length} meal{meals.length === 1 ? '' : 's'}
         </Text>
-        <Pressable
-          onPress={onCreate}
-          accessibilityRole="button"
-          accessibilityLabel="Create new meal"
-          hitSlop={6}
-          style={({ pressed }) => [
-            styles.libraryNewLink,
-            pressed && { opacity: 0.55 },
-          ]}>
-          <Glyph name="plus" color={tokens.accentInk} size={11} />
-          <Text style={[styles.libraryNewLinkText, textStyles.cap]}>
-            new meal
-          </Text>
-        </Pressable>
       </View>
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.libraryScroll}>
+        <Pressable
+          onPress={onCreate}
+          accessibilityRole="button"
+          accessibilityLabel="New meal"
+          style={({ pressed }) => [
+            styles.libraryAddCard,
+            pressed && { opacity: 0.55 },
+          ]}>
+          <Glyph name="plus" color={tokens.ink3} size={14} />
+        </Pressable>
         {meals.map((m) => (
           <Pressable
             key={m.id}
@@ -604,16 +600,6 @@ function LibraryStrip({
             </Text>
           </Pressable>
         ))}
-        <Pressable
-          onPress={onCreate}
-          accessibilityRole="button"
-          accessibilityLabel="New meal"
-          style={({ pressed }) => [
-            styles.libraryAddCard,
-            pressed && { opacity: 0.55 },
-          ]}>
-          <Glyph name="plus" color={tokens.ink3} size={14} />
-        </Pressable>
       </ScrollView>
     </View>
   );
@@ -1108,25 +1094,8 @@ const styles = StyleSheet.create({
     paddingTop: 18,
   },
   libraryHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    // center, not baseline — the right-side CTA wraps a Pressable
-    // containing a Glyph (SVG, no text baseline) so the baseline
-    // align fell back to the View's bottom and dropped the row.
-    alignItems: 'center',
     paddingHorizontal: 22,
     marginBottom: 10,
-  },
-  libraryNewLink: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-  },
-  libraryNewLinkText: {
-    fontFamily: fonts.monoSemibold,
-    fontSize: 11,
-    color: tokens.accentInk,
-    letterSpacing: 2.2,
   },
   libraryScroll: {
     paddingHorizontal: 22,
