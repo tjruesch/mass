@@ -115,6 +115,7 @@ export default function RootLayout() {
           <Stack.Screen name="pantry/index" />
           <Stack.Screen name="pantry/[id]" />
           <Stack.Screen name="meals/index" />
+          <Stack.Screen name="meals/[id]" />
           <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal', headerShown: true }} />
         </Stack>
         <StatusBar style="auto" />

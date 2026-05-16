@@ -19,6 +19,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Glyph, MealLogDrawer, SubHeader, TabBar } from '@/components/design';
 import {
   MEAL_SLOTS,
+  useLibraryMeals,
   useRecentMeals,
   useTodayMeals,
   type MealSlot,
@@ -39,6 +40,7 @@ export default function MealsScreen() {
   const router = useRouter();
   const today = useTodayMeals();
   const recent = useRecentMeals(8);
+  const library = useLibraryMeals();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerSlot, setDrawerSlot] = useState<MealSlot | undefined>(undefined);
 
@@ -121,6 +123,14 @@ export default function MealsScreen() {
             ))}
           </View>
         </View>
+
+        {/* Library — reusable meals the user has saved. Tap a row → edit; */}
+        {/*           tap the dashed CTA → new-meal composer.                */}
+        <LibrarySection
+          meals={library}
+          onTapMeal={(id) => router.push(`/meals/${id}` as never)}
+          onCreate={() => router.push('/meals/new' as never)}
+        />
 
         {/* Recent meals */}
         <RecentMeals meals={recent} />
@@ -286,6 +296,73 @@ function SlotCard({
         <Text style={styles.slotKcalUnit}>kcal</Text>
       </View>
     </Pressable>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LibrarySection — reusable meals built via #87's composer. Carries
+// no eatenAt; tap a row to edit, tap the dashed CTA to create a new one.
+// ─────────────────────────────────────────────────────────────────────────────
+function LibrarySection({
+  meals,
+  onTapMeal,
+  onCreate,
+}: {
+  meals: ReadonlyArray<Meal>;
+  onTapMeal: (id: number) => void;
+  onCreate: () => void;
+}) {
+  return (
+    <View style={styles.recentOuter}>
+      <Text style={[styles.kicker, textStyles.cap, styles.sectionKicker]}>
+        library
+      </Text>
+      {meals.length === 0 ? (
+        <Text style={styles.recentEmptyText}>
+          no saved meals yet — build one for one-tap logging
+        </Text>
+      ) : (
+        <View style={styles.recentCard}>
+          {meals.map((m, i) => {
+            const isLast = i === meals.length - 1;
+            return (
+              <Pressable
+                key={m.id}
+                onPress={() => onTapMeal(m.id)}
+                accessibilityRole="button"
+                accessibilityLabel={`Edit ${m.name ?? 'Meal'}`}
+                style={({ pressed }) => [
+                  styles.recentRow,
+                  !isLast && styles.recentRowBorder,
+                  pressed && { opacity: 0.7 },
+                ]}>
+                <View style={styles.recentBody}>
+                  <Text numberOfLines={1} style={styles.recentName}>
+                    {m.name ?? 'Meal'}
+                  </Text>
+                </View>
+                <View style={styles.recentMetricsCol}>
+                  <Text style={[styles.recentKcal, textStyles.tnum]}>
+                    {Math.round(m.kcal ?? 0)}
+                  </Text>
+                  <Text style={styles.recentKcalUnit}>kcal</Text>
+                </View>
+                <Glyph name="chev" color={tokens.ink3} />
+              </Pressable>
+            );
+          })}
+        </View>
+      )}
+      <Pressable
+        onPress={onCreate}
+        style={({ pressed }) => [
+          styles.newMealBtn,
+          pressed && { opacity: 0.55 },
+        ]}>
+        <Glyph name="plus" color={tokens.ink3} size={11} />
+        <Text style={[styles.newMealBtnText, textStyles.cap]}>new meal</Text>
+      </Pressable>
+    </View>
   );
 }
 
@@ -637,5 +714,25 @@ const styles = StyleSheet.create({
     fontFamily: fonts.mono,
     fontSize: 11,
     color: tokens.ink4,
+  },
+
+  newMealBtn: {
+    marginTop: 10,
+    paddingVertical: 11,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: tokens.line2,
+    borderStyle: 'dashed',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+  },
+  newMealBtnText: {
+    fontFamily: fonts.monoSemibold,
+    fontSize: 12,
+    color: tokens.ink3,
+    letterSpacing: 1.92,
   },
 });

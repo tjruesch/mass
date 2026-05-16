@@ -98,7 +98,15 @@ export const pantryItems = sqliteTable('pantry_items', {
 // ─── Meals ────────────────────────────────────────────────────────────────────
 export const meals = sqliteTable('meals', {
   id: id(),
-  eatenAt: integer('eaten_at', { mode: 'timestamp_ms' }).notNull(),
+  /**
+   * When the meal was eaten. Null for *library* entries — reusable
+   * templates created via the new-meal composer (#87) that haven't
+   * been logged yet. Setting eatenAt converts the row into a logged
+   * meal (or, more commonly, the composer + log-drawer save separate
+   * rows: composer writes eatenAt=null, drawer writes a new row with
+   * eatenAt set and items copied).
+   */
+  eatenAt: integer('eaten_at', { mode: 'timestamp_ms' }),
   /** Free-form label like "Breakfast" or "Leftover thai". */
   name: text('name'),
   /** Roll-ups — kept here so trend queries don't have to sum line items. */
