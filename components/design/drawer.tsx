@@ -11,7 +11,13 @@ type DrawerProps = {
   onClose: () => void;
   /** Small caps eyebrow above the title (e.g. "FASTING"). Optional. */
   kicker?: string;
-  title: string;
+  /** Plain string title — wrapped in the canonical Text node. */
+  title?: string;
+  /**
+   * Rich title slot — pass a Text/View tree when the title needs inline
+   * accent runs ("Plan <span>Thursday</span>"). Mutually exclusive with `title`.
+   */
+  titleNode?: ReactNode;
   /**
    * Sticky CTA pinned at the bottom of the drawer (typically a PrimaryButton).
    * Sits above the bottom safe-area inset.
@@ -31,14 +37,18 @@ type DrawerProps = {
  * Animation comes from the shared `BottomSheet` primitive: the backdrop
  * fades while the sheet slides up (independent animations, iOS feel).
  */
-export function Drawer({ open, onClose, kicker, title, cta, children }: DrawerProps) {
+export function Drawer({ open, onClose, kicker, title, titleNode, cta, children }: DrawerProps) {
   return (
     <BottomSheet open={open} onClose={onClose} sheetStyle={styles.sheet}>
       <View style={styles.handle} />
       <View style={styles.header}>
         <View style={{ flex: 1 }}>
           {kicker && <Text style={[styles.kicker, textStyles.cap]}>{kicker}</Text>}
-          <Text style={styles.title}>{title}</Text>
+          {titleNode ? (
+            <Text style={styles.title}>{titleNode}</Text>
+          ) : (
+            <Text style={styles.title}>{title}</Text>
+          )}
         </View>
         <Pressable
           onPress={onClose}

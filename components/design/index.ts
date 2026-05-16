@@ -3,6 +3,7 @@ export { BottomSheet } from './bottom-sheet';
 export { DateTimeField } from './datetime-field';
 export { DateTimePickerSheet } from './datetime-picker-sheet';
 export { Drawer, DrawerSection } from './drawer';
+export { PlanDayDrawer, type PlanDayPatch } from './plan-day-drawer';
 export { Glyph, type GlyphName } from './glyph';
 export { Hair } from './hair';
 export { PrimaryButton } from './primary-button';
