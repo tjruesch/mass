@@ -39,11 +39,6 @@ function formatMacroG(g: number): string {
   return `${Math.round(g * 10) / 10}g`;
 }
 
-function formatSignedDeficit(d: number): string {
-  if (d > 0) return `−${d}`;
-  if (d < 0) return `+${Math.abs(d)}`;
-  return '0';
-}
 
 function greetingFor(d: Date): string {
   const h = d.getHours();
@@ -61,7 +56,6 @@ import { useMealPreferences } from '@/src/hooks/use-meal-preferences';
 import { useTodayMeals } from '@/src/hooks/use-meals';
 import { useWaterToday } from '@/src/hooks/use-water';
 import { useWaterPreferences } from '@/src/hooks/use-water-preferences';
-import { pace, type PaceState } from '@/src/lib/meal-budget';
 import { useNow } from '@/src/lib/use-now';
 import {
   FASTING_PHASES,
@@ -73,19 +67,6 @@ import {
   nowMinutes,
 } from '@/src/lib/time';
 import { fonts, textStyles, tokens } from '@/theme/tokens';
-
-// "On track" / "behind" / "over" label palette for the deficit footer
-// of the macros card. Same logic as the pill on /meals.
-const PACE_FOOTER_LABEL: Record<PaceState, string> = {
-  'on-pace': 'on track',
-  behind: 'behind',
-  over: 'over',
-};
-const PACE_FOOTER_COLOR: Record<PaceState, string> = {
-  'on-pace': tokens.cool,
-  behind: '#A07A2A',
-  over: tokens.warn,
-};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Hero rings — three concentric kcal/h2o/move arcs, no center label.
@@ -488,9 +469,14 @@ export default function HomeScreen() {
     0,
     mealPrefs.proteinTargetG - today.totalProteinG,
   );
-  const paceState = pace(consumedKcal, budgetKcal);
-  const deficitToShow = mealPrefs.deficitKcal;
   const tdeeToShow = mealPrefs.prefs?.tdeeKcal ?? 2400;
+  // Actual deficit = TDEE − consumed. Positive while cutting,
+  // negative on surplus. Label flips to "surplus" past zero; the
+  // number itself is always shown as a positive integer with the
+  // sign carried by the colour (green = on plan, red = over).
+  const actualDeficitKcal = tdeeToShow - consumedKcal;
+  const overBudget = consumedKcal > budgetKcal;
+  const deficitLabelText = actualDeficitKcal >= 0 ? 'deficit' : 'surplus';
 
   // Live move ring — active kcal from HK (Apple's red Move ring).
   // Returns null while HK auth is pending; the ring + legend
@@ -708,41 +694,29 @@ export default function HomeScreen() {
                   ))}
                 </View>
                 <View style={styles.macrosFooter}>
-                  <View
-                    style={{
-                      flexDirection: 'row',
-                      alignItems: 'baseline',
-                      gap: 6,
-                    }}>
-                    <Text style={[styles.deficitLabel, textStyles.cap]}>
-                      deficit
-                    </Text>
+                  <Text>
                     <Text
                       style={[
                         styles.deficitValue,
                         textStyles.tnum,
-                        { color: PACE_FOOTER_COLOR[paceState] },
+                        { color: overBudget ? tokens.warn : '#1F7A3A' },
                       ]}>
-                      {formatSignedDeficit(deficitToShow)}
+                      {Math.abs(Math.round(actualDeficitKcal))}
                     </Text>
-                    <Text style={styles.deficitNote}>
-                      {' · '}
-                      {PACE_FOOTER_LABEL[paceState]}
-                    </Text>
-                  </View>
-                  <View
-                    style={{
-                      flexDirection: 'row',
-                      alignItems: 'baseline',
-                      gap: 6,
-                    }}>
                     <Text style={[styles.deficitLabel, textStyles.cap]}>
-                      tdee
+                      {' '}
+                      {deficitLabelText}
                     </Text>
+                  </Text>
+                  <Text>
                     <Text style={[styles.tdeeValue, textStyles.tnum]}>
                       {tdeeToShow}
                     </Text>
-                  </View>
+                    <Text style={[styles.deficitLabel, textStyles.cap]}>
+                      {' '}
+                      tdee
+                    </Text>
+                  </Text>
                 </View>
               </View>
             </View>
@@ -1082,12 +1056,6 @@ const styles = StyleSheet.create({
     // Was a hardcoded green for "good" — switched to the palette's `cool`
     // teal so it reads positive without fighting the Mist · Petrol scheme.
     color: tokens.cool,
-  },
-  deficitNote: {
-    fontFamily: fonts.mono,
-    fontSize: 12,
-    color: tokens.ink4,
-    fontStyle: 'italic',
   },
   tdeeValue: {
     fontFamily: fonts.mono,
