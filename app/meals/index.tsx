@@ -144,6 +144,11 @@ export default function MealsScreen() {
 
   const remaining = Math.max(0, budgetKcal - today.totalKcal);
   const overBudget = today.totalKcal > budgetKcal;
+  // Actual deficit = TDEE − consumed. Positive when still cutting,
+  // negative on surplus. Goes red as soon as consumption crosses
+  // budget — at that point the actual deficit drops below the planned
+  // deficit and the day is no longer on plan.
+  const actualDeficitKcal = tdeeKcal - today.totalKcal;
   // Progress bar spans 0 → TDEE (not just 0 → budget) so the user
   // can see the planned-deficit zone painted at the right end.
   // `consumedPctOfTdee` drives the ink fill; `budgetPctOfTdee` marks
@@ -218,8 +223,13 @@ export default function MealsScreen() {
                 </Text>
               </View>
               <Text style={styles.heroDeficitInline}>
-                <Text style={[styles.heroDeficit, textStyles.tnum]}>
-                  {formatSignedKcal(mealPrefs.deficitKcal)}
+                <Text
+                  style={[
+                    styles.heroDeficit,
+                    textStyles.tnum,
+                    { color: overBudget ? tokens.warn : '#1F7A3A' },
+                  ]}>
+                  {formatSignedKcal(actualDeficitKcal)}
                 </Text>
                 <Text style={styles.heroDeficitLabel}> deficit</Text>
               </Text>
@@ -254,7 +264,7 @@ export default function MealsScreen() {
                 </Text>
                 <Text style={styles.heroSubMute}> of </Text>
                 <Text style={styles.heroSubStrong}>{budgetKcal}</Text>
-                <Text style={styles.heroSubMute}> · budget</Text>
+                <Text style={styles.heroSubMute}> budget</Text>
               </Text>
               <Text style={styles.heroSubRight}>
                 <Text style={styles.heroSubMute}>tdee </Text>
