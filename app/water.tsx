@@ -645,8 +645,10 @@ const styles = StyleSheet.create({
   },
 
   heroReadout: {
-    flex: 1,
-    minWidth: 0,
+    // No `flex: 1` — we want the readout to size to its content and the
+    // gap between it and the cylinder (via parent's space-between) to
+    // absorb the slack. With flex: 1 it auto-grew to consume any width
+    // freed by a slimmer cylinder, which negates the visual breathing room.
   },
 
   kicker: {
