@@ -193,6 +193,7 @@ export default function WorkoutsScreen() {
               <WorkoutGlyph
                 icon={todayType?.icon ?? 'rest'}
                 color={toneColor(todayType?.tone ?? 'mute')}
+                size={22}
               />
             </View>
             <View style={{ flex: 1, minWidth: 0 }}>
@@ -217,7 +218,7 @@ export default function WorkoutsScreen() {
                 styles.todayBtn,
                 pressed && { opacity: 0.65 },
               ]}>
-              <Glyph name="plus" color={tokens.accent} size={14} />
+              <Glyph name="plus" color={tokens.accent} size={16} />
               <Text style={styles.todayBtnText}>log</Text>
             </Pressable>
           </View>
@@ -411,7 +412,7 @@ function WeekdayCell({
           isToday && styles.weekIconToday,
           isPlanned && styles.weekIconPlanned,
         ]}>
-        <WorkoutGlyph icon={def?.icon ?? 'rest'} color={iconColor} />
+        <WorkoutGlyph icon={def?.icon ?? 'rest'} color={iconColor} size={18} />
       </View>
       <Text
         style={[
@@ -515,9 +516,9 @@ const styles = StyleSheet.create({
   },
   kicker: {
     fontFamily: fonts.mono,
-    fontSize: 9,
+    fontSize: 11,
     color: tokens.ink4,
-    letterSpacing: 1.98,
+    letterSpacing: 2.2,
   },
 
   // Hero card
@@ -528,9 +529,9 @@ const styles = StyleSheet.create({
   heroCard: {
     backgroundColor: tokens.card,
     borderRadius: 22,
-    paddingTop: 14,
-    paddingHorizontal: 16,
-    paddingBottom: 12,
+    paddingTop: 16,
+    paddingHorizontal: 18,
+    paddingBottom: 14,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 12 },
     shadowRadius: 24,
@@ -540,14 +541,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-end',
-    marginBottom: 12,
+    marginBottom: 14,
   },
   heroTitle: {
     fontFamily: fonts.sansSemibold,
-    fontSize: 18,
+    fontSize: 22,
     color: tokens.ink,
-    marginTop: 4,
-    letterSpacing: -0.27,
+    marginTop: 6,
+    letterSpacing: -0.33,
   },
   heroTitleMute: {
     color: tokens.ink4,
@@ -555,7 +556,7 @@ const styles = StyleSheet.create({
   },
   heroMeta: {
     fontFamily: fonts.mono,
-    fontSize: 10.5,
+    fontSize: 13,
     color: tokens.ink3,
   },
   heroMetaStrong: {
@@ -577,17 +578,17 @@ const styles = StyleSheet.create({
   },
   weekLabel: {
     fontFamily: fonts.mono,
-    fontSize: 8.5,
+    fontSize: 11,
     color: tokens.ink4,
-    letterSpacing: 1.87,
+    letterSpacing: 2.2,
   },
   weekLabelToday: {
     color: tokens.ink,
     fontFamily: fonts.monoSemibold,
   },
   weekIconWrap: {
-    width: 32,
-    height: 32,
+    width: 40,
+    height: 40,
     borderRadius: 999,
     alignItems: 'center',
     justifyContent: 'center',
@@ -603,8 +604,8 @@ const styles = StyleSheet.create({
   },
   weekType: {
     fontFamily: fonts.mono,
-    fontSize: 8.5,
-    letterSpacing: 0.85,
+    fontSize: 11,
+    letterSpacing: 0.55,
   },
   weekPip: {
     height: 8,
@@ -657,9 +658,9 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.02,
   },
   todayIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 12,
+    width: 56,
+    height: 56,
+    borderRadius: 14,
     backgroundColor: tokens.bg2,
     borderWidth: 1,
     borderColor: tokens.line,
@@ -668,20 +669,20 @@ const styles = StyleSheet.create({
   },
   todayTitle: {
     fontFamily: fonts.sansSemibold,
-    fontSize: 15,
+    fontSize: 18,
     color: tokens.ink,
-    letterSpacing: -0.15,
+    letterSpacing: -0.18,
   },
   todaySub: {
     fontFamily: fonts.mono,
-    fontSize: 10.5,
+    fontSize: 13,
     color: tokens.ink3,
-    marginTop: 4,
-    letterSpacing: 0.42,
+    marginTop: 5,
+    letterSpacing: 0.52,
   },
   todayBtn: {
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     borderRadius: 12,
     backgroundColor: tokens.ink,
     flexDirection: 'row',
@@ -694,9 +695,9 @@ const styles = StyleSheet.create({
   },
   todayBtnText: {
     fontFamily: fonts.monoSemibold,
-    fontSize: 10,
+    fontSize: 12,
     color: tokens.bg,
-    letterSpacing: 1.6,
+    letterSpacing: 1.92,
     textTransform: 'uppercase',
   },
 
