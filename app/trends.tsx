@@ -12,14 +12,24 @@
  * carries a temp `→ trends` link.
  */
 
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useRouter } from 'expo-router';
+import { useMemo } from 'react';
+import {
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 
-import { TabBar } from '@/components/design';
+import { Glyph, TabBar, WeightChart } from '@/components/design';
 import { useCombinedStreak } from '@/src/hooks/use-combined-streak';
 import {
   useFeatureStreaks,
   type FeatureStreakStat,
 } from '@/src/hooks/use-feature-streaks';
+import { useWeightHistory } from '@/src/hooks/use-weight';
+import { useWeightPreferences } from '@/src/hooks/use-weight-preferences';
 import { useNow } from '@/src/lib/use-now';
 import { fonts, textStyles, tokens } from '@/theme/tokens';
 
@@ -27,6 +37,10 @@ const WEEKDAY_FMT = new Intl.DateTimeFormat('en', { weekday: 'short' });
 const MONTH_FMT = new Intl.DateTimeFormat('en', { month: 'short' });
 const SINCE_FMT = new Intl.DateTimeFormat('en', {
   weekday: 'short',
+  day: '2-digit',
+  month: 'short',
+});
+const ETA_FMT = new Intl.DateTimeFormat('en', {
   day: '2-digit',
   month: 'short',
 });
@@ -80,14 +94,28 @@ function formatClockTime(d: Date): string {
   return `${h}:${m}`;
 }
 
+// Width of the weight chart inside its card. Card has 22 px outer +
+// 12 px inner padding × 2; matches the design source's 314-px inner.
+const WEIGHT_CARD_INNER_W = 346 - 22 * 2;
+const WEIGHT_CHART_W = WEIGHT_CARD_INNER_W - 12 * 2;
+const WEIGHT_CHART_H = 170;
+
 export default function TrendsScreen() {
+  const router = useRouter();
   // Once-a-minute tick keeps the dateline live across midnight without
   // a manual refresh, same cadence as the home greeting.
   const now = useNow(60_000);
   const combined = useCombinedStreak();
   const features = useFeatureStreaks();
+  const weightHistory = useWeightHistory({ days: 90 });
+  const weightPrefs = useWeightPreferences();
   // Last DOT_DAYS slice of the 90-day window for the row of dots.
   const dotWindow = combined.hitsPerDay.slice(-DOT_DAYS);
+
+  const weightSummary = useMemo(
+    () => buildWeightSummary(weightHistory, weightPrefs),
+    [weightHistory, weightPrefs],
+  );
 
   return (
     <View style={{ flex: 1, backgroundColor: tokens.bg }}>
@@ -192,12 +220,66 @@ export default function TrendsScreen() {
           <View style={styles.divider} />
         </View>
 
-        {/* Placeholder until #100-101 fill the remaining sections. */}
+        {/* ── Weight card ─────────────────────────────────────────── */}
+        <View style={styles.weightOuter}>
+          <View style={styles.weightHeader}>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={[styles.kicker, textStyles.cap]}>weight</Text>
+              <View style={styles.weightHeroRow}>
+                <Text style={[styles.weightHeroNumber, textStyles.tnum]}>
+                  {weightSummary.latestKgLabel}
+                </Text>
+                <Text style={styles.weightUnit}>kg</Text>
+                {weightSummary.delta !== null && (
+                  <Text
+                    style={[
+                      styles.weightDelta,
+                      textStyles.tnum,
+                      { color: weightSummary.deltaColor },
+                    ]}>
+                    {weightSummary.delta.arrow}{' '}
+                    {weightSummary.delta.absLabel} / 7d
+                  </Text>
+                )}
+              </View>
+              <Text style={styles.weightHint}>
+                {weightSummary.hint}
+              </Text>
+            </View>
+            <Pressable
+              onPress={() => router.push('/weight' as never)}
+              accessibilityRole="button"
+              accessibilityLabel="See full weight history"
+              hitSlop={6}
+              style={({ pressed }) => [
+                styles.seeAll,
+                pressed && { opacity: 0.55 },
+              ]}>
+              <Text style={[styles.seeAllText, textStyles.cap]}>see all</Text>
+              <Glyph name="chev" color={tokens.accentInk} />
+            </Pressable>
+          </View>
+          <View style={styles.weightCard}>
+            {weightPrefs ? (
+              <WeightChart
+                history={weightHistory.points}
+                prefs={weightPrefs}
+                width={WEIGHT_CHART_W}
+                height={WEIGHT_CHART_H}
+                range={{ mode: 'goal' }}
+              />
+            ) : (
+              <View style={styles.weightLoading}>
+                <Text style={styles.weightLoadingText}>loading…</Text>
+              </View>
+            )}
+          </View>
+        </View>
+
+        {/* Placeholder until #101 fills the deficit bars section. */}
         <View style={styles.placeholderOuter}>
           <Text style={[styles.kicker, textStyles.cap]}>coming next</Text>
-          <Text style={styles.placeholder}>
-            weight chart · 7d deficit bars
-          </Text>
+          <Text style={styles.placeholder}>7d deficit bars</Text>
         </View>
       </ScrollView>
 
@@ -257,6 +339,88 @@ function formatOne(n: number): string {
   if (!Number.isFinite(n)) return '0';
   if (n === 0) return '0';
   return (Math.round(n * 10) / 10).toFixed(1);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Weight summary — current kg, 7d MA delta + arrow + colour, hint.
+// Pulled out so the JSX above stays focused on layout.
+// ─────────────────────────────────────────────────────────────────────────────
+type WeightSummary = {
+  latestKgLabel: string;
+  delta: { arrow: string; absLabel: string } | null;
+  deltaColor: string;
+  hint: string;
+};
+
+function buildWeightSummary(
+  hist: ReturnType<typeof useWeightHistory>,
+  prefs: ReturnType<typeof useWeightPreferences>,
+): WeightSummary {
+  if (hist.latestKg === null) {
+    return {
+      latestKgLabel: '—',
+      delta: null,
+      deltaColor: tokens.ink3,
+      hint: 'no weigh-ins yet',
+    };
+  }
+
+  // Direction: a goal-direction-aware colour for the delta. Without a
+  // target we can't tell which way the user is trying to go, so the
+  // delta renders in neutral ink.
+  const cutting =
+    prefs?.targetKg !== undefined &&
+    prefs?.targetKg !== null &&
+    prefs.targetKg < hist.latestKg;
+  const bulking =
+    prefs?.targetKg !== undefined &&
+    prefs?.targetKg !== null &&
+    prefs.targetKg > hist.latestKg;
+
+  let delta: WeightSummary['delta'] = null;
+  let deltaColor: string = tokens.ink3;
+  if (hist.sevenDayDelta !== null) {
+    const v = hist.sevenDayDelta;
+    delta = {
+      arrow: v < 0 ? '▼' : v > 0 ? '▲' : '·',
+      absLabel: formatOne(Math.abs(v)),
+    };
+    if (cutting) deltaColor = v < 0 ? '#1F7A3A' : tokens.warn;
+    else if (bulking) deltaColor = v > 0 ? '#1F7A3A' : tokens.warn;
+  }
+
+  // Hint: ETA when we can project an MA → target intersect, otherwise
+  // a status string. Computed daily-velocity from sevenDayDelta keeps
+  // the math straightforward; signs are checked so a non-trending
+  // user doesn't get a goal-impossible ETA in the past.
+  let hint = 'tracking · keep logging';
+  if (prefs?.targetKg !== null && prefs?.targetKg !== undefined) {
+    if (hist.sevenDayDelta === null || hist.latestMa === null) {
+      hint = `goal ${formatOne(prefs.targetKg)} kg · need a week of data`;
+    } else {
+      const dailyVel = hist.sevenDayDelta / 7;
+      const remaining = prefs.targetKg - hist.latestMa;
+      // Going the right direction?
+      const goodDirection =
+        (remaining < 0 && dailyVel < 0) ||
+        (remaining > 0 && dailyVel > 0) ||
+        Math.abs(remaining) < 0.1;
+      if (Math.abs(dailyVel) < 0.005 || !goodDirection) {
+        hint = `goal ${formatOne(prefs.targetKg)} kg · off pace`;
+      } else {
+        const days = Math.max(1, Math.round(remaining / dailyVel));
+        const eta = new Date(Date.now() + days * 86_400_000);
+        hint = `eta ${ETA_FMT.format(eta).toLowerCase()}`;
+      }
+    }
+  }
+
+  return {
+    latestKgLabel: formatOne(hist.latestKg),
+    delta,
+    deltaColor,
+    hint,
+  };
 }
 
 const styles = StyleSheet.create({
@@ -452,5 +616,85 @@ const styles = StyleSheet.create({
   featureDotToday: {
     borderWidth: 1,
     borderColor: tokens.ink,
+  },
+
+  // Weight card
+  weightOuter: {
+    paddingTop: 18,
+    paddingHorizontal: 22,
+  },
+  weightHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+    gap: 12,
+  },
+  weightHeroRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 8,
+    marginTop: 4,
+  },
+  weightHeroNumber: {
+    fontFamily: fonts.sansSemibold,
+    fontSize: 30,
+    color: tokens.ink,
+    letterSpacing: -1.05,
+    lineHeight: 30,
+  },
+  weightUnit: {
+    fontFamily: fonts.mono,
+    fontSize: 13,
+    color: tokens.ink3,
+  },
+  weightDelta: {
+    marginLeft: 4,
+    fontFamily: fonts.monoSemibold,
+    fontSize: 11,
+  },
+  weightHint: {
+    marginTop: 4,
+    fontFamily: fonts.mono,
+    fontSize: 9.5,
+    color: tokens.ink4,
+    fontStyle: 'italic',
+    letterSpacing: 0.4,
+  },
+  seeAll: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 4,
+  },
+  seeAllText: {
+    fontFamily: fonts.monoSemibold,
+    fontSize: 9,
+    color: tokens.accentInk,
+    letterSpacing: 1.98,
+  },
+  weightCard: {
+    backgroundColor: tokens.card,
+    borderWidth: 1,
+    borderColor: tokens.line,
+    borderRadius: 18,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 12 },
+    shadowRadius: 24,
+    shadowOpacity: 0.04,
+  },
+  weightLoading: {
+    height: WEIGHT_CHART_H,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  weightLoadingText: {
+    fontFamily: fonts.mono,
+    fontSize: 12,
+    color: tokens.ink4,
+    fontStyle: 'italic',
   },
 });
