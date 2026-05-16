@@ -263,10 +263,17 @@ export default function TrendsScreen() {
             {weightPrefs ? (
               <WeightChart
                 history={weightHistory.points}
-                prefs={weightPrefs}
+                // Trends shows a backward-only 14-day view — hide the
+                // optimal trajectory + projected MA so the eye reads
+                // the 7-day MA against recent weigh-ins cleanly.
+                prefs={{
+                  ...weightPrefs,
+                  showOptimal: false,
+                  showProjected: false,
+                }}
                 width={WEIGHT_CHART_W}
                 height={WEIGHT_CHART_H}
-                range={{ mode: 'goal' }}
+                range={{ mode: 'window', days: 14 }}
               />
             ) : (
               <View style={styles.weightLoading}>
