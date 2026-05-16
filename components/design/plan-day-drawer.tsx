@@ -30,18 +30,28 @@ import { useWorkoutTypes } from '@/src/hooks/use-workout-types';
 import type { WorkoutTypeTone } from '@/src/lib/workouts/types';
 import { fonts, textStyles, tokens } from '@/theme/tokens';
 
-import { DateTimePickerSheet } from './datetime-picker-sheet';
 import { Drawer, DrawerSection } from './drawer';
 import { Glyph } from './glyph';
 
 const REST_TILE_KEY = '__rest__' as const;
 
-// Time presets — morning / afternoon / evening shortcuts.
-const TIME_PRESETS = [
+/**
+ * Three coarse time slots. The drawer commits the chip's `min` to
+ * `workout_preferences.<dow>TimeMin`; selecting "any time" persists null.
+ * Custom HH:MM entry was removed — three buckets cover the linker's needs
+ * (linkWindowMinutes already smooths the boundary).
+ */
+const TIME_PRESETS: ReadonlyArray<{
+  key: string;
+  label: string;
+  /** Minutes since midnight, or null for "any time". */
+  min: number | null;
+}> = [
   { key: 'morning', label: 'morning', min: 8 * 60 },
   { key: 'afternoon', label: 'afternoon', min: 12 * 60 + 30 },
   { key: 'evening', label: 'evening', min: 18 * 60 },
-] as const;
+  { key: 'any', label: 'any time', min: null },
+];
 
 export type PlanDayPatch = {
   /** Library key (e.g. 'push') or null for rest. */
@@ -71,18 +81,14 @@ export function PlanDayDrawer({
   const types = useWorkoutTypes();
 
   // Local working copy. `choice === REST_TILE_KEY` means "Rest"; any other
-  // string is a library type key.
+  // string is a library type key. `timeMin === null` means "any time".
   const [choice, setChoice] = useState<string>(initialType ?? REST_TILE_KEY);
-  const [timeMin, setTimeMin] = useState<number>(initialTimeMin ?? TIME_PRESETS[2].min);
-  const [hasTime, setHasTime] = useState<boolean>(initialTimeMin !== null);
-  const [timeSheetOpen, setTimeSheetOpen] = useState(false);
+  const [timeMin, setTimeMin] = useState<number | null>(initialTimeMin);
 
   useEffect(() => {
     if (!open) return;
     setChoice(initialType ?? REST_TILE_KEY);
-    setTimeMin(initialTimeMin ?? TIME_PRESETS[2].min);
-    setHasTime(initialTimeMin !== null);
-    setTimeSheetOpen(false);
+    setTimeMin(initialTimeMin);
   }, [open, initialType, initialTimeMin]);
 
   const isRest = choice === REST_TILE_KEY;
@@ -97,13 +103,12 @@ export function PlanDayDrawer({
     onCommit({
       typeKey: isRest ? null : choice,
       // Rest day clears the time (no meaning without a planned session).
-      timeMin: isRest ? null : hasTime ? timeMin : null,
+      timeMin: isRest ? null : timeMin,
     });
     onClose();
   };
 
   return (
-    <>
       <Drawer
         open={open}
         onClose={onClose}
@@ -189,68 +194,43 @@ export function PlanDayDrawer({
           </View>
         )}
 
-        {/* TIME — hidden on rest */}
+        {/* TIME — hidden on rest. Coarse preset slots only; the linker's
+            ±N min window absorbs the gap between bucket boundaries. */}
         {!isRest && (
-          <DrawerSection label="time" sub="local · 24h">
-            <View style={styles.timeRow}>
-              <Pressable
-                onPress={() => setTimeSheetOpen(true)}
-                accessibilityRole="button"
-                accessibilityLabel="Edit time"
-                style={({ pressed }) => [
-                  styles.timeBig,
-                  pressed && { opacity: 0.7 },
-                ]}>
-                <Text style={[styles.timeBigDigit, textStyles.tnum]}>
-                  {pad2(Math.floor(timeMin / 60))}
-                </Text>
-                <Text style={styles.timeBigColon}>:</Text>
-                <Text style={[styles.timeBigDigit, textStyles.tnum]}>
-                  {pad2(timeMin % 60)}
-                </Text>
-              </Pressable>
-
-              <View style={styles.timeChips}>
-                {TIME_PRESETS.map((p) => {
-                  const active = hasTime && timeMin === p.min;
-                  return (
-                    <Pressable
-                      key={p.key}
-                      onPress={() => {
-                        setTimeMin(p.min);
-                        setHasTime(true);
-                      }}
-                      style={({ pressed }) => [
-                        styles.timeChip,
-                        active && styles.timeChipActive,
-                        pressed && !active && { opacity: 0.6 },
+          <DrawerSection label="time">
+            <View style={styles.timeGrid}>
+              {TIME_PRESETS.map((p) => {
+                const active = timeMin === p.min;
+                return (
+                  <Pressable
+                    key={p.key}
+                    onPress={() => setTimeMin(p.min)}
+                    style={({ pressed }) => [
+                      styles.timeTile,
+                      active && styles.timeTileActive,
+                      pressed && !active && { opacity: 0.7 },
+                    ]}>
+                    <Text
+                      style={[
+                        styles.timeTileLabel,
+                        active && { color: tokens.bg },
                       ]}>
+                      {p.label}
+                    </Text>
+                    {p.min !== null && (
                       <Text
                         style={[
-                          styles.timeChipLabel,
-                          textStyles.cap,
-                          active && { color: tokens.ink, fontFamily: fonts.monoSemibold },
-                        ]}>
-                        {p.label}
-                      </Text>
-                      <Text
-                        style={[
-                          styles.timeChipValue,
+                          styles.timeTileValue,
                           textStyles.tnum,
-                          active && { color: tokens.ink },
+                          active && { color: tokens.bg },
                         ]}>
                         {pad2(Math.floor(p.min / 60))}:{pad2(p.min % 60)}
                       </Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
+                    )}
+                  </Pressable>
+                );
+              })}
             </View>
-            {!hasTime && (
-              <Text style={styles.metaHint}>
-                no specific time — linking falls back to weekday + type
-              </Text>
-            )}
           </DrawerSection>
         )}
 
@@ -280,20 +260,6 @@ export function PlanDayDrawer({
 
         <View style={{ height: 12 }} />
       </Drawer>
-
-      <DateTimePickerSheet
-        open={timeSheetOpen}
-        mode="time"
-        title={`${weekdayCap || 'Slot'} time`}
-        value={minToDateToday(timeMin)}
-        onApply={(d) => {
-          setTimeMin(d.getHours() * 60 + d.getMinutes());
-          setHasTime(true);
-          setTimeSheetOpen(false);
-        }}
-        onCancel={() => setTimeSheetOpen(false)}
-      />
-    </>
   );
 }
 
@@ -456,12 +422,6 @@ export function WorkoutGlyph({
 
 function pad2(n: number): string {
   return n.toString().padStart(2, '0');
-}
-
-function minToDateToday(mins: number): Date {
-  const d = new Date();
-  d.setHours(Math.floor(mins / 60), mins % 60, 0, 0);
-  return d;
 }
 
 export function toneColor(tone: WorkoutTypeTone): string {
@@ -632,78 +592,43 @@ const styles = StyleSheet.create({
     letterSpacing: 0.38,
   },
 
-  // Time
-  timeRow: {
+  // Time — coarse preset tiles in a 2-up grid.
+  timeGrid: {
     flexDirection: 'row',
-    gap: 10,
+    flexWrap: 'wrap',
+    gap: 6,
   },
-  timeBig: {
-    flex: 1.2,
-    backgroundColor: tokens.card,
-    borderWidth: 1,
-    borderColor: tokens.line,
-    borderRadius: 12,
+  timeTile: {
+    flexGrow: 1,
+    flexBasis: '48%',
     paddingVertical: 14,
-    paddingHorizontal: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowRadius: 3,
-    shadowOpacity: 0.02,
-  },
-  timeBigDigit: {
-    fontFamily: fonts.monoSemibold,
-    fontSize: 32,
-    color: tokens.ink,
-    letterSpacing: -0.96,
-  },
-  timeBigColon: {
-    fontFamily: fonts.mono,
-    fontSize: 28,
-    color: tokens.ink3,
-  },
-  timeChips: {
-    flex: 1,
-    gap: 4,
-  },
-  timeChip: {
-    flex: 1,
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    borderRadius: 8,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    backgroundColor: tokens.bg2,
     borderWidth: 1,
     borderColor: tokens.line,
-    backgroundColor: 'transparent',
-    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    gap: 4,
   },
-  timeChipActive: {
-    backgroundColor: tokens.bg2,
-    borderColor: tokens.line2,
+  timeTileActive: {
+    backgroundColor: tokens.ink,
+    borderColor: tokens.ink,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowRadius: 14,
+    shadowOpacity: 0.12,
   },
-  timeChipLabel: {
+  timeTileLabel: {
+    fontFamily: fonts.sansSemibold,
+    fontSize: 13,
+    color: tokens.ink,
+    letterSpacing: -0.06,
+  },
+  timeTileValue: {
     fontFamily: fonts.mono,
-    fontSize: 8.5,
+    fontSize: 11,
     color: tokens.ink4,
-    letterSpacing: 1.53,
-  },
-  timeChipValue: {
-    fontFamily: fonts.mono,
-    fontSize: 10,
-    color: tokens.ink3,
-  },
-
-  metaHint: {
-    marginTop: 8,
-    fontFamily: fonts.mono,
-    fontSize: 9.5,
-    color: tokens.ink4,
-    fontStyle: 'italic',
-    letterSpacing: 0.38,
+    letterSpacing: 0.22,
   },
 
   // Recurrence
