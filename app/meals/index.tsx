@@ -164,9 +164,6 @@ export default function MealsScreen() {
         {/* ── Hero: today's energy budget ─────────────────────────────── */}
         <View style={styles.heroOuter}>
           <View style={styles.heroCard}>
-            <Text style={[styles.kicker, textStyles.cap]}>
-              today · energy
-            </Text>
             <View style={styles.heroBigRow}>
               <View style={styles.heroNumberRow}>
                 <Text style={[styles.heroNumber, textStyles.tnum]}>
@@ -706,10 +703,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'baseline',
-    // Generous top padding so the big number's ascenders don't clip
-    // against the kicker row above; ample bottom so the progress
-    // bar gets breathing room without a stale gap.
-    marginTop: 10,
     gap: 12,
   },
   heroDeficitInline: {
