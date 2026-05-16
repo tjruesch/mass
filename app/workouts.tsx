@@ -1,56 +1,64 @@
 /**
  * Workouts detail screen — port of designs/screen-workouts.jsx WorkoutsDisplay.
  *
- * Status: scaffold + this-week grid + today's slot card (issue #68).
- * Remaining sections:
- *   #69 — recent sessions list + planned-slot linking
- *   #70 — log workout drawer
- *   #71 — workouts settings page (cog destination)
+ * Reads through the composite-types model (#82):
+ *   - The weekly template stores type keys; per-day status uses
+ *     `linkCompositeSlot` to decide done / planned / missed.
+ *   - The today card shows the planned type's step breakdown.
+ *   - Recent sessions group HK entries via `useLinkedSessions` — one
+ *     row per composite completion, one row per ad-hoc HK entry.
  *
  * HK auth banner intentionally lives on the settings page, matching how
- * we landed the weight slice (#129) — keeps logging screens free of
- * status chrome.
+ * we landed the weight slice (#129).
  */
 
 import { useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import Svg, { Circle, Ellipse, Line, Path } from 'react-native-svg';
 
-import { Glyph, SubHeader, TabBar, WorkoutLogDrawer } from '@/components/design';
+import {
+  Glyph,
+  SubHeader,
+  TabBar,
+  WorkoutLogDrawer,
+} from '@/components/design';
+import { WorkoutGlyph, toneColor } from '@/components/design/plan-day-drawer';
+import {
+  totalPlannedMinutes,
+  type WorkoutTypeDef,
+} from '@/src/db/queries/workout-types';
 import type { WorkoutEntry, WorkoutPreferences } from '@/src/db/schema';
 import { useWorkoutPreferences } from '@/src/hooks/use-workout-preferences';
+import { useWorkoutTypes } from '@/src/hooks/use-workout-types';
 import {
-  useLinkedWorkouts,
+  useLinkedSessions,
   useWorkoutsThisWeek,
-  type LinkedWorkout,
+  type LinkedSession,
 } from '@/src/hooks/use-workouts';
 import {
+  linkCompositeSlot,
+  plannedSlotsForWeek,
+} from '@/src/lib/workouts/link';
+import {
   fallbackLabelForHkActivity,
-  workoutTypeById,
-  type WorkoutTypeId,
-  type WorkoutTypeTone,
 } from '@/src/lib/workouts/types';
 import { addDays, dowMondayFirst, startOfDay } from '@/src/lib/time';
 import { fonts, textStyles, tokens } from '@/theme/tokens';
 
-// Weekday labels + the prefs columns they map to. Mon-first to match
-// the rest of the app (dowMondayFirst, the streak heatmap, fasting).
 type WeekdayKey = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun';
 const WEEKDAYS: ReadonlyArray<{
   key: WeekdayKey;
   label: string;
   typeField: keyof WorkoutPreferences;
   timeField: keyof WorkoutPreferences;
-  durationField: keyof WorkoutPreferences;
 }> = [
-  { key: 'mon', label: 'M', typeField: 'monType', timeField: 'monTimeMin', durationField: 'monDurationMin' },
-  { key: 'tue', label: 'T', typeField: 'tueType', timeField: 'tueTimeMin', durationField: 'tueDurationMin' },
-  { key: 'wed', label: 'W', typeField: 'wedType', timeField: 'wedTimeMin', durationField: 'wedDurationMin' },
-  { key: 'thu', label: 'T', typeField: 'thuType', timeField: 'thuTimeMin', durationField: 'thuDurationMin' },
-  { key: 'fri', label: 'F', typeField: 'friType', timeField: 'friTimeMin', durationField: 'friDurationMin' },
-  { key: 'sat', label: 'S', typeField: 'satType', timeField: 'satTimeMin', durationField: 'satDurationMin' },
-  { key: 'sun', label: 'S', typeField: 'sunType', timeField: 'sunTimeMin', durationField: 'sunDurationMin' },
+  { key: 'mon', label: 'M', typeField: 'monType', timeField: 'monTimeMin' },
+  { key: 'tue', label: 'T', typeField: 'tueType', timeField: 'tueTimeMin' },
+  { key: 'wed', label: 'W', typeField: 'wedType', timeField: 'wedTimeMin' },
+  { key: 'thu', label: 'T', typeField: 'thuType', timeField: 'thuTimeMin' },
+  { key: 'fri', label: 'F', typeField: 'friType', timeField: 'friTimeMin' },
+  { key: 'sat', label: 'S', typeField: 'satType', timeField: 'satTimeMin' },
+  { key: 'sun', label: 'S', typeField: 'sunType', timeField: 'sunTimeMin' },
 ];
 
 const WEEKDAY_LONG = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
@@ -60,8 +68,9 @@ type CellStatus = 'done' | 'today' | 'missed' | 'planned' | 'rest';
 export default function WorkoutsScreen() {
   const router = useRouter();
   const prefs = useWorkoutPreferences();
+  const types = useWorkoutTypes();
   const weekEntries = useWorkoutsThisWeek();
-  const recent = useLinkedWorkouts(8);
+  const recent = useLinkedSessions(8);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingEntry, setEditingEntry] = useState<WorkoutEntry | null>(null);
 
@@ -78,48 +87,48 @@ export default function WorkoutsScreen() {
 
   const today = startOfDay(new Date());
   const todayIdx = dowMondayFirst(today); // 0 = Mon
+  const slots = plannedSlotsForWeek(prefs, types);
 
-  // Compute each weekday's cell + status. A slot is "done" when ≥1 entry
-  // landed on that weekday whose HK type is a candidate for the planned
-  // type. Time-window matching is layered on in #69.
+  // Compute each weekday's cell status. A slot is "done" when the
+  // composite linker returns a full match for that day's slot. Linking
+  // is computed per-day (not week-wide) here because the week strip
+  // doesn't need cross-slot dedupe — each day is independent.
   const cells = WEEKDAYS.map((wd, idx) => {
-    const typeId = prefs[wd.typeField] as WorkoutTypeId | null;
+    const slot = slots[idx];
+    const typeKey = prefs[wd.typeField] as string | null;
     const dayDate = addDays(today, idx - todayIdx);
-    const entriesForDay = weekEntries.filter(
-      (e) => dowMondayFirst(startOfDay(e.startedAt)) === idx,
-    );
     let status: CellStatus;
+    let typeDef: WorkoutTypeDef | null = slot?.type ?? null;
     if (idx === todayIdx) {
       status = 'today';
-    } else if (typeId === null) {
+    } else if (slot === null) {
       status = 'rest';
     } else {
-      const def = workoutTypeById(typeId);
-      const matched = entriesForDay.some((e) =>
-        (def.hkCandidateKeys as readonly string[]).includes(e.type),
-      );
-      if (idx < todayIdx) status = matched ? 'done' : 'missed';
-      else status = matched ? 'done' : 'planned';
+      const result = linkCompositeSlot(slot, weekEntries, prefs, new Set());
+      if (result) status = 'done';
+      else if (idx < todayIdx) status = 'missed';
+      else status = 'planned';
     }
     return {
       idx,
-      typeId,
+      typeKey,
+      typeDef,
       dayDate,
       label: wd.label,
       status,
       timeMin: prefs[wd.timeField] as number | null,
-      durationMin: prefs[wd.durationField] as number | null,
     };
   });
 
   const todayCell = cells[todayIdx];
-  const todayType = todayCell.typeId ? workoutTypeById(todayCell.typeId) : null;
+  const todaySlot = slots[todayIdx];
+  const todayType = todayCell.typeDef;
   const todayTime = todayCell.timeMin;
-  const todayDuration = todayCell.durationMin;
+  const todayTotalMin = todayType ? totalPlannedMinutes(todayType) : 0;
 
   const doneCount = cells.filter((c) => c.status === 'done').length;
-  const plannedCount = cells.filter((c) => c.typeId !== null).length;
-  const totalMinDone = sumMinutes(weekEntries, cells);
+  const plannedCount = cells.filter((c) => c.typeDef !== null).length;
+  const totalMinDone = sumCompletedMinutes(weekEntries, slots, prefs);
 
   return (
     <View style={{ flex: 1, backgroundColor: tokens.bg }}>
@@ -182,7 +191,7 @@ export default function WorkoutsScreen() {
                 todayType && { borderColor: tokens.line },
               ]}>
               <WorkoutGlyph
-                typeId={todayCell.typeId}
+                icon={todayType?.icon ?? 'rest'}
                 color={toneColor(todayType?.tone ?? 'mute')}
               />
             </View>
@@ -192,13 +201,7 @@ export default function WorkoutsScreen() {
               </Text>
               {todayType ? (
                 <Text style={styles.todaySub}>
-                  {todayTime !== null
-                    ? todayDuration !== null
-                      ? `planned ${formatMin(todayTime)} · ${todayDuration}m`
-                      : `planned ${formatMin(todayTime)}`
-                    : todayDuration !== null
-                    ? `planned · ${todayDuration}m`
-                    : 'no time set'}
+                  {formatTodaySub(todayTime, todayTotalMin, todayType.steps.length)}
                 </Text>
               ) : (
                 <Text style={styles.todaySub}>
@@ -220,7 +223,7 @@ export default function WorkoutsScreen() {
           </View>
         </View>
 
-        <RecentSessions sessions={recent} onEdit={openEdit} />
+        <RecentSessions sessions={recent} onEdit={openEdit} types={types} />
       </ScrollView>
       <TabBar active="home" />
 
@@ -234,9 +237,7 @@ export default function WorkoutsScreen() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// RecentSessions — desc list of completed workouts. Linked rows render
-// under their planned type id (e.g. "push"); unlinked rows fall back to
-// the raw HK activity label so the user still sees what was logged.
+// RecentSessions — desc list of completed composite + ad-hoc sessions.
 // ─────────────────────────────────────────────────────────────────────────────
 const WEEKDAY_FMT = new Intl.DateTimeFormat('en', { weekday: 'short' });
 const MONTH_DAY_FMT = new Intl.DateTimeFormat('en', { day: '2-digit', month: 'short' });
@@ -244,9 +245,11 @@ const MONTH_DAY_FMT = new Intl.DateTimeFormat('en', { day: '2-digit', month: 'sh
 function RecentSessions({
   sessions,
   onEdit,
+  types,
 }: {
-  sessions: ReadonlyArray<LinkedWorkout>;
+  sessions: ReadonlyArray<LinkedSession>;
   onEdit: (entry: WorkoutEntry) => void;
+  types: ReadonlyArray<WorkoutTypeDef>;
 }) {
   if (sessions.length === 0) {
     return (
@@ -264,59 +267,108 @@ function RecentSessions({
         recent sessions
       </Text>
       <View style={styles.recentCard}>
-        {sessions.map((s, i) => {
-          const isLast = i === sessions.length - 1;
-          const durationMin = Math.round(
-            (s.entry.endedAt.getTime() - s.entry.startedAt.getTime()) / 60_000,
-          );
-          const label = s.linkedTypeId
-            ? workoutTypeById(s.linkedTypeId).label
-            : fallbackLabelForHkActivity(s.entry.type);
-          const timeOfDay = formatMin(
-            s.entry.startedAt.getHours() * 60 + s.entry.startedAt.getMinutes(),
-          );
-          return (
-            <Pressable
-              key={s.entry.id}
-              onPress={() => onEdit(s.entry)}
-              accessibilityRole="button"
-              accessibilityLabel={`Edit ${label} session`}
-              style={({ pressed }) => [
-                styles.recentRow,
-                !isLast && styles.recentRowBorder,
-                pressed && { opacity: 0.65 },
-              ]}>
-              <View style={styles.recentDayCol}>
-                <Text style={[styles.recentDay, textStyles.cap]}>
-                  {WEEKDAY_FMT.format(s.entry.startedAt).toLowerCase()}
-                </Text>
-                <Text style={styles.recentDate}>
-                  {MONTH_DAY_FMT.format(s.entry.startedAt).toLowerCase()}
-                </Text>
-              </View>
-              <View style={styles.recentTypeCol}>
-                <Text
-                  numberOfLines={1}
-                  style={
-                    s.linkedTypeId ? styles.recentTypeLinked : styles.recentTypeUnlinked
-                  }>
-                  {label}
-                </Text>
-                <Text style={styles.recentTimeSub}>{timeOfDay}</Text>
-              </View>
-              <View style={styles.recentMetricsCol}>
-                <Text style={[styles.recentMetricBig, textStyles.tnum]}>
-                  {durationMin}m
-                </Text>
-                <Text style={[styles.recentMetricSmall, textStyles.tnum]}>
-                  {s.entry.kcal != null ? `${Math.round(s.entry.kcal)} kcal` : '—'}
-                </Text>
-              </View>
-            </Pressable>
-          );
-        })}
+        {sessions.map((s, i) => (
+          <SessionRow
+            key={sessionRowKey(s, i)}
+            session={s}
+            isLast={i === sessions.length - 1}
+            onEdit={onEdit}
+            types={types}
+          />
+        ))}
       </View>
     </View>
+  );
+}
+
+function SessionRow({
+  session,
+  isLast,
+  onEdit,
+  types,
+}: {
+  session: LinkedSession;
+  isLast: boolean;
+  onEdit: (entry: WorkoutEntry) => void;
+  types: ReadonlyArray<WorkoutTypeDef>;
+}) {
+  if (session.kind === 'composite') {
+    const def = types.find((t) => t.key === session.typeKey);
+    const totalMin =
+      Math.round(
+        (session.result.spanEnd.getTime() - session.result.spanStart.getTime()) /
+          60_000,
+      );
+    return (
+      <Pressable
+        onPress={() => onEdit(session.entries[0])}
+        accessibilityRole="button"
+        accessibilityLabel={`Edit ${def?.label ?? session.typeKey} session`}
+        style={({ pressed }) => [
+          styles.recentRow,
+          !isLast && styles.recentRowBorder,
+          pressed && { opacity: 0.65 },
+        ]}>
+        <View style={styles.recentDayCol}>
+          <Text style={[styles.recentDay, textStyles.cap]}>
+            {WEEKDAY_FMT.format(session.result.spanStart).toLowerCase()}
+          </Text>
+          <Text style={styles.recentDate}>
+            {MONTH_DAY_FMT.format(session.result.spanStart).toLowerCase()}
+          </Text>
+        </View>
+        <View style={styles.recentTypeCol}>
+          <Text numberOfLines={1} style={styles.recentTypeLinked}>
+            {def?.label ?? session.typeKey}
+          </Text>
+          <Text style={styles.recentTimeSub}>
+            {formatClock(session.result.spanStart)}
+            {session.entries.length > 1 ? ` · ${session.entries.length} steps` : ''}
+          </Text>
+        </View>
+        <View style={styles.recentMetricsCol}>
+          <Text style={[styles.recentMetricBig, textStyles.tnum]}>{totalMin}m</Text>
+          <Text style={[styles.recentMetricSmall, textStyles.tnum]}>
+            {formatTotalKcal(session.entries)}
+          </Text>
+        </View>
+      </Pressable>
+    );
+  }
+  const e = session.entry;
+  const durationMin = Math.round((e.endedAt.getTime() - e.startedAt.getTime()) / 60_000);
+  const label = fallbackLabelForHkActivity(e.type);
+  return (
+    <Pressable
+      onPress={() => onEdit(e)}
+      accessibilityRole="button"
+      accessibilityLabel={`Edit ${label} session`}
+      style={({ pressed }) => [
+        styles.recentRow,
+        !isLast && styles.recentRowBorder,
+        pressed && { opacity: 0.65 },
+      ]}>
+      <View style={styles.recentDayCol}>
+        <Text style={[styles.recentDay, textStyles.cap]}>
+          {WEEKDAY_FMT.format(e.startedAt).toLowerCase()}
+        </Text>
+        <Text style={styles.recentDate}>
+          {MONTH_DAY_FMT.format(e.startedAt).toLowerCase()}
+        </Text>
+      </View>
+      <View style={styles.recentTypeCol}>
+        <Text numberOfLines={1} style={styles.recentTypeUnlinked}>
+          {label}
+        </Text>
+        <Text style={styles.recentTimeSub}>{formatClock(e.startedAt)}</Text>
+      </View>
+      <View style={styles.recentMetricsCol}>
+        <Text style={[styles.recentMetricBig, textStyles.tnum]}>{durationMin}m</Text>
+        <Text style={[styles.recentMetricSmall, textStyles.tnum]}>
+          {e.kcal != null ? `${Math.round(e.kcal)} kcal` : '—'}
+        </Text>
+      </View>
+    </Pressable>
   );
 }
 
@@ -328,12 +380,12 @@ function WeekdayCell({
 }: {
   cell: {
     idx: number;
-    typeId: WorkoutTypeId | null;
+    typeDef: WorkoutTypeDef | null;
     label: string;
     status: CellStatus;
   };
 }) {
-  const def = cell.typeId ? workoutTypeById(cell.typeId) : null;
+  const def = cell.typeDef;
   const isToday = cell.status === 'today';
   const isDone = cell.status === 'done';
   const isPlanned = cell.status === 'planned';
@@ -359,7 +411,7 @@ function WeekdayCell({
           isToday && styles.weekIconToday,
           isPlanned && styles.weekIconPlanned,
         ]}>
-        <WorkoutGlyph typeId={cell.typeId} color={iconColor} />
+        <WorkoutGlyph icon={def?.icon ?? 'rest'} color={iconColor} />
       </View>
       <Text
         style={[
@@ -375,7 +427,7 @@ function WeekdayCell({
           },
           isRest && { fontStyle: 'italic' },
         ]}>
-        {def ? def.id : 'rest'}
+        {def ? def.key : 'rest'}
       </Text>
       <View style={styles.weekPip}>
         {isDone && <View style={styles.pipDone} />}
@@ -386,97 +438,60 @@ function WeekdayCell({
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// WorkoutGlyph — inline SVGs matching the design's `WK_ICONS`. Tiny and
-// self-contained; if more types arrive, extract.
-// ─────────────────────────────────────────────────────────────────────────────
-function WorkoutGlyph({
-  typeId,
-  color,
-  size = 14,
-}: {
-  typeId: WorkoutTypeId | null;
-  color: string;
-  size?: number;
-}) {
-  if (typeId === null) {
-    return (
-      <Svg width={size} height={size} viewBox="0 0 14 14">
-        <Path d="M4 7h6" stroke={color} strokeWidth={1.3} strokeLinecap="round" />
-      </Svg>
-    );
-  }
-  if (typeId === 'tennis') {
-    return (
-      <Svg width={size} height={size} viewBox="0 0 14 14">
-        <Ellipse cx={5.5} cy={5.5} rx={3.8} ry={4.2} fill="none" stroke={color} strokeWidth={1.2} />
-        <Line x1={8} y1={8.5} x2={12} y2={12.5} stroke={color} strokeWidth={1.5} strokeLinecap="round" />
-        <Line x1={2.3} y1={5.5} x2={9.3} y2={5.5} stroke={color} strokeWidth={0.6} opacity={0.55} />
-        <Line x1={5.5} y1={1.5} x2={5.5} y2={9.5} stroke={color} strokeWidth={0.6} opacity={0.55} />
-      </Svg>
-    );
-  }
-  if (typeId === 'cardio') {
-    return (
-      <Svg width={size} height={size} viewBox="0 0 14 14">
-        <Circle cx={9} cy={3} r={1.4} fill="none" stroke={color} strokeWidth={1.2} />
-        <Path
-          d="M8.5 5l-2 3 1.5 1.5L7 12M6.5 8L4 9.5M8 7l2 1.5"
-          stroke={color}
-          strokeWidth={1.2}
-          fill="none"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </Svg>
-    );
-  }
-  // push / pull / legs share the "lift" glyph — a stylized barbell.
-  return (
-    <Svg width={size} height={size} viewBox="0 0 14 14">
-      <Path
-        d="M2 7h10M3.5 5v4M10.5 5v4M5.5 4v6M8.5 4v6"
-        stroke={color}
-        strokeWidth={1.3}
-        strokeLinecap="round"
-      />
-    </Svg>
-  );
-}
-
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
-function toneColor(tone: WorkoutTypeTone): string {
-  if (tone === 'accent') return tokens.accentInk;
-  if (tone === 'cool') return tokens.cool;
-  if (tone === 'mute') return tokens.ink4;
-  return tokens.ink;
+function formatClock(d: Date): string {
+  return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
 }
 
-function formatMin(mins: number): string {
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
-  return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+function formatTodaySub(
+  timeMin: number | null,
+  totalMin: number,
+  stepCount: number,
+): string {
+  const stepSuffix = stepCount > 1 ? ` (${stepCount} steps)` : '';
+  if (timeMin === null) return `${totalMin}m planned${stepSuffix}`;
+  const h = Math.floor(timeMin / 60).toString().padStart(2, '0');
+  const m = (timeMin % 60).toString().padStart(2, '0');
+  return `planned ${h}:${m} · ${totalMin}m${stepSuffix}`;
+}
+
+function formatTotalKcal(entries: ReadonlyArray<WorkoutEntry>): string {
+  let kcal = 0;
+  let any = false;
+  for (const e of entries) {
+    if (e.kcal != null) {
+      kcal += e.kcal;
+      any = true;
+    }
+  }
+  return any ? `${Math.round(kcal)} kcal` : '—';
+}
+
+function sessionRowKey(s: LinkedSession, idx: number): string {
+  if (s.kind === 'composite') return `c-${s.result.spanStart.getTime()}-${idx}`;
+  return `u-${s.entry.id}`;
 }
 
 /**
- * Sum durations (in minutes) of entries that match this week's planned
- * slots — used by the hero meta ("48m done"). Workouts that didn't match
- * any planned slot (ad-hoc) aren't counted here so the metric stays
- * tethered to "plan adherence" rather than gross activity.
+ * Sum durations of completed composite slots only. Ad-hoc sessions don't
+ * count toward "plan adherence" — the metric is intentionally tethered
+ * to the plan rather than gross activity.
  */
-function sumMinutes(
+function sumCompletedMinutes(
   entries: ReadonlyArray<WorkoutEntry>,
-  cells: ReadonlyArray<{ idx: number; typeId: WorkoutTypeId | null }>,
+  slots: ReadonlyArray<ReturnType<typeof plannedSlotsForWeek>[number]>,
+  prefs: WorkoutPreferences,
 ): number {
   let total = 0;
-  for (const e of entries) {
-    const dow = dowMondayFirst(startOfDay(e.startedAt));
-    const cell = cells[dow];
-    if (!cell?.typeId) continue;
-    const def = workoutTypeById(cell.typeId);
-    if (!(def.hkCandidateKeys as readonly string[]).includes(e.type)) continue;
-    total += Math.round((e.endedAt.getTime() - e.startedAt.getTime()) / 60_000);
+  const consumed = new Set<number>();
+  for (let wd = 0; wd < 7; wd++) {
+    const slot = slots[wd];
+    if (!slot) continue;
+    const result = linkCompositeSlot(slot, entries, prefs, consumed);
+    if (!result) continue;
+    total += Math.round((result.spanEnd.getTime() - result.spanStart.getTime()) / 60_000);
+    for (const m of result.matches) consumed.add(m.entryId);
   }
   return total;
 }
@@ -775,4 +790,3 @@ const styles = StyleSheet.create({
     marginTop: 1,
   },
 });
-

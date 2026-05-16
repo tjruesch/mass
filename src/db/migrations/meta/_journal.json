@@ -71,6 +71,13 @@
       "when": 1778938282332,
       "tag": "0009_complex_doctor_octopus",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1778939759780,
+      "tag": "0010_lonely_iron_monger",
+      "breakpoints": true
     }
   ]
 }

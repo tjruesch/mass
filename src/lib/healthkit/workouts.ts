@@ -1,26 +1,18 @@
 /**
- * Workouts ↔ HealthKit adapter — parallels src/lib/healthkit/weight.ts
- * but for HKWorkout samples instead of body-mass quantity samples.
+ * Workouts ↔ HealthKit adapter.
  *
  * Pull path: `syncWorkoutsFromHealthKit` pulls HK workouts since the
- * stored anchor and upserts via `addWorkoutEntry`. Deletes flow through
- * too.
+ * stored anchor and upserts via `addWorkoutEntry`. Deletes flow through.
  *
- * Push path: `logWorkout` writes a manual workout locally, then — if HK
- * auth is granted and `autoImportHealthKit` is on — pushes the same
- * workout to HK via `saveWorkoutSample` and backfills the returned UUID
- * onto the local row. The UUID linkage means a follow-up HK pull won't
- * double-count.
+ * Push path: `logWorkout` writes a composite workout — one local
+ * `workout_entries` row + one `saveWorkoutSample` call per step in the
+ * planned type. Steps run back-to-back starting at `startedAt`. Optional
+ * `kcal` is split across steps proportional to step duration.
  *
- * The HK activity type is stored as the string enum *key* (e.g.
- * `'functionalStrengthTraining'`) in `workout_entries.type`. Pull
- * converts from the numeric enum to a key via a small inverse map; push
- * uses the canonical key listed on each library entry's `hkActivityKey`.
- * Unknown HK activities (outside the small map) are stored as
- * `activity_${num}` so the row is still rendered with a debuggable label.
- *
- * Edits / deletes on rows that already have a `healthkit_uuid` are
- * intentionally NOT mirrored back to HK in v1 — same precedent as #59.
+ * The HK activity per step comes from `step.hkActivityKey`. Manual
+ * entries written here are dedupe-able from later HK pulls via the
+ * returned UUIDs. Edit/delete of an HK-mirrored row stays local-only
+ * (same precedent as weight #59).
  */
 
 import {
@@ -34,11 +26,15 @@ import {
   deleteWorkoutEntryByHealthKitUuid,
 } from '@/src/db/queries/workouts';
 import { getPreferences as getWorkoutPreferences } from '@/src/db/queries/workout-preferences';
+import {
+  getWorkoutTypes,
+  totalPlannedMinutes,
+  type WorkoutTypeDef,
+} from '@/src/db/queries/workout-types';
 import type { WorkoutEntry } from '@/src/db/schema';
 import {
   WorkoutActivityKey,
-  workoutTypeById,
-  type WorkoutTypeId,
+  type WorkoutActivityKeyName,
 } from '@/src/lib/workouts/types';
 
 import { getHkAuthState, type HkPermissionRequest } from './auth';
@@ -91,9 +87,7 @@ export async function syncWorkoutsFromHealthKit(): Promise<SyncQuantityResult> {
     onWorkout: async (workout, tx) => {
       // HK reports totals as Quantity { unit, quantity }. We assume the
       // default units (kcal for energy, m for distance) — Apple Health
-      // exposes them in those by default. If a user-locale flips lb or
-      // mi, the numbers might be off; refine when units arise as a real
-      // problem.
+      // exposes them in those by default. Refine when locale issues arise.
       const kcal = workout.totalEnergyBurned?.quantity ?? null;
       const distanceM = workout.totalDistance?.quantity ?? null;
       await addWorkoutEntry(
@@ -115,57 +109,125 @@ export async function syncWorkoutsFromHealthKit(): Promise<SyncQuantityResult> {
 }
 
 /**
- * Log a manual workout. Always writes locally; pushes to HK best-effort.
+ * Log a composite workout. Writes one local `workout_entries` row per
+ * step + one `saveWorkoutSample` per step. The returned array preserves
+ * step ordering (caller indexes [0] for the primary entry).
  *
- * The `typeId` is one of our library ids (push / pull / legs / tennis /
- * cardio). It maps to a canonical HK activity type for the push side and
- * to its own string key for the local `type` column.
+ * Total duration = sum(step.durationMin). The first step starts at
+ * `startedAt`; subsequent steps chain off the previous step's end.
+ *
+ * `kcal` (when provided) is split across steps proportional to their
+ * planned duration. `notes` is attached to the first entry only —
+ * sibling entries carry no notes.
  */
 export async function logWorkout(opts: {
-  typeId: WorkoutTypeId;
+  typeKey: string;
   startedAt: Date;
-  endedAt: Date;
   kcal?: number | null;
-  distanceM?: number | null;
   notes?: string | null;
-}): Promise<WorkoutEntry> {
-  const typeDef = workoutTypeById(opts.typeId);
-  const entry = await addWorkoutEntry({
-    startedAt: opts.startedAt,
-    endedAt: opts.endedAt,
-    type: typeDef.hkActivityKey,
-    kcal: opts.kcal ?? null,
-    distanceM: opts.distanceM ?? null,
-    notes: opts.notes ?? null,
-  });
+}): Promise<ReadonlyArray<WorkoutEntry>> {
+  const types = await getWorkoutTypes();
+  const typeDef = types.find((t) => t.key === opts.typeKey);
+  if (!typeDef) throw new Error(`Unknown workout type: ${opts.typeKey}`);
+  if (typeDef.steps.length === 0) {
+    throw new Error(`Workout type ${opts.typeKey} has no steps`);
+  }
+
+  const totalMin = totalPlannedMinutes(typeDef);
+  const stepStartEnds = computeStepWindows(opts.startedAt, typeDef);
+  const stepKcal = allocateKcal(opts.kcal ?? null, typeDef, totalMin);
+
+  // Insert all local rows first so the user has data even if HK push
+  // fails. Then push each step to HK and backfill UUIDs.
+  const localEntries: WorkoutEntry[] = [];
+  for (let i = 0; i < typeDef.steps.length; i++) {
+    const step = typeDef.steps[i];
+    const [stepStart, stepEnd] = stepStartEnds[i];
+    const entry = await addWorkoutEntry({
+      startedAt: stepStart,
+      endedAt: stepEnd,
+      type: step.hkActivityKey,
+      kcal: stepKcal[i],
+      // Note attached only to the first row to avoid duplication.
+      notes: i === 0 ? opts.notes ?? null : null,
+    });
+    localEntries.push(entry);
+  }
 
   const prefs = await getWorkoutPreferences();
-  if (!prefs.autoImportHealthKit) return entry;
-
+  if (!prefs.autoImportHealthKit) return localEntries;
   const auth = await getHkAuthState(WORKOUT_PERMISSIONS);
-  if (auth !== 'granted') return entry;
+  if (auth !== 'granted') return localEntries;
 
-  try {
-    const activityValue = WorkoutActivityKey[typeDef.hkActivityKey];
-    const totals: { energyBurned?: number; distance?: number } = {};
-    if (opts.kcal != null) totals.energyBurned = opts.kcal;
-    if (opts.distanceM != null) totals.distance = opts.distanceM;
-
-    const saved = await saveWorkoutSample(
-      activityValue as WorkoutActivityType,
-      [],
-      opts.startedAt,
-      opts.endedAt,
-      Object.keys(totals).length > 0 ? totals : undefined,
-    );
-    if (saved?.uuid) {
-      await attachHealthKitUuid(entry.id, saved.uuid);
-      return { ...entry, healthkitUuid: saved.uuid };
+  // Push each step to HK. Per-step failures don't roll back local rows
+  // or sibling pushes — the local mirror remains durable.
+  for (let i = 0; i < typeDef.steps.length; i++) {
+    const step = typeDef.steps[i];
+    const [stepStart, stepEnd] = stepStartEnds[i];
+    const activityValue =
+      WorkoutActivityKey[step.hkActivityKey as WorkoutActivityKeyName];
+    if (activityValue === undefined) {
+      console.warn(
+        `Skipping HK push for unknown activity key: ${step.hkActivityKey}`,
+      );
+      continue;
     }
-    return entry;
-  } catch (err) {
-    // Local write is durable — only the HK mirror failed. Don't surface.
-    console.warn('Failed to write workout to HealthKit:', err);
-    return entry;
+    const totals: { energyBurned?: number } = {};
+    if (stepKcal[i] != null) totals.energyBurned = stepKcal[i]!;
+    try {
+      const saved = await saveWorkoutSample(
+        activityValue as WorkoutActivityType,
+        [],
+        stepStart,
+        stepEnd,
+        Object.keys(totals).length > 0 ? totals : undefined,
+      );
+      if (saved?.uuid) {
+        await attachHealthKitUuid(localEntries[i].id, saved.uuid);
+        localEntries[i] = { ...localEntries[i], healthkitUuid: saved.uuid };
+      }
+    } catch (err) {
+      console.warn(
+        `Failed to write step ${i} (${step.hkActivityKey}) to HealthKit:`,
+        err,
+      );
+    }
   }
+
+  return localEntries;
+}
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
+function computeStepWindows(
+  startedAt: Date,
+  typeDef: WorkoutTypeDef,
+): Array<[Date, Date]> {
+  const out: Array<[Date, Date]> = [];
+  let cursor = startedAt.getTime();
+  for (const s of typeDef.steps) {
+    const start = new Date(cursor);
+    const end = new Date(cursor + s.durationMin * 60_000);
+    out.push([start, end]);
+    cursor = end.getTime();
+  }
+  return out;
+}
+
+function allocateKcal(
+  totalKcal: number | null,
+  typeDef: WorkoutTypeDef,
+  totalMin: number,
+): Array<number | null> {
+  if (totalKcal == null || totalMin <= 0) {
+    return typeDef.steps.map(() => null);
+  }
+  // Whole-kcal allocation with the rounding remainder put on the last step
+  // so the sum equals the input. Avoids drift when kcal is the only metric.
+  const raw = typeDef.steps.map((s) =>
+    Math.round((s.durationMin / totalMin) * totalKcal),
+  );
+  const drift = totalKcal - raw.reduce((a, b) => a + b, 0);
+  raw[raw.length - 1] += drift;
+  return raw;
 }

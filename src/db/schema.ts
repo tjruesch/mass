@@ -148,6 +148,55 @@ export const weightEntries = sqliteTable(
   }),
 );
 
+// ─── Workout types (library) ──────────────────────────────────────────────────
+/**
+ * Composite workout types. A "type" is an ordered list of steps; each step
+ * is its own HK activity with its own duration. The 5 built-in types
+ * (push/pull/legs/tennis/cardio) are seeded as single-step composites for
+ * backward compatibility; user-defined types come from #72.
+ */
+export const workoutTypes = sqliteTable('workout_types', {
+  id: id(),
+  /** Stable identifier referenced by workout_preferences.*Type. */
+  key: text('key').notNull().unique(),
+  label: text('label').notNull(),
+  /** Display tone — drives icon + label color. */
+  tone: text('tone', { enum: ['ink', 'cool', 'accent', 'mute'] })
+    .notNull()
+    .default('ink'),
+  /** Maps to WorkoutGlyph names — extend the glyph set when new icons land. */
+  icon: text('icon', { enum: ['lift', 'tennis', 'walk', 'rest'] })
+    .notNull()
+    .default('lift'),
+  /** True for the 5 seeded types; false for user-defined. */
+  isBuiltin: integer('is_builtin', { mode: 'boolean' }).notNull().default(false),
+  createdAt: createdAt(),
+});
+
+export const workoutTypeSteps = sqliteTable(
+  'workout_type_steps',
+  {
+    id: id(),
+    typeId: integer('type_id')
+      .notNull()
+      .references(() => workoutTypes.id, { onDelete: 'cascade' }),
+    /** 0-based position within the parent type. */
+    position: integer('position').notNull(),
+    durationMin: integer('duration_min').notNull(),
+    /** Canonical HK activity key for HK writes (must exist in WorkoutActivityKey). */
+    hkActivityKey: text('hk_activity_key').notNull(),
+    /**
+     * JSON-encoded string array of HK activity keys treated as interchangeable
+     * matches for this step (e.g. ['functionalStrengthTraining',
+     * 'traditionalStrengthTraining']). Always includes hkActivityKey.
+     */
+    hkCandidateKeys: text('hk_candidate_keys').notNull(),
+  },
+  (t) => ({
+    uniqStepPos: uniqueIndex('workout_type_steps_type_pos_unique').on(t.typeId, t.position),
+  }),
+);
+
 // ─── Workouts (HealthKit mirror) ──────────────────────────────────────────────
 export const workoutEntries = sqliteTable(
   'workout_entries',
@@ -198,15 +247,6 @@ export const workoutPreferences = sqliteTable('workout_preferences', {
   friTimeMin: integer('fri_time_min'),
   satTimeMin: integer('sat_time_min'),
   sunTimeMin: integer('sun_time_min'),
-  // Optional planned duration per weekday — minutes (typ. 15..120). Null =
-  // open-ended; surfaces as "planned HH:MM" without a duration suffix.
-  monDurationMin: integer('mon_duration_min'),
-  tueDurationMin: integer('tue_duration_min'),
-  wedDurationMin: integer('wed_duration_min'),
-  thuDurationMin: integer('thu_duration_min'),
-  friDurationMin: integer('fri_duration_min'),
-  satDurationMin: integer('sat_duration_min'),
-  sunDurationMin: integer('sun_duration_min'),
   /** Pull HK workouts on app foreground when granted. */
   autoImportHealthKit: integer('auto_import_healthkit', { mode: 'boolean' })
     .notNull()
@@ -343,6 +383,11 @@ export type NewWeightEntry = typeof weightEntries.$inferInsert;
 
 export type WorkoutEntry = typeof workoutEntries.$inferSelect;
 export type NewWorkoutEntry = typeof workoutEntries.$inferInsert;
+
+export type WorkoutTypeRow = typeof workoutTypes.$inferSelect;
+export type NewWorkoutTypeRow = typeof workoutTypes.$inferInsert;
+export type WorkoutTypeStepRow = typeof workoutTypeSteps.$inferSelect;
+export type NewWorkoutTypeStepRow = typeof workoutTypeSteps.$inferInsert;
 
 export type Goal = typeof goals.$inferSelect;
 export type NewGoal = typeof goals.$inferInsert;

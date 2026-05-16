@@ -1,26 +1,24 @@
 /**
- * Workouts settings — port of designs/screen-workouts.jsx WorkoutsSettings.
+ * Workouts settings — port of designs/screen-workouts.jsx WorkoutsSettings,
+ * adapted for the composite-types model (#82).
  *
  * Sections:
- *   1. weekly template  — 7 rows, tap to open PlanDayDrawer (#80)
- *   2. workout types    — library list, "+ new type" CTA stubbed for #72
+ *   1. weekly template  — 7 rows, tap to open PlanDayDrawer
+ *   2. workout types    — DB-backed library list with step subline
  *   3. apple health     — state-driven connect/auto-import + source mapping
- *   4. linking rules    — ±N time window stepper (the only rule wired today)
- *
- * Auto-commit pattern: every interaction immediately writes to
- * `workout_preferences`. No save button. Mirrors fasting/water/weight.
+ *                          aggregated across all type steps
+ *   4. linking rules    — auto-link + window stepper
  *
  * Out of scope (deferred follow-ups):
- *   - Custom workout types — #72.
+ *   - Custom workout types editor — #72.
  *   - Reminders — #73.
- *   - Per-source enable toggles on Apple Health — needs new schema.
- *   - Edit/delete propagation back to HK — same precedent as weight #59.
+ *   - One-off slot overrides — #81.
  */
 
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import Svg, { Circle, Ellipse, Line, Path } from 'react-native-svg';
+import Svg, { Path } from 'react-native-svg';
 
 import {
   Glyph,
@@ -29,9 +27,15 @@ import {
   TabBar,
   type PlanDayPatch,
 } from '@/components/design';
+import { WorkoutGlyph, toneColor } from '@/components/design/plan-day-drawer';
 import { updatePreferences } from '@/src/db/queries/workout-preferences';
+import {
+  totalPlannedMinutes,
+  type WorkoutTypeDef,
+} from '@/src/db/queries/workout-types';
 import type { WorkoutPreferences } from '@/src/db/schema';
 import { useWorkoutPreferences } from '@/src/hooks/use-workout-preferences';
+import { useWorkoutTypes } from '@/src/hooks/use-workout-types';
 import { useLastWorkoutSyncAt } from '@/src/hooks/use-workout-sync';
 import {
   ensureHkAuthorization,
@@ -39,14 +43,7 @@ import {
   type HkAuthState,
 } from '@/src/lib/healthkit/auth';
 import { WORKOUT_PERMISSIONS } from '@/src/lib/healthkit/workouts';
-import {
-  WORKOUT_TYPES,
-  fallbackLabelForHkActivity,
-  workoutTypeById,
-  type WorkoutTypeDef,
-  type WorkoutTypeId,
-  type WorkoutTypeTone,
-} from '@/src/lib/workouts/types';
+import { fallbackLabelForHkActivity } from '@/src/lib/workouts/types';
 import { fonts, textStyles, tokens } from '@/theme/tokens';
 
 // ─── Weekday config ─────────────────────────────────────────────────────────
@@ -58,17 +55,16 @@ type WeekdayCfg = {
   long: string;
   typeField: keyof WorkoutPreferences;
   timeField: keyof WorkoutPreferences;
-  durationField: keyof WorkoutPreferences;
 };
 
 const WEEKDAYS: ReadonlyArray<WeekdayCfg> = [
-  { key: 'mon', short: 'M', long: 'monday',    typeField: 'monType', timeField: 'monTimeMin', durationField: 'monDurationMin' },
-  { key: 'tue', short: 'T', long: 'tuesday',   typeField: 'tueType', timeField: 'tueTimeMin', durationField: 'tueDurationMin' },
-  { key: 'wed', short: 'W', long: 'wednesday', typeField: 'wedType', timeField: 'wedTimeMin', durationField: 'wedDurationMin' },
-  { key: 'thu', short: 'T', long: 'thursday',  typeField: 'thuType', timeField: 'thuTimeMin', durationField: 'thuDurationMin' },
-  { key: 'fri', short: 'F', long: 'friday',    typeField: 'friType', timeField: 'friTimeMin', durationField: 'friDurationMin' },
-  { key: 'sat', short: 'S', long: 'saturday',  typeField: 'satType', timeField: 'satTimeMin', durationField: 'satDurationMin' },
-  { key: 'sun', short: 'S', long: 'sunday',    typeField: 'sunType', timeField: 'sunTimeMin', durationField: 'sunDurationMin' },
+  { key: 'mon', short: 'M', long: 'monday',    typeField: 'monType', timeField: 'monTimeMin' },
+  { key: 'tue', short: 'T', long: 'tuesday',   typeField: 'tueType', timeField: 'tueTimeMin' },
+  { key: 'wed', short: 'W', long: 'wednesday', typeField: 'wedType', timeField: 'wedTimeMin' },
+  { key: 'thu', short: 'T', long: 'thursday',  typeField: 'thuType', timeField: 'thuTimeMin' },
+  { key: 'fri', short: 'F', long: 'friday',    typeField: 'friType', timeField: 'friTimeMin' },
+  { key: 'sat', short: 'S', long: 'saturday',  typeField: 'satType', timeField: 'satTimeMin' },
+  { key: 'sun', short: 'S', long: 'sunday',    typeField: 'sunType', timeField: 'sunTimeMin' },
 ];
 
 const LINK_WINDOW_MIN = 15;
@@ -78,6 +74,7 @@ const LINK_WINDOW_STEP = 15;
 export default function WorkoutsSettingsScreen() {
   const router = useRouter();
   const prefs = useWorkoutPreferences();
+  const types = useWorkoutTypes();
   const auth = useHkAuthState(WORKOUT_PERMISSIONS);
   const lastSyncAt = useLastWorkoutSyncAt();
 
@@ -93,9 +90,8 @@ export default function WorkoutsSettingsScreen() {
   const onCommitPlan = (key: WeekdayKey, patch: PlanDayPatch) => {
     const wd = WEEKDAYS.find((w) => w.key === key)!;
     write({
-      [wd.typeField]: patch.typeId,
+      [wd.typeField]: patch.typeKey,
       [wd.timeField]: patch.timeMin,
-      [wd.durationField]: patch.durationMin,
     } as Partial<WorkoutPreferences>);
     setPlanKey(null);
   };
@@ -111,9 +107,12 @@ export default function WorkoutsSettingsScreen() {
   const onToggleAutoImport = () =>
     write({ autoImportHealthKit: !prefs.autoImportHealthKit });
 
-  // Sub-line for the weekly-template section header — counts of each type
-  // family so the page summarises the template at a glance.
-  const templateSummary = summarizeTemplate(prefs);
+  const typeByKey = (k: string | null): WorkoutTypeDef | null =>
+    k === null ? null : types.find((t) => t.key === k) ?? null;
+
+  // Sub-line for the weekly-template section header — counts of each
+  // tone-bucket so the page summarises the template at a glance.
+  const templateSummary = summarizeTemplate(prefs, types);
 
   const planWd = planKey ? WEEKDAYS.find((w) => w.key === planKey)! : null;
 
@@ -126,10 +125,10 @@ export default function WorkoutsSettingsScreen() {
         <Section label="weekly template" sub={templateSummary}>
           <View style={styles.cardList}>
             {WEEKDAYS.map((wd, i) => {
-              const typeId = prefs[wd.typeField] as WorkoutTypeId | null;
+              const typeKey = prefs[wd.typeField] as string | null;
               const timeMin = prefs[wd.timeField] as number | null;
-              const durationMin = prefs[wd.durationField] as number | null;
-              const typeDef = typeId ? workoutTypeById(typeId) : null;
+              const typeDef = typeByKey(typeKey);
+              const totalMin = typeDef ? totalPlannedMinutes(typeDef) : 0;
               return (
                 <Pressable
                   key={wd.key}
@@ -144,7 +143,7 @@ export default function WorkoutsSettingsScreen() {
                   <Text style={[styles.templateDow, textStyles.cap]}>{wd.short}</Text>
                   <View style={styles.templateIcon}>
                     <WorkoutGlyph
-                      typeId={typeId}
+                      icon={typeDef?.icon ?? 'rest'}
                       color={typeDef ? toneColor(typeDef.tone) : tokens.ink4}
                     />
                   </View>
@@ -157,7 +156,7 @@ export default function WorkoutsSettingsScreen() {
                     {typeDef ? typeDef.label : 'Rest'}
                   </Text>
                   <Text style={[styles.templateMeta, textStyles.tnum]}>
-                    {formatRowMeta(timeMin, durationMin, typeDef !== null)}
+                    {formatRowMeta(timeMin, totalMin, typeDef)}
                   </Text>
                 </Pressable>
               );
@@ -168,20 +167,20 @@ export default function WorkoutsSettingsScreen() {
         {/* WORKOUT TYPES */}
         <Section label="workout types" sub="library">
           <View style={styles.cardList}>
-            {WORKOUT_TYPES.map((t, i) => (
+            {types.map((t, i) => (
               <View
-                key={t.id}
+                key={t.key}
                 style={[
                   styles.typeRow,
-                  i < WORKOUT_TYPES.length - 1 && styles.rowBorder,
+                  i < types.length - 1 && styles.rowBorder,
                 ]}>
                 <View style={styles.typeIcon}>
-                  <WorkoutGlyph typeId={t.id} color={toneColor(t.tone)} />
+                  <WorkoutGlyph icon={t.icon} color={toneColor(t.tone)} />
                 </View>
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <Text style={styles.typeName}>{t.label}</Text>
                   <Text style={styles.typeDetail} numberOfLines={1}>
-                    {typeDetail(t)}
+                    {describeStepsForLibrary(t)}
                   </Text>
                 </View>
                 <Glyph name="chev" color={tokens.ink3} />
@@ -212,7 +211,7 @@ export default function WorkoutsSettingsScreen() {
           />
           {auth === 'granted' && (
             <View style={[styles.cardList, { marginTop: 8 }]}>
-              {sourceMappings().map((row, i, arr) => (
+              {sourceMappings(types).map((row, i, arr) => (
                 <View
                   key={row.ah}
                   style={[
@@ -239,9 +238,9 @@ export default function WorkoutsSettingsScreen() {
           <View style={styles.cardList}>
             <View style={styles.ruleRow}>
               <View style={{ flex: 1, minWidth: 0 }}>
-                <Text style={styles.ruleName}>auto-link by time + type</Text>
+                <Text style={styles.ruleName}>auto-link by step sequence</Text>
                 <Text style={styles.ruleSub}>
-                  matches an HK session to a planned slot if within the window below
+                  matches HK sessions to a planned slot when every step is found within the window below
                 </Text>
               </View>
               <View style={styles.ruleOnPill}>
@@ -286,13 +285,10 @@ export default function WorkoutsSettingsScreen() {
         onClose={() => setPlanKey(null)}
         weekdayLong={planWd?.long ?? null}
         initialType={
-          planWd ? (prefs[planWd.typeField] as WorkoutTypeId | null) : null
+          planWd ? (prefs[planWd.typeField] as string | null) : null
         }
         initialTimeMin={
           planWd ? (prefs[planWd.timeField] as number | null) : null
-        }
-        initialDurationMin={
-          planWd ? (prefs[planWd.durationField] as number | null) : null
         }
         onCommit={(patch) => {
           if (planKey) onCommitPlan(planKey, patch);
@@ -352,11 +348,6 @@ function StepperButton({
   );
 }
 
-/**
- * Apple Health section — state-driven copy of weight-settings'.
- * Granted shows the toggle + last-sync; unknown shows a CONNECT CTA;
- * denied / unavailable show their muted hints.
- */
 function AppleHealthSection({
   auth,
   autoImport,
@@ -454,8 +445,6 @@ function Switch({ on, onToggle }: { on: boolean; onToggle: () => void }) {
   );
 }
 
-// ─── Glyphs ────────────────────────────────────────────────────────────────
-
 function HeartGlyph({ color }: { color: string }) {
   return (
     <Svg width={11} height={11} viewBox="0 0 14 14">
@@ -467,67 +456,7 @@ function HeartGlyph({ color }: { color: string }) {
   );
 }
 
-function WorkoutGlyph({
-  typeId,
-  color,
-  size = 14,
-}: {
-  typeId: WorkoutTypeId | null;
-  color: string;
-  size?: number;
-}) {
-  if (typeId === null) {
-    return (
-      <Svg width={size} height={size} viewBox="0 0 14 14">
-        <Path d="M4 7h6" stroke={color} strokeWidth={1.3} strokeLinecap="round" />
-      </Svg>
-    );
-  }
-  if (typeId === 'tennis') {
-    return (
-      <Svg width={size} height={size} viewBox="0 0 14 14">
-        <Ellipse cx={5.5} cy={5.5} rx={3.8} ry={4.2} fill="none" stroke={color} strokeWidth={1.2} />
-        <Line x1={8} y1={8.5} x2={12} y2={12.5} stroke={color} strokeWidth={1.5} strokeLinecap="round" />
-        <Line x1={2.3} y1={5.5} x2={9.3} y2={5.5} stroke={color} strokeWidth={0.6} opacity={0.55} />
-        <Line x1={5.5} y1={1.5} x2={5.5} y2={9.5} stroke={color} strokeWidth={0.6} opacity={0.55} />
-      </Svg>
-    );
-  }
-  if (typeId === 'cardio') {
-    return (
-      <Svg width={size} height={size} viewBox="0 0 14 14">
-        <Circle cx={9} cy={3} r={1.4} fill="none" stroke={color} strokeWidth={1.2} />
-        <Path
-          d="M8.5 5l-2 3 1.5 1.5L7 12M6.5 8L4 9.5M8 7l2 1.5"
-          stroke={color}
-          strokeWidth={1.2}
-          fill="none"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </Svg>
-    );
-  }
-  return (
-    <Svg width={size} height={size} viewBox="0 0 14 14">
-      <Path
-        d="M2 7h10M3.5 5v4M10.5 5v4M5.5 4v6M8.5 4v6"
-        stroke={color}
-        strokeWidth={1.3}
-        strokeLinecap="round"
-      />
-    </Svg>
-  );
-}
-
 // ─── Helpers ───────────────────────────────────────────────────────────────
-
-function toneColor(tone: WorkoutTypeTone): string {
-  if (tone === 'accent') return tokens.accentInk;
-  if (tone === 'cool') return tokens.cool;
-  if (tone === 'mute') return tokens.ink4;
-  return tokens.ink2;
-}
 
 function formatMin(min: number): string {
   const h = Math.floor(min / 60);
@@ -544,55 +473,73 @@ function formatClock(d: Date): string {
 /** Format the right-side meta cell. Rest → em-dash; planned → time · dur. */
 function formatRowMeta(
   timeMin: number | null,
-  durationMin: number | null,
-  hasType: boolean,
+  totalMin: number,
+  typeDef: WorkoutTypeDef | null,
 ): string {
-  if (!hasType) return '—';
-  const parts: string[] = [];
-  if (timeMin !== null) parts.push(formatMin(timeMin));
-  if (durationMin !== null) parts.push(`${durationMin}m`);
-  return parts.length === 0 ? 'set time' : parts.join(' · ');
+  if (!typeDef) return '—';
+  const stepSuffix = typeDef.steps.length > 1 ? ` (${typeDef.steps.length})` : '';
+  if (timeMin !== null) {
+    return `${formatMin(timeMin)} · ${totalMin}m${stepSuffix}`;
+  }
+  return `${totalMin}m${stepSuffix}`;
 }
 
-/** "3 lift · 2 tennis · 2 rest" — count families across the week. */
-function summarizeTemplate(prefs: WorkoutPreferences): string {
+/** "3 lift · 2 tennis · 2 rest" — count tone-bucket across the week. */
+function summarizeTemplate(
+  prefs: WorkoutPreferences,
+  types: ReadonlyArray<WorkoutTypeDef>,
+): string {
+  const byKey = new Map(types.map((t) => [t.key, t] as const));
   let lift = 0;
-  let tennis = 0;
-  let cardio = 0;
+  let accent = 0;
+  let cool = 0;
   let rest = 0;
   for (const wd of WEEKDAYS) {
-    const id = prefs[wd.typeField] as WorkoutTypeId | null;
-    if (id === null) rest++;
-    else if (id === 'tennis') tennis++;
-    else if (id === 'cardio') cardio++;
+    const key = prefs[wd.typeField] as string | null;
+    if (!key) {
+      rest++;
+      continue;
+    }
+    const def = byKey.get(key);
+    if (!def) continue;
+    if (def.tone === 'accent') accent++;
+    else if (def.tone === 'cool') cool++;
     else lift++;
   }
   const parts: string[] = [];
   if (lift) parts.push(`${lift} lift`);
-  if (tennis) parts.push(`${tennis} tennis`);
-  if (cardio) parts.push(`${cardio} cardio`);
+  if (accent) parts.push(`${accent} accent`);
+  if (cool) parts.push(`${cool} cardio`);
   if (rest) parts.push(`${rest} rest`);
   return parts.join(' · ');
 }
 
-/** Per-type subline in the library list. */
-function typeDetail(t: WorkoutTypeDef): string {
-  if (t.id === 'push') return 'bench · ohp · push variations';
-  if (t.id === 'pull') return 'rows · pulldowns · curls';
-  if (t.id === 'legs') return 'squat · hinge · lunge';
-  if (t.id === 'tennis') return 'singles or doubles';
-  return 'walking · running · cycling';
+/** Per-type subline in the library list — the step breakdown. */
+function describeStepsForLibrary(def: WorkoutTypeDef): string {
+  return def.steps
+    .map((s) => `${s.durationMin}m ${humanizeActivity(s.hkActivityKey)}`)
+    .join(' · ');
 }
 
-/** Static mapping rows of HK source → our type. */
-function sourceMappings() {
-  // Group HK candidates by which of our types claim them.
-  const grouped = new Map<string, Set<WorkoutTypeId>>();
-  for (const t of WORKOUT_TYPES) {
-    for (const k of t.hkCandidateKeys) {
-      const set = grouped.get(k) ?? new Set<WorkoutTypeId>();
-      set.add(t.id);
-      grouped.set(k, set);
+function humanizeActivity(hkKey: string): string {
+  return hkKey.replace(/([A-Z])/g, ' $1').toLowerCase().trim();
+}
+
+/**
+ * Static mapping rows of HK source → which type(s) include it as a
+ * candidate. Aggregates across all steps of all types so a step that
+ * accepts `running` shows up under `running → cardio · marathon-prep`
+ * etc.
+ */
+function sourceMappings(types: ReadonlyArray<WorkoutTypeDef>) {
+  const grouped = new Map<string, Set<string>>();
+  for (const t of types) {
+    for (const step of t.steps) {
+      for (const k of step.hkCandidateKeys) {
+        const set = grouped.get(k) ?? new Set<string>();
+        set.add(t.label);
+        grouped.set(k, set);
+      }
     }
   }
   const rows: Array<{ ah: string; maps: string }> = [];
@@ -636,7 +583,6 @@ const styles = StyleSheet.create({
     letterSpacing: 0.36,
   },
 
-  // Card list (shared shell for all sections)
   cardList: {
     backgroundColor: tokens.card,
     borderWidth: 1,
@@ -741,7 +687,7 @@ const styles = StyleSheet.create({
     letterSpacing: 1.71,
   },
 
-  // Apple Health header row
+  // Apple Health
   cardRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -788,7 +734,7 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
 
-  // Apple Health source mapping
+  // Source mapping
   sourceRow: {
     flexDirection: 'row',
     alignItems: 'center',

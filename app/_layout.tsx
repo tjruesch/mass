@@ -24,6 +24,7 @@ import { getPreferences as getFastingPreferences } from '@/src/db/queries/fastin
 import { getPreferences as getWaterPreferences } from '@/src/db/queries/water-preferences';
 import { getPreferences as getWeightPreferences } from '@/src/db/queries/weight-preferences';
 import { getPreferences as getWorkoutPreferences } from '@/src/db/queries/workout-preferences';
+import { seedBuiltinWorkoutTypes } from '@/src/db/queries/workout-types';
 import { useWeightAutoSync } from '@/src/hooks/use-weight-sync';
 import { useWorkoutAutoSync } from '@/src/hooks/use-workout-sync';
 import { tokens } from '@/theme/tokens';
@@ -62,6 +63,9 @@ export default function RootLayout() {
     });
     getWorkoutPreferences().catch((err) => {
       console.warn('Failed to seed workout preferences:', err);
+    });
+    seedBuiltinWorkoutTypes().catch((err) => {
+      console.warn('Failed to seed workout types:', err);
     });
   }, [migrationsReady]);
 

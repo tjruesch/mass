@@ -3,18 +3,19 @@
  * weight + water drawers — pass an `entry` to enter edit mode with a
  * destructive delete action.
  *
- * Sections:
- *   1. type   — 5 chips (push / pull / legs / tennis / cardio)
- *   2. when   — start + end datetime fields, derived duration
- *   3. kcal   — optional decimal input
- *   4. notes  — optional multiline, ≤200 chars
+ * Sections (composite model, #82):
+ *   1. type   — chips per type in the live library
+ *   2. start  — datetime field; end is derived from sum(steps)
+ *   3. kcal   — optional, distributed across steps on save
+ *   4. notes  — optional multiline, ≤200 chars (attached to first step)
  *
- * Create calls `logWorkout` (HK push opportunistic + UUID backfill).
- * Edit calls `updateWorkoutEntry` — no HK propagation in v1 per the
- * same precedent we set with weight (#59).
+ * Create calls `logWorkout({ typeKey, startedAt, kcal, notes })` which
+ * inserts N `workout_entries` + pushes N `saveWorkoutSample` calls.
+ * Edit calls `updateWorkoutEntry` on the single tapped entry — sibling
+ * steps in the same composite are untouched (same precedent as #59).
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   Alert,
   Pressable,
@@ -28,13 +29,10 @@ import {
   deleteWorkoutEntry,
   updateWorkoutEntry,
 } from '@/src/db/queries/workouts';
+import { totalPlannedMinutes } from '@/src/db/queries/workout-types';
 import type { WorkoutEntry } from '@/src/db/schema';
+import { useWorkoutTypes } from '@/src/hooks/use-workout-types';
 import { logWorkout } from '@/src/lib/healthkit/workouts';
-import {
-  WORKOUT_TYPES,
-  workoutTypeById,
-  type WorkoutTypeId,
-} from '@/src/lib/workouts/types';
 import { fonts, textStyles, tokens } from '@/theme/tokens';
 
 import { DateTimeField } from './datetime-field';
@@ -42,7 +40,6 @@ import { Drawer, DrawerSection } from './drawer';
 import { PrimaryButton } from './primary-button';
 
 const NOTES_MAX = 200;
-const DEFAULT_DURATION_MIN = 45;
 
 type Props = {
   open: boolean;
@@ -53,47 +50,47 @@ type Props = {
 
 export function WorkoutLogDrawer({ open, onClose, entry }: Props) {
   const mode: 'create' | 'edit' = entry ? 'edit' : 'create';
+  const types = useWorkoutTypes();
 
-  const [typeId, setTypeId] = useState<WorkoutTypeId>('push');
+  const [typeKey, setTypeKey] = useState<string>('');
   const [startedAt, setStartedAt] = useState<Date>(() => new Date());
-  const [endedAt, setEndedAt] = useState<Date>(() => new Date());
   const [kcalText, setKcalText] = useState<string>('');
   const [notes, setNotes] = useState<string>('');
   const [saving, setSaving] = useState(false);
+
+  const typeDef = types.find((t) => t.key === typeKey) ?? null;
+  const totalMin = typeDef ? totalPlannedMinutes(typeDef) : 0;
 
   useEffect(() => {
     if (!open) return;
     setSaving(false);
     if (entry) {
-      // Reverse-lookup the typeId from the stored HK activity key. Falls
-      // back to 'push' if the HK key isn't in our library (e.g. a workout
-      // imported from a sport we don't classify yet).
-      const candidate = WORKOUT_TYPES.find((t) => t.hkActivityKey === entry.type);
-      setTypeId(candidate?.id ?? 'push');
+      // Reverse-lookup: any type whose first step's HK activity matches.
+      // Falls back to the first library entry — a workout from an unknown
+      // sport still gets a sane default chip.
+      const found = types.find((t) => t.steps.some((s) => s.hkActivityKey === entry.type));
+      setTypeKey(found?.key ?? types[0]?.key ?? '');
       setStartedAt(entry.startedAt);
-      setEndedAt(entry.endedAt);
       setKcalText(entry.kcal != null ? Math.round(entry.kcal).toString() : '');
       setNotes(entry.notes ?? '');
     } else {
-      const end = new Date();
-      const start = new Date(end.getTime() - DEFAULT_DURATION_MIN * 60_000);
-      setTypeId('push');
+      // Default start = now − total planned duration of the seeded first
+      // type. Lets a user "just finished" tap save without changing time.
+      const def = types[0];
+      const defaultMin = def ? totalPlannedMinutes(def) : 45;
+      const start = new Date(Date.now() - defaultMin * 60_000);
+      setTypeKey(def?.key ?? '');
       setStartedAt(start);
-      setEndedAt(end);
       setKcalText('');
       setNotes('');
     }
-  }, [open, entry?.id]);
+  }, [open, entry?.id, types]);
 
-  const durationMin = useMemo(() => {
-    return Math.max(0, Math.round((endedAt.getTime() - startedAt.getTime()) / 60_000));
-  }, [startedAt, endedAt]);
-  const valid = durationMin > 0 && endedAt.getTime() <= Date.now();
-
-  const typeDef = workoutTypeById(typeId);
+  const endedAt = new Date(startedAt.getTime() + totalMin * 60_000);
+  const valid = typeDef !== null && totalMin > 0 && endedAt.getTime() <= Date.now();
 
   const handleSave = useCallback(() => {
-    if (!valid || saving) return;
+    if (!valid || saving || !typeDef) return;
     setSaving(true);
     const kcalParsed = kcalText.trim() === '' ? null : Number.parseFloat(kcalText);
     const kcal = Number.isFinite(kcalParsed) ? kcalParsed : null;
@@ -102,16 +99,20 @@ export function WorkoutLogDrawer({ open, onClose, entry }: Props) {
     const op =
       entry != null
         ? updateWorkoutEntry(entry.id, {
-            type: typeDef.hkActivityKey,
+            // Edit keeps the entry's own HK activity if it matches a step;
+            // otherwise we re-pin to the type's first step's activity so
+            // the linker still sees a coherent type.
+            type:
+              typeDef.steps.find((s) => s.hkActivityKey === entry.type)?.hkActivityKey ??
+              typeDef.steps[0].hkActivityKey,
             startedAt,
             endedAt,
             kcal,
             notes: trimmedNotes === '' ? null : trimmedNotes,
           })
         : logWorkout({
-            typeId,
+            typeKey,
             startedAt,
-            endedAt,
             kcal,
             notes: trimmedNotes === '' ? null : trimmedNotes,
           });
@@ -124,13 +125,13 @@ export function WorkoutLogDrawer({ open, onClose, entry }: Props) {
         );
         setSaving(false);
       });
-  }, [valid, saving, entry, typeId, typeDef, startedAt, endedAt, kcalText, notes, onClose]);
+  }, [valid, saving, entry, typeKey, typeDef, startedAt, endedAt, kcalText, notes, onClose]);
 
   const handleDelete = useCallback(() => {
-    if (saving || !entry) return;
+    if (saving || !entry || !typeDef) return;
     Alert.alert(
       'Delete workout?',
-      `Remove this ${durationMin}-minute ${typeDef.label.toLowerCase()} session? This can't be undone.`,
+      `Remove this ${totalMin}-minute ${typeDef.label.toLowerCase()} session? This can't be undone.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -151,7 +152,7 @@ export function WorkoutLogDrawer({ open, onClose, entry }: Props) {
         },
       ],
     );
-  }, [saving, entry, durationMin, typeDef, onClose]);
+  }, [saving, entry, totalMin, typeDef, onClose]);
 
   return (
     <Drawer
@@ -167,8 +168,8 @@ export function WorkoutLogDrawer({ open, onClose, entry }: Props) {
               : mode === 'edit'
               ? 'save changes'
               : valid
-              ? `save ${durationMin} min · ${typeDef.label.toLowerCase()}`
-              : 'set start + end'
+              ? `save ${totalMin} min · ${typeDef!.label.toLowerCase()}`
+              : 'pick a type + valid time'
           }
           onPress={handleSave}
           disabled={!valid || saving}
@@ -176,12 +177,12 @@ export function WorkoutLogDrawer({ open, onClose, entry }: Props) {
       }>
       <DrawerSection label="type" marginTop={8}>
         <View style={styles.typeRow}>
-          {WORKOUT_TYPES.map((t) => {
-            const active = typeId === t.id;
+          {types.map((t) => {
+            const active = typeKey === t.key;
             return (
               <Pressable
-                key={t.id}
-                onPress={() => setTypeId(t.id)}
+                key={t.key}
+                onPress={() => setTypeKey(t.key)}
                 style={({ pressed }) => [
                   styles.typeChip,
                   active && styles.typeChipActive,
@@ -193,12 +194,19 @@ export function WorkoutLogDrawer({ open, onClose, entry }: Props) {
                     styles.typeChipLabel,
                     active && { color: tokens.bg },
                   ]}>
-                  {t.id}
+                  {t.key}
                 </Text>
               </Pressable>
             );
           })}
         </View>
+        {typeDef && typeDef.steps.length > 1 && (
+          <Text style={styles.stepBreakdown}>
+            {typeDef.steps
+              .map((s) => `${s.durationMin}m ${humanizeActivity(s.hkActivityKey)}`)
+              .join(' · ')}
+          </Text>
+        )}
       </DrawerSection>
 
       <DrawerSection label="when">
@@ -207,15 +215,6 @@ export function WorkoutLogDrawer({ open, onClose, entry }: Props) {
           onChange={setStartedAt}
           label="start"
           title="Start"
-          maximumDate={endedAt}
-        />
-        <View style={{ height: 8 }} />
-        <DateTimeField
-          value={endedAt}
-          onChange={setEndedAt}
-          label="end"
-          title="End"
-          minimumDate={startedAt}
           maximumDate={new Date()}
         />
         <Text
@@ -223,13 +222,11 @@ export function WorkoutLogDrawer({ open, onClose, entry }: Props) {
             styles.durationLine,
             !valid && { color: tokens.warn },
           ]}>
-          duration{' '}
+          ends{' '}
           <Text style={[styles.durationValue, textStyles.tnum]}>
-            {formatDuration(durationMin)}
+            {formatClock(endedAt)}
           </Text>
-          {!valid && endedAt.getTime() <= startedAt.getTime() && (
-            <Text style={styles.durationWarn}> — end before start</Text>
-          )}
+          <Text style={{ color: tokens.ink4 }}> · {formatDuration(totalMin)} total</Text>
           {!valid && endedAt.getTime() > Date.now() && (
             <Text style={styles.durationWarn}> — end is in the future</Text>
           )}
@@ -250,6 +247,11 @@ export function WorkoutLogDrawer({ open, onClose, entry }: Props) {
           />
           <Text style={styles.kcalUnit}>kcal</Text>
         </View>
+        {typeDef && typeDef.steps.length > 1 && kcalText.trim() !== '' && (
+          <Text style={styles.kcalSplitHint}>
+            split across {typeDef.steps.length} steps proportional to duration
+          </Text>
+        )}
       </DrawerSection>
 
       <DrawerSection label="notes · optional">
@@ -288,7 +290,6 @@ export function WorkoutLogDrawer({ open, onClose, entry }: Props) {
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 function sanitizeKcal(s: string): string {
-  // Whole-number kcal — strip everything non-digit. Cap by maxLength.
   return s.replace(/[^0-9]/g, '');
 }
 
@@ -301,16 +302,30 @@ function formatDuration(min: number): string {
   return `${h}h ${m}m`;
 }
 
+function formatClock(d: Date): string {
+  return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+}
+
+function humanizeActivity(hkKey: string): string {
+  // Drops camelCase to plain words. Keeps it short for the inline breakdown.
+  return hkKey
+    .replace(/([A-Z])/g, ' $1')
+    .toLowerCase()
+    .trim();
+}
+
 // ─── Styles ────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  // Type chips — 5 across, equal-width.
+  // Type chips — flex-wrap so dynamic library size doesn't overflow.
   typeRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 6,
   },
   typeChip: {
-    flex: 1,
+    flexGrow: 1,
+    flexBasis: '18%',
     paddingVertical: 10,
     paddingHorizontal: 4,
     borderRadius: 10,
@@ -333,6 +348,14 @@ const styles = StyleSheet.create({
     color: tokens.ink,
     letterSpacing: 0.5,
     textTransform: 'lowercase',
+  },
+  stepBreakdown: {
+    marginTop: 8,
+    fontFamily: fonts.mono,
+    fontSize: 9.5,
+    color: tokens.ink4,
+    fontStyle: 'italic',
+    letterSpacing: 0.38,
   },
 
   durationLine: {
@@ -374,6 +397,14 @@ const styles = StyleSheet.create({
     fontFamily: fonts.mono,
     fontSize: 12,
     color: tokens.ink3,
+  },
+  kcalSplitHint: {
+    marginTop: 6,
+    fontFamily: fonts.mono,
+    fontSize: 9.5,
+    color: tokens.ink4,
+    fontStyle: 'italic',
+    letterSpacing: 0.38,
   },
 
   notesInput: {
