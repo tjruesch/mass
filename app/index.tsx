@@ -462,13 +462,6 @@ export default function HomeScreen() {
   // the bar to its bg track.
   const macroFlexTail = Math.max(0, budgetKcal - macroKcalSum);
 
-  // `left` cell shows protein remaining — the macro that actually
-  // matters to hit. Total grams of all macros remaining can't be
-  // computed coherently across P/C/F with different kcal densities.
-  const proteinLeftG = Math.max(
-    0,
-    mealPrefs.proteinTargetG - today.totalProteinG,
-  );
   const tdeeToShow = mealPrefs.prefs?.tdeeKcal ?? 2400;
   // Actual deficit = TDEE − consumed. Positive while cutting,
   // negative on surplus. Label flips to "surplus" past zero; the
@@ -650,30 +643,9 @@ export default function HomeScreen() {
                 </View>
                 <View style={styles.macrosGrid}>
                   {[
-                    {
-                      k: 'P',
-                      v: formatMacroG(today.totalProteinG),
-                      c: tokens.ink,
-                      italic: false,
-                    },
-                    {
-                      k: 'C',
-                      v: formatMacroG(today.totalCarbsG),
-                      c: tokens.cool,
-                      italic: false,
-                    },
-                    {
-                      k: 'F',
-                      v: formatMacroG(today.totalFatG),
-                      c: tokens.accentInk,
-                      italic: false,
-                    },
-                    {
-                      k: 'left',
-                      v: formatMacroG(proteinLeftG),
-                      c: tokens.ink4,
-                      italic: true,
-                    },
+                    { k: 'P', v: formatMacroG(today.totalProteinG), c: tokens.ink },
+                    { k: 'C', v: formatMacroG(today.totalCarbsG), c: tokens.cool },
+                    { k: 'F', v: formatMacroG(today.totalFatG), c: tokens.accentInk },
                   ].map((m) => (
                     <View key={m.k} style={styles.macroCell}>
                       <Text
@@ -682,8 +654,7 @@ export default function HomeScreen() {
                           fontSize: 12,
                           color: m.c,
                           letterSpacing: 1.92,
-                          textTransform: m.italic ? 'lowercase' : 'uppercase',
-                          fontStyle: m.italic ? 'italic' : 'normal',
+                          textTransform: 'uppercase',
                         }}>
                         {m.k}
                       </Text>
