@@ -493,7 +493,6 @@ export default function HomeScreen() {
                       swatch={tokens.cool}
                       label="h2o"
                       value={waterValueLabel}
-                      unit="L"
                       target={waterTargetLabel}
                       pct={waterPctLabel}
                     />
@@ -505,7 +504,6 @@ export default function HomeScreen() {
                 swatch={tokens.accentInk}
                 label="move"
                 value={moveValueLabel}
-                unit="kcal"
                 target={moveTargetLabel}
                 pct={movePctLabel}
               />
