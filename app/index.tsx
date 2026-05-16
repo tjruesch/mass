@@ -528,6 +528,13 @@ export default function HomeScreen() {
               → workouts (temp)
             </Text>
           </Pressable>
+          <Pressable
+            onPress={() => router.push('/pantry' as never)}
+            style={({ pressed }) => pressed && { opacity: 0.6 }}>
+            <Text style={[styles.tempWeightLinkText, textStyles.cap]}>
+              → pantry (temp)
+            </Text>
+          </Pressable>
         </View>
 
         {/* ── 3. Fasting card ───────────────────────────────────── */}
