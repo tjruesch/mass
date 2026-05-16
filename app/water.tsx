@@ -674,16 +674,16 @@ const styles = StyleSheet.create({
   },
   bigNumberUnit: {
     fontFamily: fonts.mono,
-    fontSize: 16,
+    fontSize: 13,
     color: tokens.ink3,
   },
 
   subline: {
     fontFamily: fonts.mono,
-    fontSize: 13,
+    fontSize: 12,
     color: tokens.ink3,
-    marginTop: 6,
-    letterSpacing: 0.52,
+    marginTop: 5,
+    letterSpacing: 0.48,
   },
   sublineStrong: {
     color: tokens.ink,
@@ -707,13 +707,13 @@ const styles = StyleSheet.create({
   },
   statLabel: {
     fontFamily: fonts.mono,
-    fontSize: 11,
+    fontSize: 10,
     color: tokens.ink4,
-    letterSpacing: 1.92,
+    letterSpacing: 1.8,
   },
   statValue: {
     fontFamily: fonts.monoMedium,
-    fontSize: 13,
+    fontSize: 12,
     color: tokens.ink,
   },
   statValueMuted: {
@@ -759,20 +759,20 @@ const styles = StyleSheet.create({
   },
   quickAddTileValue: {
     fontFamily: fonts.monoSemibold,
-    fontSize: 17,
+    fontSize: 15,
     color: tokens.ink,
-    letterSpacing: -0.17,
+    letterSpacing: -0.15,
   },
   quickAddTileUnit: {
     fontFamily: fonts.mono,
-    fontSize: 11,
+    fontSize: 10,
     color: tokens.ink4,
   },
   quickAddTileSub: {
     fontFamily: fonts.mono,
-    fontSize: 11,
+    fontSize: 10,
     color: tokens.ink4,
-    letterSpacing: 1.76,
+    letterSpacing: 1.6,
   },
   quickAddPlus: {
     width: 44,
@@ -829,17 +829,17 @@ const styles = StyleSheet.create({
   },
   logTime: {
     fontFamily: fonts.mono,
-    fontSize: 13,
+    fontSize: 12,
     color: tokens.ink3,
-    letterSpacing: 0.52,
-    width: 60,
+    letterSpacing: 0.48,
+    width: 56,
   },
   logKind: {
     flex: 1,
     fontFamily: fonts.mono,
-    fontSize: 12,
+    fontSize: 11,
     color: tokens.ink4,
-    letterSpacing: 2.16,
+    letterSpacing: 1.98,
     textTransform: 'uppercase',
   },
   logKindTea: {
@@ -853,12 +853,12 @@ const styles = StyleSheet.create({
   },
   logMl: {
     fontFamily: fonts.monoSemibold,
-    fontSize: 16,
+    fontSize: 14,
     color: tokens.ink,
   },
   logMlUnit: {
     fontFamily: fonts.mono,
-    fontSize: 12,
+    fontSize: 11,
     color: tokens.ink4,
   },
 
@@ -875,7 +875,7 @@ const styles = StyleSheet.create({
   },
   streakMeta: {
     fontFamily: fonts.mono,
-    fontSize: 12,
+    fontSize: 11,
     color: tokens.ink3,
   },
   streakMetaStrong: {
@@ -893,9 +893,9 @@ const styles = StyleSheet.create({
   },
   streakLegendEdge: {
     fontFamily: fonts.mono,
-    fontSize: 11,
+    fontSize: 10,
     color: tokens.ink4,
-    letterSpacing: 1.76,
+    letterSpacing: 1.6,
     textTransform: 'uppercase',
   },
   streakLegendKey: {
@@ -905,7 +905,7 @@ const styles = StyleSheet.create({
   },
   streakLegendWord: {
     fontFamily: fonts.mono,
-    fontSize: 11,
+    fontSize: 10,
     color: tokens.ink4,
   },
 });
