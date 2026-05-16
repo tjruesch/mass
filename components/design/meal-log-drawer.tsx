@@ -44,6 +44,7 @@ import {
   updateMeal,
   type MealItemInput,
 } from '@/src/db/queries/meals';
+import { getPlanEntry } from '@/src/db/queries/meal-plan';
 import { useLibraryMeals, useTodayMeals, slotForHour, type MealSlot, MEAL_SLOTS } from '@/src/hooks/use-meals';
 import { fonts, textStyles, tokens } from '@/theme/tokens';
 
@@ -131,13 +132,30 @@ export function MealLogDrawer({
     setCarbsText('');
     setFatText('');
     setPortion(1);
-    setSlot(initialSlot ?? pickDefaultSlot(now, today.bySlot));
+    const initialSlotPick = initialSlot ?? pickDefaultSlot(now, today.bySlot);
+    setSlot(initialSlotPick);
     setEatenAt(now);
     setNotes('');
     setSaving(false);
 
     setEditBase(null);
-    if (editingMealId === undefined) return;
+    if (editingMealId === undefined) {
+      // Create mode — best-effort prefill from the plan for today's
+      // (date, slot). Falls back to the existing one-off blank state
+      // when no plan exists or the lookup fails.
+      let cancelled = false;
+      getPlanEntry(now, initialSlotPick)
+        .then((entry) => {
+          if (cancelled || entry === null) return;
+          setSelection({ kind: 'library', id: entry.mealId });
+        })
+        .catch((err) => {
+          console.warn('[meal-log] plan lookup failed:', err);
+        });
+      return () => {
+        cancelled = true;
+      };
+    }
     setHydrating(true);
     let cancelled = false;
     getMealById(editingMealId)

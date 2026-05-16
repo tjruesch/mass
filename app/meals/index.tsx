@@ -41,6 +41,7 @@ import Svg, { G, Path, Rect } from 'react-native-svg';
 import { Glyph, MealLogDrawer, SubHeader, TabBar } from '@/components/design';
 import type { Meal } from '@/src/db/schema';
 import { useMealPreferences } from '@/src/hooks/use-meal-preferences';
+import { useWeekPlan, type WeekPlanEntry } from '@/src/hooks/use-meal-plan';
 import {
   MEAL_SLOTS,
   useLastNDaysKcal,
@@ -76,12 +77,14 @@ export default function MealsScreen() {
   const library = useLibraryMeals();
   const mealPrefs = useMealPreferences();
   const last7 = useLastNDaysKcal(7);
+  const plan = useWeekPlan();
 
   const todayDow = dowMondayFirst(new Date());
   const [selectedDow, setSelectedDow] = useState<number>(todayDow);
 
   const today = week.days[todayDow]!;
   const selectedDay = week.days[selectedDow]!;
+  const selectedPlan = plan.bySlot[selectedDow] ?? {};
   const budgetKcal = mealPrefs.budgetKcal;
   const tdeeKcal = mealPrefs.prefs?.tdeeKcal ?? 2400;
 
@@ -147,17 +150,30 @@ export default function MealsScreen() {
           back="Home"
           onBack={() => router.back()}
           trailing={
-            <Pressable
-              onPress={() => router.push('/meals-settings' as never)}
-              hitSlop={8}
-              accessibilityRole="button"
-              accessibilityLabel="Meal settings"
-              style={({ pressed }) => [
-                styles.cogBtn,
-                pressed && { opacity: 0.65 },
-              ]}>
-              <Glyph name="cog" color={tokens.ink} size={14} />
-            </Pressable>
+            <View style={styles.headerActions}>
+              <Pressable
+                onPress={() => router.push('/meals-plan' as never)}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel="Edit week plan"
+                style={({ pressed }) => [
+                  styles.planLink,
+                  pressed && { opacity: 0.55 },
+                ]}>
+                <Text style={[styles.planLinkText, textStyles.cap]}>plan</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => router.push('/meals-settings' as never)}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel="Meal settings"
+                style={({ pressed }) => [
+                  styles.cogBtn,
+                  pressed && { opacity: 0.65 },
+                ]}>
+                <Glyph name="cog" color={tokens.ink} size={14} />
+              </Pressable>
+            </View>
           }
         />
 
@@ -337,6 +353,7 @@ export default function MealsScreen() {
                 key={slot}
                 slot={slot}
                 meals={selectedDay.bySlot[slot]}
+                plan={selectedPlan[slot]}
                 canLog={selectedDow === todayDow}
                 onLog={() => openDrawerForSlot(slot)}
                 onEditMeal={openDrawerForEdit}
@@ -377,12 +394,17 @@ export default function MealsScreen() {
 function SlotCard({
   slot,
   meals,
+  plan,
   canLog,
   onLog,
   onEditMeal,
 }: {
   slot: MealSlot;
   meals: ReadonlyArray<Meal>;
+  /** Planned library meal for (date, slot), if any. Renders as a
+   *  ghost card with a 'log as planned' affordance when nothing is
+   *  logged yet. Ignored once a meal has been logged for the slot. */
+  plan: WeekPlanEntry | undefined;
   canLog: boolean;
   onLog: () => void;
   /** Tap handler for a populated slot — opens the drawer in edit
@@ -390,6 +412,47 @@ function SlotCard({
   onEditMeal: (mealId: number) => void;
 }) {
   if (meals.length === 0) {
+    if (plan !== undefined) {
+      // Ghost-planned card. Past days fall through the canLog check
+      // and become read-only "missed" plans.
+      return (
+        <Pressable
+          onPress={canLog ? onLog : undefined}
+          accessibilityRole="button"
+          accessibilityLabel={`${slot} planned · ${plan.meal.name ?? 'meal'}`}
+          style={({ pressed }) => [
+            styles.slotCard,
+            styles.slotCardPlanned,
+            !canLog && { opacity: 0.6 },
+            pressed && canLog && { opacity: 0.75 },
+          ]}>
+          <View style={styles.slotInner}>
+            <View style={styles.slotBody}>
+              <Text style={[styles.slotKicker, textStyles.cap]}>
+                {SLOT_LABEL[slot]}
+                <Text style={styles.slotKickerDot}>{'  ·  planned'}</Text>
+              </Text>
+              <Text numberOfLines={1} style={styles.slotMealName}>
+                {plan.meal.name ?? 'Meal'}
+              </Text>
+              <Text style={[styles.slotMacroLine, textStyles.tnum]}>
+                <Text style={styles.slotMacroNum}>
+                  {Math.round(plan.meal.kcal ?? 0)}
+                </Text>
+                <Text style={styles.slotMacroUnit}> kcal</Text>
+              </Text>
+            </View>
+            {canLog && (
+              <View style={styles.slotPlannedCta}>
+                <Text style={[styles.slotPlannedCtaText, textStyles.cap]}>
+                  log
+                </Text>
+              </View>
+            )}
+          </View>
+        </Pressable>
+      );
+    }
     if (!canLog) {
       return (
         <View style={[styles.slotCard, styles.slotCardPast]}>
@@ -682,6 +745,20 @@ const styles = StyleSheet.create({
     shadowRadius: 24,
     shadowOpacity: 0.04,
   },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  planLink: {
+    paddingVertical: 4,
+  },
+  planLinkText: {
+    fontFamily: fonts.monoSemibold,
+    fontSize: 11,
+    color: tokens.accentInk,
+    letterSpacing: 1.98,
+  },
   cogBtn: {
     width: 30,
     height: 30,
@@ -931,6 +1008,26 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 1 },
     shadowRadius: 3,
     shadowOpacity: 0.02,
+  },
+  slotCardPlanned: {
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    backgroundColor: tokens.bg,
+    borderWidth: 1,
+    borderColor: tokens.line2,
+    borderStyle: 'dashed',
+  },
+  slotPlannedCta: {
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    borderRadius: 999,
+    backgroundColor: tokens.ink,
+  },
+  slotPlannedCtaText: {
+    fontFamily: fonts.monoSemibold,
+    fontSize: 10,
+    color: tokens.bg,
+    letterSpacing: 1.8,
   },
   slotHeadRow: {
     flexDirection: 'row',

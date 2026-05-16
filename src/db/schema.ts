@@ -143,6 +143,44 @@ export const meals = sqliteTable('meals', {
   createdAt: createdAt(),
 });
 
+// ─── Meal plan (#95) ──────────────────────────────────────────────────────────
+/**
+ * One row per (date, slot) the user has planned a library meal for.
+ * `dateKey` is a local-calendar `YYYY-MM-DD` string so day-keyed queries
+ * stay timezone-stable (we never want yesterday's plan showing up
+ * today because the user crossed midnight in a different zone).
+ *
+ * `mealId` always references a library meal (eatenAt IS NULL). When
+ * the user logs a meal, we DO NOT delete the plan entry — the slot
+ * keeps its plan + adds a logged meal alongside; /meals decides which
+ * to render based on what exists for the slot.
+ */
+export const mealPlan = sqliteTable(
+  'meal_plan',
+  {
+    id: id(),
+    /** Local-calendar 'YYYY-MM-DD'. Matches what `ymd()` in lib/time emits. */
+    dateKey: text('date_key').notNull(),
+    /** 'breakfast' | 'lunch' | 'dinner' | 'snack' — closed at the app
+     *  layer (MEAL_SLOTS). Free text on the column to skip a migration
+     *  if we ever add new slot ids. */
+    slot: text('slot').notNull(),
+    /** Library meal id (meals.eatenAt IS NULL). On delete of the
+     *  library meal, the plan entry follows. */
+    mealId: integer('meal_id')
+      .notNull()
+      .references(() => meals.id, { onDelete: 'cascade' }),
+    createdAt: createdAt(),
+  },
+  (t) => ({
+    /** One plan per (day, slot). Replacing the plan UPSERTs against this. */
+    uniqDaySlot: uniqueIndex('meal_plan_day_slot_unique').on(
+      t.dateKey,
+      t.slot,
+    ),
+  }),
+);
+
 export const mealItems = sqliteTable('meal_items', {
   id: id(),
   mealId: integer('meal_id')
@@ -518,6 +556,9 @@ export type NewFastingPreferences = typeof fastingPreferences.$inferInsert;
 
 export type MealPreferences = typeof mealPreferences.$inferSelect;
 export type NewMealPreferences = typeof mealPreferences.$inferInsert;
+
+export type MealPlanEntry = typeof mealPlan.$inferSelect;
+export type NewMealPlanEntry = typeof mealPlan.$inferInsert;
 
 export type WaterPreferences = typeof waterPreferences.$inferSelect;
 export type NewWaterPreferences = typeof waterPreferences.$inferInsert;
