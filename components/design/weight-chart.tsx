@@ -90,10 +90,7 @@ export function WeightChart({ history, prefs, width, height, range }: Props) {
   let endDate: Date;
   if (mode.mode === 'window') {
     startDate = addDays(today, -(mode.days - 1));
-    // Window is strictly look-back; never extend the x-axis past today
-    // even when a future target exists. Goal-pursuit projection is
-    // goal-mode's job.
-    endDate = today;
+    endDate = targetDate && targetDate.getTime() > today.getTime() ? targetDate : today;
   } else {
     startDate = trajectoryAnchorDate;
     endDate = targetDate ?? addDays(startDate, 28);
