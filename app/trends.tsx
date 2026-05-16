@@ -22,7 +22,7 @@ import {
   View,
 } from 'react-native';
 
-import Svg, { G, Line, Rect } from 'react-native-svg';
+import Svg, { G, Line, Rect, Text as SvgText } from 'react-native-svg';
 
 import { Glyph, TabBar } from '@/components/design';
 import { useCombinedStreak } from '@/src/hooks/use-combined-streak';
@@ -96,14 +96,19 @@ function formatClockTime(d: Date): string {
   return `${h}:${m}`;
 }
 
-// Mon→Sun delta bars. Each bar = MA(day) − MA(day - 1). Scale adapts
-// to the week's largest swing with a tiny 0.1 kg floor so flat weeks
-// don't divide by zero. Bars above midline = gain (warn terracotta),
-// below = loss (forest green). Days in the future render as a
-// midline tick — same treatment as missing-data days. Today's bar
-// is full opacity; prior days are dimmed.
-const DELTA_BAR_CHART_H = 96;
-const DELTA_BAR_MIN_SCALE_KG = 0.1;
+// Mon→Sun delta bars. Each bar = today's latest weigh-in minus the
+// most-recent weigh-in before today (regardless of which week that
+// fell on). Raw-entry math is noisier than MA but more intuitive —
+// "you weighed 0.2 kg less than last time" beats "your 7-day MA
+// shifted 0.05 kg". Bars above midline = gain (warn terracotta),
+// below = loss (forest green). Future + no-entry days render as a
+// midline placeholder so the row still reads as the week.
+//
+// Scale = max abs delta in the week (no floor); a flat week shows
+// the midline only. The numeric kg delta is rendered above each
+// real bar so a 0.05 kg bar that maps to a thin sliver still
+// communicates the actual value.
+const DELTA_BAR_CHART_H = 120;
 const DAYS_IN_WEEK = 7;
 const DOW_LABELS_MON_FIRST = [
   'mon',
@@ -339,55 +344,59 @@ function formatOne(n: number): string {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 7-day MA deltas. For each of the last 7 calendar days, evaluate
-// the trailing 7-day MA at that day and subtract the prior day's
-// MA. Returns 7 points even with sparse logging (null `delta` when
-// either side's window is empty).
+// Mon-Sun raw weigh-in deltas. For each day in the current week we
+// take the latest weigh-in that fell on that day and subtract the
+// most-recent weigh-in strictly before the day's start. The prior
+// entry can live outside the week — e.g. weighing every Sunday
+// gives a Sun bar comparing to last Sunday's entry.
 // ─────────────────────────────────────────────────────────────────────────────
-const MA_WINDOW_MS = 7 * 24 * 3_600_000;
-
-function maAt(
-  entries: ReadonlyArray<{ at: Date; kg: number }>,
-  atTime: number,
-): number | null {
-  const windowStart = atTime - MA_WINDOW_MS;
-  let sum = 0;
-  let count = 0;
-  for (const e of entries) {
-    const t = e.at.getTime();
-    if (t > atTime) break;
-    if (t < windowStart) continue;
-    sum += e.kg;
-    count++;
-  }
-  return count > 0 ? sum / count : null;
-}
-
 function buildWeightDeltas(
   points: ReturnType<typeof useWeightHistory>['points'],
   now: Date,
 ): ReadonlyArray<DeltaPoint> {
-  // Flatten to raw entries; useWeightHistory sorts ascending already.
-  const entries = points.map((p) => p.entry);
+  const entries = points.map((p) => p.entry); // already asc-sorted
   const todayStart = startOfDay(now);
-  // Walk from Monday of the current week through Sunday so the chart
-  // always reads as "this week" — the rest of the app uses the same
-  // Monday-first convention.
+  // Monday-first week — app-wide convention.
   const weekStart = addDays(todayStart, -dowMondayFirst(todayStart));
   const out: DeltaPoint[] = [];
+
   for (let i = 0; i < DAYS_IN_WEEK; i++) {
     const day = addDays(weekStart, i);
+    const dayEnd = addDays(day, 1);
     const isFuture = day.getTime() > todayStart.getTime();
     if (isFuture) {
       out.push({ date: day, delta: null, future: true });
       continue;
     }
-    const prev = addDays(day, -1);
-    const a = maAt(entries, prev.getTime());
-    const b = maAt(entries, day.getTime());
+
+    // Latest entry on this calendar day.
+    let dayEntry: { at: Date; kg: number } | null = null;
+    for (const e of entries) {
+      if (
+        e.at.getTime() >= day.getTime() &&
+        e.at.getTime() < dayEnd.getTime()
+      ) {
+        // entries is asc-sorted, so the last match wins.
+        dayEntry = e;
+      }
+    }
+    if (dayEntry === null) {
+      out.push({ date: day, delta: null, future: false });
+      continue;
+    }
+    // Most-recent entry strictly before this day's start.
+    let priorEntry: { at: Date; kg: number } | null = null;
+    for (const e of entries) {
+      if (e.at.getTime() < day.getTime()) priorEntry = e;
+      else break;
+    }
+    if (priorEntry === null) {
+      out.push({ date: day, delta: null, future: false });
+      continue;
+    }
     out.push({
       date: day,
-      delta: a !== null && b !== null ? b - a : null,
+      delta: dayEntry.kg - priorEntry.kg,
       future: false,
     });
   }
@@ -403,31 +412,29 @@ function buildWeightDeltas(
 function DeltaBarChart({ deltas }: { deltas: ReadonlyArray<DeltaPoint> }) {
   const w = 290; // matches the card inner width (22+12 padding × 2 off 346)
   const h = DELTA_BAR_CHART_H;
-  const padT = 8;
-  const padB = 20;
+  const padT = 18; // headroom for the numeric label above the bar
+  const padB = 22;
   const padL = 4;
   const padR = 4;
   const innerW = w - padL - padR;
   const innerH = h - padT - padB;
   const midY = padT + innerH / 2;
 
-  // Scale to the week's actual max so a 0.15 kg day uses the full
-  // half-height of the chart. Tiny floor prevents divide-by-zero on
-  // a perfectly flat week.
-  const maxAbs = Math.max(
-    DELTA_BAR_MIN_SCALE_KG,
+  // Pure adaptive scale — the week's largest swing always uses the
+  // full half-height. A flat week renders as the midline only, which
+  // is honest: nothing changed.
+  const weekMax = Math.max(
+    0,
     ...deltas.map((d) => (d.delta === null ? 0 : Math.abs(d.delta))),
   );
 
   const slot = innerW / deltas.length;
-  const barW = Math.max(12, slot - 6);
+  const barW = Math.max(14, slot - 6);
 
-  // todayDow within the Mon-Sun array — gives us "the last bar with
-  // real data" instead of "the last bar in the array" so dow labels
-  // and today highlighting stay correct on a Wednesday view.
-  const todayIdx = deltas.findIndex((d) => d.future) - 1;
-  const todayDow =
-    todayIdx >= 0 ? todayIdx : deltas.length - 1; // Sunday-of-this-week is today
+  // todayDow within the Mon-Sun array — the first `future` index − 1.
+  // When today is Sunday, no day is future, so the last slot wins.
+  const futureIdx = deltas.findIndex((d) => d.future);
+  const todayDow = futureIdx === -1 ? deltas.length - 1 : futureIdx - 1;
 
   const anyData = deltas.some((d) => d.delta !== null);
   if (!anyData) {
@@ -472,22 +479,34 @@ function DeltaBarChart({ deltas }: { deltas: ReadonlyArray<DeltaPoint> }) {
                 />
               );
             }
-            const magnitude = Math.abs(d.delta) / maxAbs;
-            const barH = magnitude * (innerH / 2);
             const isGain = d.delta > 0;
+            const magnitude = weekMax > 0 ? Math.abs(d.delta) / weekMax : 0;
+            const barH = Math.max(3, magnitude * (innerH / 2));
             const y = isGain ? midY - barH : midY;
             const isToday = i === todayDow;
+            const labelY = isGain ? y - 5 : y + barH + 11;
             return (
-              <Rect
-                key={i}
-                x={x}
-                y={y}
-                width={barW}
-                height={Math.max(2, barH)}
-                rx={2}
-                fill={isGain ? tokens.warn : '#1F7A3A'}
-                opacity={isToday ? 1 : 0.6}
-              />
+              <G key={i}>
+                <Rect
+                  x={x}
+                  y={y}
+                  width={barW}
+                  height={barH}
+                  rx={2}
+                  fill={isGain ? tokens.warn : '#1F7A3A'}
+                  opacity={isToday ? 1 : 0.6}
+                />
+                <SvgText
+                  x={cx}
+                  y={labelY}
+                  fontSize={9}
+                  fontFamily={fonts.monoSemibold}
+                  fill={isGain ? tokens.warn : '#1F7A3A'}
+                  opacity={isToday ? 1 : 0.75}
+                  textAnchor="middle">
+                  {formatDelta(d.delta)}
+                </SvgText>
+              </G>
             );
           })}
         </G>
@@ -510,6 +529,15 @@ function DeltaBarChart({ deltas }: { deltas: ReadonlyArray<DeltaPoint> }) {
       </View>
     </View>
   );
+}
+
+function formatDelta(kg: number): string {
+  const sign = kg > 0 ? '+' : kg < 0 ? '−' : '';
+  const abs = Math.abs(kg);
+  // Compact: 1-decimal when ≥ 0.1, 2-decimal otherwise so 0.05 still
+  // renders as "−0.05" instead of "0.0".
+  const value = abs >= 0.1 ? abs.toFixed(1) : abs.toFixed(2);
+  return `${sign}${value}`;
 }
 
 const styles = StyleSheet.create({
@@ -726,7 +754,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   weightHeroNumber: {
-    fontFamily: fonts.sansSemibold,
+    fontFamily: fonts.monoSemibold,
     fontSize: 30,
     color: tokens.ink,
     letterSpacing: -1.05,
