@@ -36,21 +36,41 @@ import {
   Text,
   View,
 } from 'react-native';
-import Svg, { Path } from 'react-native-svg';
+import Svg, { G, Path, Rect } from 'react-native-svg';
 
 import { Glyph, MealLogDrawer, SubHeader, TabBar } from '@/components/design';
 import type { Meal } from '@/src/db/schema';
+import { useMealPreferences } from '@/src/hooks/use-meal-preferences';
 import {
   MEAL_SLOTS,
+  useLastNDaysKcal,
   useLibraryMeals,
   useThisWeekMeals,
   type DayMeals,
   type MealSlot,
 } from '@/src/hooks/use-meals';
 import { dowMondayFirst } from '@/src/lib/time';
+import { pace, type PaceState } from '@/src/lib/meal-budget';
 import { fonts, textStyles, tokens } from '@/theme/tokens';
 
-const KCAL_BUDGET_PLACEHOLDER = 1820;
+// Pace pill palette — mirrors the design source (green when on-pace,
+// amber-ish when behind, terracotta when over).
+const PACE_COLORS: Record<
+  PaceState,
+  { fg: string; bg: string; label: string }
+> = {
+  'on-pace': {
+    fg: '#1F7A3A',
+    bg: 'rgba(31,122,58,0.10)',
+    label: 'on pace',
+  },
+  behind: {
+    fg: '#A07A2A',
+    bg: 'rgba(192,138,40,0.10)',
+    label: 'behind',
+  },
+  over: { fg: tokens.warn, bg: 'rgba(180,90,30,0.10)', label: 'over' },
+};
 
 const DOW_LABELS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'] as const;
 const DAY_NAMES = [
@@ -74,12 +94,28 @@ export default function MealsScreen() {
   const router = useRouter();
   const week = useThisWeekMeals();
   const library = useLibraryMeals();
+  const mealPrefs = useMealPreferences();
+  const last7 = useLastNDaysKcal(7);
 
   const todayDow = dowMondayFirst(new Date());
   const [selectedDow, setSelectedDow] = useState<number>(todayDow);
 
   const today = week.days[todayDow]!;
   const selectedDay = week.days[selectedDow]!;
+  const budgetKcal = mealPrefs.budgetKcal;
+  const tdeeKcal = mealPrefs.prefs?.tdeeKcal ?? 2400;
+  const paceState = pace(today.totalKcal, budgetKcal);
+  const pacePalette = PACE_COLORS[paceState];
+
+  // Rolling 7-day deficit. Positive = cut (under budget on avg);
+  // negative = surplus.
+  const sevenDayDeficit = useMemo(
+    () =>
+      last7.reduce((acc, d) => acc + (budgetKcal - d.kcal), 0),
+    [last7, budgetKcal],
+  );
+  // 7700 kcal ≈ 1 kg of body fat. Used to project the weight impact.
+  const sevenDayKgEquivalent = sevenDayDeficit / 7700;
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerSlot, setDrawerSlot] = useState<MealSlot | undefined>(undefined);
@@ -89,25 +125,34 @@ export default function MealsScreen() {
   }, []);
   const closeDrawer = useCallback(() => setDrawerOpen(false), []);
 
-  const remaining = Math.max(0, KCAL_BUDGET_PLACEHOLDER - today.totalKcal);
+  const remaining = Math.max(0, budgetKcal - today.totalKcal);
   const consumedPct =
-    KCAL_BUDGET_PLACEHOLDER > 0
-      ? Math.min(1, today.totalKcal / KCAL_BUDGET_PLACEHOLDER)
-      : 0;
-  const overBudget = today.totalKcal > KCAL_BUDGET_PLACEHOLDER;
-
-  const avgKcalPerActiveDay = useMemo(() => {
-    return week.daysWithMeals > 0
-      ? Math.round(week.weekKcal / week.daysWithMeals)
-      : 0;
-  }, [week.weekKcal, week.daysWithMeals]);
+    budgetKcal > 0 ? Math.min(1, today.totalKcal / budgetKcal) : 0;
+  const overBudget = today.totalKcal > budgetKcal;
 
   return (
     <View style={{ flex: 1, backgroundColor: tokens.bg }}>
       <ScrollView
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}>
-        <SubHeader title="Meals" back="Home" onBack={() => router.back()} />
+        <SubHeader
+          title="Meals"
+          back="Home"
+          onBack={() => router.back()}
+          trailing={
+            <Pressable
+              onPress={() => router.push('/meals-settings' as never)}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel="Meal settings"
+              style={({ pressed }) => [
+                styles.cogBtn,
+                pressed && { opacity: 0.65 },
+              ]}>
+              <Glyph name="cog" color={tokens.ink} size={14} />
+            </Pressable>
+          }
+        />
 
         {/* ── Hero: today's energy budget ─────────────────────────────── */}
         <View style={styles.heroOuter}>
@@ -116,17 +161,46 @@ export default function MealsScreen() {
               <Text style={[styles.kicker, textStyles.cap]}>
                 today · energy
               </Text>
-              {/* `on pace` pill skipped — needs Slice 6 budget pacing. */}
+              <View
+                style={[
+                  styles.pacePill,
+                  { backgroundColor: pacePalette.bg },
+                ]}>
+                <View
+                  style={[
+                    styles.pacePillDot,
+                    { backgroundColor: pacePalette.fg },
+                  ]}
+                />
+                <Text
+                  style={[
+                    styles.pacePillText,
+                    textStyles.cap,
+                    { color: pacePalette.fg },
+                  ]}>
+                  {pacePalette.label}
+                </Text>
+              </View>
             </View>
-            <View style={styles.heroNumberRow}>
-              <Text style={[styles.heroNumber, textStyles.tnum]}>
-                {overBudget
-                  ? Math.round(today.totalKcal - KCAL_BUDGET_PLACEHOLDER)
-                  : Math.round(remaining)}
-              </Text>
-              <Text style={styles.heroNumberUnit}>
-                kcal {overBudget ? 'over' : 'left'}
-              </Text>
+            <View style={styles.heroBigRow}>
+              <View style={styles.heroNumberRow}>
+                <Text style={[styles.heroNumber, textStyles.tnum]}>
+                  {overBudget
+                    ? Math.round(today.totalKcal - budgetKcal)
+                    : Math.round(remaining)}
+                </Text>
+                <Text style={styles.heroNumberUnit}>
+                  kcal {overBudget ? 'over' : 'left'}
+                </Text>
+              </View>
+              <View style={{ alignItems: 'flex-end' }}>
+                <Text style={[styles.kickerSmall, textStyles.cap]}>
+                  deficit
+                </Text>
+                <Text style={[styles.heroDeficit, textStyles.tnum]}>
+                  {formatSignedKcal(mealPrefs.deficitKcal)}
+                </Text>
+              </View>
             </View>
 
             <View style={styles.progressTrack}>
@@ -144,18 +218,33 @@ export default function MealsScreen() {
                   {Math.round(today.totalKcal)}
                 </Text>
                 <Text style={styles.heroSubMute}> of </Text>
-                <Text style={styles.heroSubStrong}>
-                  {KCAL_BUDGET_PLACEHOLDER}
-                </Text>
+                <Text style={styles.heroSubStrong}>{budgetKcal}</Text>
                 <Text style={styles.heroSubMute}> · budget</Text>
               </Text>
               <Text style={styles.heroSubRight}>
-                <Text style={styles.heroSubMute}>μ </Text>
+                <Text style={styles.heroSubMute}>tdee </Text>
                 <Text style={[styles.heroSubStrong, textStyles.tnum]}>
-                  {avgKcalPerActiveDay}
+                  {tdeeKcal}
                 </Text>
-                <Text style={styles.heroSubMute}> kcal/day</Text>
               </Text>
+            </View>
+
+            {/* 7d deficit row */}
+            <View style={styles.sevenDayRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.kickerSmall, textStyles.cap]}>
+                  7d deficit
+                </Text>
+                <Text style={[styles.sevenDayValue, textStyles.tnum]}>
+                  {formatSignedKcalLong(sevenDayDeficit)}
+                  <Text style={styles.heroSubMute}> kcal </Text>
+                  <Text style={styles.heroSubMute}>≈ </Text>
+                  <Text style={styles.heroSubStrong}>
+                    {formatKgDelta(sevenDayKgEquivalent)}
+                  </Text>
+                </Text>
+              </View>
+              <SevenDayBars days={last7} budgetKcal={budgetKcal} />
             </View>
           </View>
         </View>
@@ -458,7 +547,73 @@ function LibraryStrip({
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// SevenDayBars — 7 bars sized by per-day deficit magnitude. Today's
+// bar uses the accent ink so the rolling view stays anchored to "what
+// am I doing right now".
+// ─────────────────────────────────────────────────────────────────────────────
+function SevenDayBars({
+  days,
+  budgetKcal,
+}: {
+  days: ReadonlyArray<{ date: Date; kcal: number }>;
+  budgetKcal: number;
+}) {
+  const width = 98;
+  const height = 26;
+  const barW = 10;
+  const gap = (width - days.length * barW) / Math.max(1, days.length - 1);
+  // Scale: 1.2× budget caps the bar so an extreme over-budget day
+  // doesn't dwarf the rest of the row.
+  const max = Math.max(budgetKcal * 1.2, 800);
+  return (
+    <Svg width={width} height={height}>
+      <G>
+        {days.map((d, i) => {
+          const x = i * (barW + gap);
+          // Deficit magnitude (cut OR surplus) drives bar height.
+          const deficit = budgetKcal - d.kcal;
+          const magnitude = Math.min(Math.abs(deficit), max);
+          const h = (magnitude / max) * (height - 4);
+          const isToday = i === days.length - 1;
+          return (
+            <Rect
+              key={i}
+              x={x}
+              y={height - h}
+              width={barW}
+              height={h}
+              rx={1.5}
+              fill={isToday ? tokens.accentInk : tokens.ink}
+              opacity={isToday ? 1 : 0.35}
+            />
+          );
+        })}
+      </G>
+    </Svg>
+  );
+}
+
 // ─── Helpers ────────────────────────────────────────────────────────────────
+
+function formatSignedKcal(d: number): string {
+  if (d > 0) return `−${d}`;
+  if (d < 0) return `+${Math.abs(d)}`;
+  return '0';
+}
+
+function formatSignedKcalLong(d: number): string {
+  const abs = Math.abs(d).toLocaleString();
+  if (d > 0) return `−${abs}`;
+  if (d < 0) return `+${abs}`;
+  return '0';
+}
+
+function formatKgDelta(kg: number): string {
+  if (Math.abs(kg) < 0.05) return '0 kg';
+  const sign = kg > 0 ? '−' : '+';
+  return `${sign}${Math.abs(kg).toFixed(1)} kg`;
+}
 
 function formatMacro(g: number): string {
   if (g === 0) return '0g';
@@ -507,11 +662,73 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'baseline',
   },
+  cogBtn: {
+    width: 30,
+    height: 30,
+    borderRadius: 999,
+    backgroundColor: tokens.bg2,
+    borderWidth: 1,
+    borderColor: tokens.line,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  pacePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingVertical: 2,
+    paddingHorizontal: 7,
+    borderRadius: 999,
+  },
+  pacePillDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 999,
+  },
+  pacePillText: {
+    fontFamily: fonts.monoSemibold,
+    fontSize: 8,
+    letterSpacing: 1.44,
+  },
+  kickerSmall: {
+    fontFamily: fonts.mono,
+    fontSize: 8,
+    color: tokens.ink4,
+    letterSpacing: 1.76,
+  },
+  heroBigRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
+    marginTop: 8,
+    gap: 12,
+  },
+  heroDeficit: {
+    marginTop: 2,
+    fontFamily: fonts.monoSemibold,
+    fontSize: 16,
+    color: '#1F7A3A',
+  },
+  sevenDayRow: {
+    marginTop: 12,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: tokens.line,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  sevenDayValue: {
+    marginTop: 2,
+    fontFamily: fonts.monoSemibold,
+    fontSize: 12,
+    color: tokens.ink,
+  },
   heroNumberRow: {
     flexDirection: 'row',
     alignItems: 'baseline',
     gap: 8,
-    marginTop: 8,
   },
   heroNumber: {
     fontFamily: fonts.monoSemibold,

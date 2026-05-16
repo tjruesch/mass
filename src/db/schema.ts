@@ -318,6 +318,86 @@ export const dailyTargets = sqliteTable('daily_targets', {
   createdAt: createdAt(),
 });
 
+// ─── Meal preferences (singleton, always id=1) ────────────────────────────────
+/**
+ * Mode the daily kcal budget is computed in. `deficit` derives the
+ * budget from TDEE minus a target deficit (driven by the weight-rate
+ * preset). `budget` is a flat manual value the user types in.
+ */
+export type MealGoalMode = 'deficit' | 'budget';
+
+/**
+ * Weight-rate preset for the deficit goal mode. Maps to a per-day kcal
+ * deficit (negative numbers cut, positive numbers gain). Approximation:
+ * 7700 kcal ≈ 1 kg of body fat, so −500 kcal/day ≈ −0.5 kg/week.
+ */
+export type WeightRate =
+  | 'gentle'
+  | 'steady'
+  | 'aggressive'
+  | 'maintain'
+  | 'gain';
+
+/** Mifflin-St Jeor TDEE activity multiplier. */
+export type ActivityLevel = 'sedentary' | 'light' | 'moderate' | 'active';
+
+/** Three preset macro splits the design exposes. `custom` covers anything
+ *  the user has tweaked away from a preset. */
+export type MacroPreset = 'balanced' | 'protein' | 'endurance' | 'custom';
+
+export const mealPreferences = sqliteTable('meal_preferences', {
+  id: integer('id').primaryKey(),
+  /** `deficit` vs `budget`. Drives which branch the daily budget query reads. */
+  goalMode: text('goal_mode', { enum: ['deficit', 'budget'] })
+    .notNull()
+    .default('deficit')
+    .$type<MealGoalMode>(),
+  /** Manual budget for `goal_mode === 'budget'`. Ignored otherwise. */
+  manualBudgetKcal: integer('manual_budget_kcal').notNull().default(1820),
+  /** Weight-rate preset for `goal_mode === 'deficit'`. */
+  weightRate: text('weight_rate', {
+    enum: ['gentle', 'steady', 'aggressive', 'maintain', 'gain'],
+  })
+    .notNull()
+    .default('steady')
+    .$type<WeightRate>(),
+  /** Mifflin-St Jeor activity multiplier picker. */
+  activityLevel: text('activity_level', {
+    enum: ['sedentary', 'light', 'moderate', 'active'],
+  })
+    .notNull()
+    .default('moderate')
+    .$type<ActivityLevel>(),
+  /**
+   * Stored TDEE in kcal. Recomputed when weight/activity changes; the
+   * stored value buffers against weight churn (we don't want today's
+   * budget swinging because last night's weigh-in was post-water).
+   * Defaults to a sensible adult-male estimate; the user fixes this on
+   * first use of the settings screen.
+   */
+  tdeeKcal: integer('tdee_kcal').notNull().default(2400),
+  /** Macro split percentages. Must sum to 100; UI enforces. */
+  macroPctProtein: integer('macro_pct_protein').notNull().default(30),
+  macroPctCarbs: integer('macro_pct_carbs').notNull().default(45),
+  macroPctFat: integer('macro_pct_fat').notNull().default(25),
+  macroPreset: text('macro_preset', {
+    enum: ['balanced', 'protein', 'endurance', 'custom'],
+  })
+    .notNull()
+    .default('balanced')
+    .$type<MacroPreset>(),
+  /** Reminder toggles (notification scheduling lands in a follow-up). */
+  remOverBudget: integer('rem_over_budget', { mode: 'boolean' })
+    .notNull()
+    .default(true),
+  remEveningSummary: integer('rem_evening_summary', { mode: 'boolean' })
+    .notNull()
+    .default(true),
+  remLowProtein: integer('rem_low_protein', { mode: 'boolean' })
+    .notNull()
+    .default(true),
+});
+
 // ─── Fasting preferences (singleton, always id=1) ─────────────────────────────
 export const fastingPreferences = sqliteTable('fasting_preferences', {
   /** Always 1. Enforced via INSERT OR IGNORE / upsert at app startup. */
@@ -435,6 +515,9 @@ export type NewHkSyncCursor = typeof hkSyncCursor.$inferInsert;
 
 export type FastingPreferences = typeof fastingPreferences.$inferSelect;
 export type NewFastingPreferences = typeof fastingPreferences.$inferInsert;
+
+export type MealPreferences = typeof mealPreferences.$inferSelect;
+export type NewMealPreferences = typeof mealPreferences.$inferInsert;
 
 export type WaterPreferences = typeof waterPreferences.$inferSelect;
 export type NewWaterPreferences = typeof waterPreferences.$inferInsert;

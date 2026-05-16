@@ -221,6 +221,53 @@ export function useThisWeekMeals(): WeekMealsState {
   }, [data, weekStartKey]);
 }
 
+/**
+ * Returns the past N days' kcal totals (oldest first, including
+ * today). Used by /meals hero 7d deficit chart (#92) — keeps the
+ * existing `useThisWeekMeals` semantics intact, which is calendar-week
+ * scoped rather than rolling-window scoped.
+ */
+export function useLastNDaysKcal(
+  n: number = 7,
+): ReadonlyArray<{ readonly date: Date; readonly kcal: number }> {
+  const now = useNow(60_000);
+  const todayStart = startOfDay(now);
+  const windowStart = addDays(todayStart, -(n - 1));
+  const windowEnd = addDays(todayStart, 1);
+
+  const { data } = useLiveQuery(
+    db
+      .select()
+      .from(meals)
+      .where(
+        and(
+          isNotNull(meals.eatenAt),
+          gte(meals.eatenAt, windowStart),
+          lt(meals.eatenAt, windowEnd),
+        ),
+      ),
+  );
+
+  const todayKey = todayStart.getTime();
+  return useMemo(() => {
+    const out: { date: Date; kcal: number }[] = [];
+    for (let i = 0; i < n; i++) {
+      const date = addDays(windowStart, i);
+      const dayEnd = addDays(date, 1);
+      let kcal = 0;
+      for (const m of data ?? []) {
+        const t = m.eatenAt;
+        if (t != null && t >= date && t < dayEnd) {
+          kcal += m.kcal ?? 0;
+        }
+      }
+      out.push({ date, kcal });
+    }
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, todayKey, n]);
+}
+
 export function useLibraryMeals(): ReadonlyArray<Meal> {
   const { data } = useLiveQuery(
     db

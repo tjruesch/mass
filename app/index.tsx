@@ -39,6 +39,12 @@ function formatMacroG(g: number): string {
   return `${Math.round(g * 10) / 10}g`;
 }
 
+function formatSignedDeficit(d: number): string {
+  if (d > 0) return `−${d}`;
+  if (d < 0) return `+${Math.abs(d)}`;
+  return '0';
+}
+
 function greetingFor(d: Date): string {
   const h = d.getHours();
   if (h < 5) return 'Evening';
@@ -51,9 +57,11 @@ import { TabBar, WindowStrip } from '@/components/design';
 import { useTodayMove } from '@/src/hooks/use-move';
 import { useFasting, type FastingState } from '@/src/hooks/use-fasting';
 import { useFastingPreferences } from '@/src/hooks/use-fasting-preferences';
+import { useMealPreferences } from '@/src/hooks/use-meal-preferences';
 import { useTodayMeals } from '@/src/hooks/use-meals';
 import { useWaterToday } from '@/src/hooks/use-water';
 import { useWaterPreferences } from '@/src/hooks/use-water-preferences';
+import { pace, type PaceState } from '@/src/lib/meal-budget';
 import { useNow } from '@/src/lib/use-now';
 import {
   FASTING_PHASES,
@@ -66,10 +74,18 @@ import {
 } from '@/src/lib/time';
 import { fonts, textStyles, tokens } from '@/theme/tokens';
 
-// Hardcoded kcal budget until Slice 6 — Goals + daily targets wires the
-// real value from a `meal_preferences` (or shared goals) table. Tracked
-// in #92 and #7.
-const KCAL_BUDGET_PLACEHOLDER = 1820;
+// "On track" / "behind" / "over" label palette for the deficit footer
+// of the macros card. Same logic as the pill on /meals.
+const PACE_FOOTER_LABEL: Record<PaceState, string> = {
+  'on-pace': 'on track',
+  behind: 'behind',
+  over: 'over',
+};
+const PACE_FOOTER_COLOR: Record<PaceState, string> = {
+  'on-pace': tokens.cool,
+  behind: '#A07A2A',
+  over: tokens.warn,
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Hero rings — three concentric kcal/h2o/move arcs, no center label.
@@ -438,14 +454,16 @@ export default function HomeScreen() {
   const waterValueLabel = (waterToday.totalMl / 1000).toFixed(2);
   const waterTargetLabel = `of ${(waterTargetMl / 1000).toFixed(1)}`;
 
-  // Live meals — kcal ring + macros card. Budget stays hardcoded until
-  // Slice 6 wires the real goal source.
+  // Live meals + meal prefs — kcal ring, macros card, and deficit/tdee
+  // footer all read from these.
   const today = useTodayMeals();
+  const mealPrefs = useMealPreferences();
+  const budgetKcal = mealPrefs.budgetKcal;
   const consumedKcal = today.totalKcal;
   const kcalPctValue =
-    KCAL_BUDGET_PLACEHOLDER > 0 ? consumedKcal / KCAL_BUDGET_PLACEHOLDER : 0;
+    budgetKcal > 0 ? consumedKcal / budgetKcal : 0;
   const kcalValueLabel = Math.round(consumedKcal).toString();
-  const kcalTargetLabel = `of ${KCAL_BUDGET_PLACEHOLDER}`;
+  const kcalTargetLabel = `of ${budgetKcal}`;
   const kcalPctLabel = `${Math.round(kcalPctValue * 100)}%`;
 
   // Per-macro kcal contribution drives the stacked bar widths — protein
@@ -461,10 +479,18 @@ export default function HomeScreen() {
   // Tail fills whatever budget remains so the bar reads as a progress
   // strip, not just a sum-of-macros. Zero macros + zero kcal collapses
   // the bar to its bg track.
-  const macroFlexTail = Math.max(
+  const macroFlexTail = Math.max(0, budgetKcal - macroKcalSum);
+
+  // `left` cell shows protein remaining — the macro that actually
+  // matters to hit. Total grams of all macros remaining can't be
+  // computed coherently across P/C/F with different kcal densities.
+  const proteinLeftG = Math.max(
     0,
-    KCAL_BUDGET_PLACEHOLDER - macroKcalSum,
+    mealPrefs.proteinTargetG - today.totalProteinG,
   );
+  const paceState = pace(consumedKcal, budgetKcal);
+  const deficitToShow = mealPrefs.deficitKcal;
+  const tdeeToShow = mealPrefs.prefs?.tdeeKcal ?? 2400;
 
   // Live move ring — active kcal from HK (Apple's red Move ring).
   // Returns null while HK auth is pending; the ring + legend
@@ -608,9 +634,6 @@ export default function HomeScreen() {
         </View>
 
         {/* ── 4. Macros card ────────────────────────────────────── */}
-        {/* `left` cell + deficit/tdee footer stay stubbed until Slice 6
-            (#92) wires the real goal/TDEE source — both require macro
-            *targets* not just totals, which the meals slice doesn't own. */}
         <Pressable onPress={() => router.push('/meals' as never)}>
           {({ pressed }) => (
             <View
@@ -628,7 +651,7 @@ export default function HomeScreen() {
                     <Text style={styles.macrosKcalStrong}>
                       {kcalValueLabel}
                     </Text>
-                    <Text> / {KCAL_BUDGET_PLACEHOLDER} kcal</Text>
+                    <Text> / {budgetKcal} kcal</Text>
                   </Text>
                 </View>
                 <View style={styles.macrosBar}>
@@ -659,8 +682,12 @@ export default function HomeScreen() {
                       c: tokens.accentInk,
                       italic: false,
                     },
-                    // `left` is a placeholder until macro targets land.
-                    { k: 'left', v: '—', c: tokens.ink4, italic: true },
+                    {
+                      k: 'left',
+                      v: formatMacroG(proteinLeftG),
+                      c: tokens.ink4,
+                      italic: true,
+                    },
                   ].map((m) => (
                     <View key={m.k} style={styles.macroCell}>
                       <Text
@@ -690,10 +717,18 @@ export default function HomeScreen() {
                     <Text style={[styles.deficitLabel, textStyles.cap]}>
                       deficit
                     </Text>
-                    <Text style={[styles.deficitValue, textStyles.tnum]}>
-                      −1000
+                    <Text
+                      style={[
+                        styles.deficitValue,
+                        textStyles.tnum,
+                        { color: PACE_FOOTER_COLOR[paceState] },
+                      ]}>
+                      {formatSignedDeficit(deficitToShow)}
                     </Text>
-                    <Text style={styles.deficitNote}> · on track</Text>
+                    <Text style={styles.deficitNote}>
+                      {' · '}
+                      {PACE_FOOTER_LABEL[paceState]}
+                    </Text>
                   </View>
                   <View
                     style={{
@@ -704,7 +739,9 @@ export default function HomeScreen() {
                     <Text style={[styles.deficitLabel, textStyles.cap]}>
                       tdee
                     </Text>
-                    <Text style={[styles.tdeeValue, textStyles.tnum]}>2820</Text>
+                    <Text style={[styles.tdeeValue, textStyles.tnum]}>
+                      {tdeeToShow}
+                    </Text>
                   </View>
                 </View>
               </View>
