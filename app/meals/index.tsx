@@ -418,6 +418,7 @@ export default function MealsScreen() {
           meals={library}
           onTapMeal={(id) => router.push(`/meals/${id}` as never)}
           onCreate={() => router.push('/meals/new' as never)}
+          onOpenPantry={() => router.push('/pantry' as never)}
         />
 
         <View style={{ height: 24 }} />
@@ -642,10 +643,12 @@ function LibraryStrip({
   meals,
   onTapMeal,
   onCreate,
+  onOpenPantry,
 }: {
   meals: ReadonlyArray<Meal>;
   onTapMeal: (id: number) => void;
   onCreate: () => void;
+  onOpenPantry: () => void;
 }) {
   return (
     <View style={styles.libraryOuter}>
@@ -653,6 +656,20 @@ function LibraryStrip({
         <Text style={[styles.kicker, textStyles.cap]}>
           your library · {meals.length} meal{meals.length === 1 ? '' : 's'}
         </Text>
+        <Pressable
+          onPress={onOpenPantry}
+          hitSlop={6}
+          accessibilityRole="button"
+          accessibilityLabel="Open pantry"
+          style={({ pressed }) => [
+            styles.libraryPantryLink,
+            pressed && { opacity: 0.55 },
+          ]}>
+          <Text style={[styles.libraryPantryLinkText, textStyles.cap]}>
+            pantry
+          </Text>
+          <Glyph name="chev" color={tokens.accentInk} />
+        </Pressable>
       </View>
       <ScrollView
         horizontal
@@ -1300,6 +1317,21 @@ const styles = StyleSheet.create({
   libraryHeader: {
     paddingHorizontal: 22,
     marginBottom: 10,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  libraryPantryLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 4,
+  },
+  libraryPantryLinkText: {
+    fontFamily: fonts.monoSemibold,
+    fontSize: 9,
+    color: tokens.accentInk,
+    letterSpacing: 1.98,
   },
   libraryScroll: {
     paddingHorizontal: 22,
