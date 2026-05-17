@@ -399,6 +399,12 @@ export const mealPreferences = sqliteTable('meal_preferences', {
     .notNull()
     .default('balanced')
     .$type<MacroPreset>(),
+  /** Per-slot share of the day's kcal budget, in percent. Must sum
+   *  to 100 — the UI enforces. Defaults to a flat 25 / 25 / 25 / 25. */
+  slotPctBreakfast: integer('slot_pct_breakfast').notNull().default(25),
+  slotPctLunch: integer('slot_pct_lunch').notNull().default(25),
+  slotPctDinner: integer('slot_pct_dinner').notNull().default(25),
+  slotPctSnack: integer('slot_pct_snack').notNull().default(25),
   /** Reminder toggles (notification scheduling lands in a follow-up). */
   remOverBudget: integer('rem_over_budget', { mode: 'boolean' })
     .notNull()

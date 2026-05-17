@@ -18,7 +18,7 @@
  */
 
 import { useRouter } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Keyboard,
@@ -32,6 +32,7 @@ import {
 import Svg, { Path } from 'react-native-svg';
 
 import { BottomSheet, Glyph, SubHeader, TabBar } from '@/components/design';
+import { updatePreferences as updateMealPreferences } from '@/src/db/queries/meal-preferences';
 import {
   removePlanEntry,
   setPlanEntry,
@@ -41,6 +42,7 @@ import {
   useWeekPlan,
   type WeekPlanEntry,
 } from '@/src/hooks/use-meal-plan';
+import { useMealPreferences } from '@/src/hooks/use-meal-preferences';
 import { useLibraryMeals, MEAL_SLOTS, type MealSlot } from '@/src/hooks/use-meals';
 import {
   addDays,
@@ -69,10 +71,52 @@ type PickerState =
   | { kind: 'closed' }
   | { kind: 'open'; dow: number; slot: MealSlot };
 
+type SlotSplit = {
+  readonly breakfast: number;
+  readonly lunch: number;
+  readonly dinner: number;
+  readonly snack: number;
+};
+
+const SPLIT_PRESETS: ReadonlyArray<{
+  readonly id: string;
+  readonly label: string;
+  readonly split: SlotSplit;
+}> = [
+  // Even split — the default. Useful as a "reset".
+  {
+    id: 'even',
+    label: 'even',
+    split: { breakfast: 25, lunch: 25, dinner: 25, snack: 25 },
+  },
+  // Lunch-heavy cut split — example from the request.
+  {
+    id: 'cut',
+    label: 'cut',
+    split: { breakfast: 0, lunch: 50, dinner: 30, snack: 20 },
+  },
+  // OMAD — one meal a day, everything in dinner.
+  {
+    id: 'omad',
+    label: 'omad',
+    split: { breakfast: 0, lunch: 0, dinner: 100, snack: 0 },
+  },
+];
+
+function splitsEqual(a: SlotSplit, b: SlotSplit): boolean {
+  return (
+    a.breakfast === b.breakfast &&
+    a.lunch === b.lunch &&
+    a.dinner === b.dinner &&
+    a.snack === b.snack
+  );
+}
+
 export default function MealsPlanScreen() {
   const router = useRouter();
   const plan = useWeekPlan();
   const library = useLibraryMeals();
+  const mealPrefs = useMealPreferences();
 
   const todayDow = dowMondayFirst(new Date());
   const [selectedDow, setSelectedDow] = useState<number>(todayDow);
@@ -214,6 +258,18 @@ export default function MealsPlanScreen() {
             ))}
           </View>
         </View>
+
+        {/* ── Slot split editor ───────────────────────────────────── */}
+        {mealPrefs.prefs && (
+          <SlotSplitEditor
+            initial={{
+              breakfast: mealPrefs.prefs.slotPctBreakfast,
+              lunch: mealPrefs.prefs.slotPctLunch,
+              dinner: mealPrefs.prefs.slotPctDinner,
+              snack: mealPrefs.prefs.slotPctSnack,
+            }}
+          />
+        )}
       </ScrollView>
 
       <TabBar active="home" />
@@ -512,6 +568,270 @@ function LibraryPickerSheet({
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// SlotSplitEditor — bottom-of-page editor for meal_preferences's
+// slotPct* columns. The plan grid on /plan reads these to compute
+// per-slot on_target / below / above per day.
+//
+// Local draft state lets the user type freely; we save on each
+// edit when the four percentages sum to exactly 100, and surface a
+// warning chip when they don't.
+// ─────────────────────────────────────────────────────────────────────────────
+function SlotSplitEditor({ initial }: { initial: SlotSplit }) {
+  const [draft, setDraft] = useState<SlotSplit>(initial);
+  // Sync if the underlying prefs change from elsewhere (e.g. a preset
+  // tap re-renders this; we don't want stale local values).
+  useEffect(() => {
+    setDraft(initial);
+  }, [initial.breakfast, initial.lunch, initial.dinner, initial.snack]);
+
+  const sum =
+    draft.breakfast + draft.lunch + draft.dinner + draft.snack;
+  const valid = sum === 100;
+
+  const persist = useCallback((next: SlotSplit) => {
+    if (
+      next.breakfast + next.lunch + next.dinner + next.snack !== 100
+    ) {
+      return;
+    }
+    updateMealPreferences({
+      slotPctBreakfast: next.breakfast,
+      slotPctLunch: next.lunch,
+      slotPctDinner: next.dinner,
+      slotPctSnack: next.snack,
+    }).catch((err) => {
+      Alert.alert(
+        'Could not save slot split',
+        err instanceof Error ? err.message : String(err),
+      );
+    });
+  }, []);
+
+  const onChange = (slot: keyof SlotSplit, value: number) => {
+    const clamped = Math.max(0, Math.min(100, Math.round(value)));
+    const next = { ...draft, [slot]: clamped };
+    setDraft(next);
+    persist(next);
+  };
+
+  const applyPreset = (split: SlotSplit) => {
+    setDraft(split);
+    persist(split);
+  };
+
+  return (
+    <View style={splitStyles.outer}>
+      <View style={splitStyles.headerRow}>
+        <Text style={[splitStyles.kicker, textStyles.cap]}>slot split</Text>
+        <Text
+          style={[
+            splitStyles.sumText,
+            textStyles.tnum,
+            !valid && splitStyles.sumTextWarn,
+          ]}>
+          {sum}/100
+        </Text>
+      </View>
+      <View style={splitStyles.inputsRow}>
+        {(MEAL_SLOTS as ReadonlyArray<keyof SlotSplit>).map((slot) => (
+          <SlotPctInput
+            key={slot}
+            label={SLOT_LABEL[slot as MealSlot]}
+            value={draft[slot]}
+            onChange={(v) => onChange(slot, v)}
+          />
+        ))}
+      </View>
+      <View style={splitStyles.presetRow}>
+        {SPLIT_PRESETS.map((p) => {
+          const active = splitsEqual(draft, p.split);
+          return (
+            <Pressable
+              key={p.id}
+              onPress={() => applyPreset(p.split)}
+              accessibilityRole="button"
+              accessibilityLabel={`Preset ${p.label}`}
+              style={({ pressed }) => [
+                splitStyles.presetChip,
+                active && splitStyles.presetChipActive,
+                pressed && !active && { opacity: 0.65 },
+              ]}>
+              <Text
+                style={[
+                  splitStyles.presetValue,
+                  textStyles.tnum,
+                  active && { color: tokens.bg },
+                ]}>
+                {p.split.breakfast}/{p.split.lunch}/{p.split.dinner}/
+                {p.split.snack}
+              </Text>
+              <Text
+                style={[
+                  splitStyles.presetLabel,
+                  textStyles.cap,
+                  active && { color: tokens.bg, opacity: 0.6 },
+                ]}>
+                {p.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+      {!valid && (
+        <Text style={splitStyles.warn}>
+          slots must sum to 100 to save
+        </Text>
+      )}
+    </View>
+  );
+}
+
+function SlotPctInput({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  onChange: (v: number) => void;
+}) {
+  const [text, setText] = useState(value.toString());
+  useEffect(() => {
+    setText(value.toString());
+  }, [value]);
+
+  return (
+    <View style={splitStyles.cell}>
+      <Text style={[splitStyles.cellLabel, textStyles.cap]}>{label}</Text>
+      <View style={splitStyles.cellInputRow}>
+        <TextInput
+          value={text}
+          onChangeText={(t) => {
+            const cleaned = t.replace(/[^0-9]/g, '').slice(0, 3);
+            setText(cleaned);
+            const n = Number.parseInt(cleaned, 10);
+            if (Number.isFinite(n)) onChange(n);
+            else if (cleaned === '') onChange(0);
+          }}
+          keyboardType="number-pad"
+          returnKeyType="done"
+          maxLength={3}
+          style={[splitStyles.cellInput, textStyles.tnum]}
+        />
+        <Text style={splitStyles.cellPct}>%</Text>
+      </View>
+    </View>
+  );
+}
+
+const splitStyles = StyleSheet.create({
+  outer: {
+    paddingTop: 24,
+    paddingHorizontal: 22,
+    paddingBottom: 24,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
+    marginBottom: 10,
+  },
+  kicker: {
+    fontFamily: fonts.mono,
+    fontSize: 9,
+    color: tokens.ink4,
+    letterSpacing: 1.98,
+  },
+  sumText: {
+    fontFamily: fonts.monoSemibold,
+    fontSize: 11,
+    color: tokens.ink3,
+    letterSpacing: 0.4,
+  },
+  sumTextWarn: {
+    color: tokens.warn,
+  },
+  inputsRow: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  cell: {
+    flex: 1,
+    backgroundColor: tokens.card,
+    borderWidth: 1,
+    borderColor: tokens.line,
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+  },
+  cellLabel: {
+    fontFamily: fonts.mono,
+    fontSize: 9,
+    color: tokens.ink4,
+    letterSpacing: 1.62,
+  },
+  cellInputRow: {
+    marginTop: 4,
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 2,
+  },
+  cellInput: {
+    flex: 1,
+    fontFamily: fonts.monoSemibold,
+    fontSize: 18,
+    color: tokens.ink,
+    paddingVertical: 0,
+    minWidth: 24,
+  },
+  cellPct: {
+    fontFamily: fonts.mono,
+    fontSize: 11,
+    color: tokens.ink3,
+  },
+  presetRow: {
+    marginTop: 10,
+    flexDirection: 'row',
+    gap: 6,
+  },
+  presetChip: {
+    flex: 1,
+    paddingVertical: 9,
+    paddingHorizontal: 6,
+    borderRadius: 10,
+    backgroundColor: tokens.bg2,
+    borderWidth: 1,
+    borderColor: tokens.line,
+    alignItems: 'center',
+    gap: 2,
+  },
+  presetChipActive: {
+    backgroundColor: tokens.ink,
+    borderColor: tokens.ink,
+  },
+  presetValue: {
+    fontFamily: fonts.monoSemibold,
+    fontSize: 11,
+    color: tokens.ink,
+  },
+  presetLabel: {
+    fontFamily: fonts.mono,
+    fontSize: 8,
+    color: tokens.ink,
+    letterSpacing: 1.44,
+  },
+  warn: {
+    marginTop: 8,
+    fontFamily: fonts.mono,
+    fontSize: 10,
+    color: tokens.warn,
+    fontStyle: 'italic',
+    textAlign: 'center',
+    letterSpacing: 0.4,
+  },
+});
+
 function slotsKcalSum(
   bySlot: Partial<Record<MealSlot, WeekPlanEntry>>,
 ): number {

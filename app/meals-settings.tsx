@@ -728,9 +728,18 @@ function fromPrefs(prefs: MealPreferences): Draft {
 }
 
 /** Build a view of a `MealPreferences`-shaped value from the draft so
- *  the compute helpers can be reused without an extra branch. */
+ *  the compute helpers can be reused without an extra branch. The
+ *  meals-settings screen doesn't edit slot weights — those live on
+ *  the /meals-plan editor — so flat 25 % defaults are fine here. */
 function toPrefsView(d: Draft): MealPreferences {
-  return { id: 1, ...d };
+  return {
+    id: 1,
+    ...d,
+    slotPctBreakfast: 25,
+    slotPctLunch: 25,
+    slotPctDinner: 25,
+    slotPctSnack: 25,
+  };
 }
 
 function parseIntOrFallback(s: string, fallback: number): number {

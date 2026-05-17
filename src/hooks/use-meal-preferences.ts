@@ -30,11 +30,24 @@ export type MealPreferencesState = {
   readonly proteinTargetG: number;
   readonly carbsTargetG: number;
   readonly fatTargetG: number;
+  /** Per-slot share of the budget as a 0..1 fraction. Sums to 1. */
+  readonly slotShares: {
+    readonly breakfast: number;
+    readonly lunch: number;
+    readonly dinner: number;
+    readonly snack: number;
+  };
 };
 
 const FALLBACK_BUDGET = 1820;
 const FALLBACK_DEFICIT = 1000;
 const FALLBACK_MACROS = { proteinG: 137, carbsG: 205, fatG: 51 };
+const FALLBACK_SLOT_SHARES = {
+  breakfast: 0.25,
+  lunch: 0.25,
+  dinner: 0.25,
+  snack: 0.25,
+};
 
 export function useMealPreferences(): MealPreferencesState {
   const { data } = useLiveQuery(
@@ -49,11 +62,30 @@ export function useMealPreferences(): MealPreferencesState {
       proteinTargetG: FALLBACK_MACROS.proteinG,
       carbsTargetG: FALLBACK_MACROS.carbsG,
       fatTargetG: FALLBACK_MACROS.fatG,
+      slotShares: FALLBACK_SLOT_SHARES,
     };
   }
   const budgetKcal = computeBudget(prefs);
   const deficitKcal = effectiveDeficit(prefs);
   const macros = computeMacroTargets(prefs, budgetKcal);
+  // Slot pcts are integer percentages — convert to 0..1 fractions.
+  // Defensive divisor in case the row holds 0/0/0/0 (would happen if
+  // a partial migration left them null; doesn't happen via the
+  // editor since the UI enforces sum=100, but keep the guard cheap).
+  const slotSum =
+    prefs.slotPctBreakfast +
+    prefs.slotPctLunch +
+    prefs.slotPctDinner +
+    prefs.slotPctSnack;
+  const slotShares =
+    slotSum > 0
+      ? {
+          breakfast: prefs.slotPctBreakfast / slotSum,
+          lunch: prefs.slotPctLunch / slotSum,
+          dinner: prefs.slotPctDinner / slotSum,
+          snack: prefs.slotPctSnack / slotSum,
+        }
+      : FALLBACK_SLOT_SHARES;
   return {
     prefs,
     budgetKcal,
@@ -61,5 +93,6 @@ export function useMealPreferences(): MealPreferencesState {
     proteinTargetG: macros.proteinG,
     carbsTargetG: macros.carbsG,
     fatTargetG: macros.fatG,
+    slotShares,
   };
 }

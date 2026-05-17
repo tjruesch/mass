@@ -160,10 +160,17 @@ export default function PlanScreen() {
             hasLog: d.bySlot[slot].length > 0,
             hasPlan: mealPlan.bySlot[dow]?.[slot] !== undefined,
             budgetKcal: mealPrefs.budgetKcal,
+            slotShare: mealPrefs.slotShares[slot],
           }),
         ),
       })),
-    [mealsWeek.days, mealPlan.bySlot, todayDow, mealPrefs.budgetKcal],
+    [
+      mealsWeek.days,
+      mealPlan.bySlot,
+      todayDow,
+      mealPrefs.budgetKcal,
+      mealPrefs.slotShares,
+    ],
   );
 
   // Today's consumed kcal drives the big number; today's planned
@@ -330,7 +337,6 @@ type MealDayCell = {
 };
 
 const SLOT_TOLERANCE = 0.05; // ±5 % of slot kcal share
-const SLOT_SHARE_OF_BUDGET = 1 / 4; // 4 slots, flat share for v1
 
 function computeSlotState({
   loggedKcal,
@@ -339,6 +345,7 @@ function computeSlotState({
   dow,
   todayDow,
   budgetKcal,
+  slotShare,
 }: {
   slot: MealSlot;
   dow: number;
@@ -347,8 +354,11 @@ function computeSlotState({
   hasLog: boolean;
   hasPlan: boolean;
   budgetKcal: number;
+  /** Fraction of the day's budget this slot is expected to consume.
+   *  Comes from meal_preferences.slotPct*. Sums to 1 across slots. */
+  slotShare: number;
 }): MealSlotState {
-  const slotTargetKcal = budgetKcal * SLOT_SHARE_OF_BUDGET;
+  const slotTargetKcal = budgetKcal * slotShare;
   const low = slotTargetKcal * (1 - SLOT_TOLERANCE);
   const high = slotTargetKcal * (1 + SLOT_TOLERANCE);
 
