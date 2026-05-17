@@ -767,9 +767,9 @@ const splitStyles = StyleSheet.create({
   },
   cellLabel: {
     fontFamily: fonts.mono,
-    fontSize: 9,
+    fontSize: 8,
     color: tokens.ink4,
-    letterSpacing: 1.62,
+    letterSpacing: 1.12,
   },
   cellInputRow: {
     marginTop: 4,
