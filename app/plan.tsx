@@ -435,14 +435,18 @@ function MealDayColumn({
         ]}>
         {DOW_LABELS[day.dow]}
       </Text>
-      <View
-        style={[
-          styles.mealStack,
-          isToday && styles.mealStackToday,
-        ]}>
-        {day.states.map((state, i) => (
-          <MealSlotRect key={i} state={state} />
-        ))}
+      <View style={styles.mealStackOuter}>
+        {isToday && (
+          <View
+            pointerEvents="none"
+            style={styles.mealStackTodayBorder}
+          />
+        )}
+        <View style={styles.mealStack}>
+          {day.states.map((state, i) => (
+            <MealSlotRect key={i} state={state} />
+          ))}
+        </View>
       </View>
       <Text
         style={[
@@ -1006,21 +1010,29 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
   },
+  // Outer wrapper holds the absolute "today" outline so all stacks
+  // share the exact same content footprint regardless of which day
+  // is highlighted.
+  mealStackOuter: {
+    width: 16,
+    height: 64,
+    position: 'relative',
+  },
   mealStack: {
     width: 16,
     height: 64,
     flexDirection: 'column',
     gap: 2,
-    padding: 0,
   },
-  mealStackToday: {
-    // 1.5 px ink outline via shadow-less border; padding is 0 so
-    // child rects still meet the edges.
+  mealStackTodayBorder: {
+    position: 'absolute',
+    top: -3,
+    left: -3,
+    right: -3,
+    bottom: -3,
     borderWidth: 1.5,
     borderColor: tokens.ink,
     borderRadius: 4,
-    padding: 2,
-    height: 68,
   },
   mealSlot: {
     flex: 1,
