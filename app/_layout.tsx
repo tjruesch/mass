@@ -129,6 +129,7 @@ export default function RootLayout() {
             options={{ animation: 'none' }}
           />
           <Stack.Screen name="trends" options={{ animation: 'none' }} />
+          <Stack.Screen name="plan" options={{ animation: 'none' }} />
           <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal', headerShown: true }} />
         </Stack>
         <StatusBar style="auto" />

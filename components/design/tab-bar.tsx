@@ -20,7 +20,7 @@ type Tab = {
 const TABS: readonly Tab[] = [
   { id: 'home', label: 'home', icon: 'home', route: '/' },
   { id: 'today', label: 'today', icon: 'today', route: null },
-  { id: 'plan', label: 'plan', icon: 'plan', route: '/meals-plan' },
+  { id: 'plan', label: 'plan', icon: 'plan', route: '/plan' },
   { id: 'trends', label: 'trends', icon: 'trends', route: '/trends' },
   { id: 'me', label: 'me', icon: 'me', route: null },
 ];
