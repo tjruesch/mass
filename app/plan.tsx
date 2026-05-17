@@ -260,6 +260,9 @@ function findNextWorkout(
   template: ReadonlyArray<TemplateSlot>,
   todayDow: number,
 ): NextWorkout | null {
+  // Template is empty on the first render before workout-preferences
+  // seeds — guard so we don't dereference `undefined.type`.
+  if (template.length < 7) return null;
   for (let i = 0; i < 7; i++) {
     const slot = template[(todayDow + i) % 7];
     if (slot.type !== null && slot.type !== '') {
