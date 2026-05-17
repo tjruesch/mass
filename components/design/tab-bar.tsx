@@ -22,7 +22,7 @@ const TABS: readonly Tab[] = [
   { id: 'today', label: 'today', icon: 'today', route: null },
   { id: 'plan', label: 'plan', icon: 'plan', route: '/plan' },
   { id: 'trends', label: 'trends', icon: 'trends', route: '/trends' },
-  { id: 'me', label: 'me', icon: 'me', route: null },
+  { id: 'me', label: 'me', icon: 'me', route: '/me' },
 ];
 
 type Props = {
