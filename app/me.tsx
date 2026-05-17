@@ -10,12 +10,29 @@
 
 import { useRouter } from 'expo-router';
 import { useMemo } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  Alert,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
+import Svg, { Path } from 'react-native-svg';
+
+import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
+import { sql } from 'drizzle-orm';
 
 import { Glyph, TabBar } from '@/components/design';
+import { db } from '@/src/db';
+import { updatePreferences as updateUserPreferences } from '@/src/db/queries/user-preferences';
+import { workoutEntries } from '@/src/db/schema';
 import { useFastingPreferences } from '@/src/hooks/use-fasting-preferences';
+import { useFeatureStreaks } from '@/src/hooks/use-feature-streaks';
 import { useMealPreferences } from '@/src/hooks/use-meal-preferences';
+import { useUserPreferences } from '@/src/hooks/use-user-preferences';
 import { useWaterPreferences } from '@/src/hooks/use-water-preferences';
+import { useWeightHistory } from '@/src/hooks/use-weight';
 import { useWeightPreferences } from '@/src/hooks/use-weight-preferences';
 import { useWorkoutPreferences } from '@/src/hooks/use-workout-preferences';
 import { useWorkoutTypes } from '@/src/hooks/use-workout-types';
@@ -29,12 +46,21 @@ const MONTH_DAY_FMT = new Intl.DateTimeFormat('en', {
 
 export default function MeScreen() {
   const router = useRouter();
+  const userPrefs = useUserPreferences();
+  const weightHistory = useWeightHistory({ days: 90 });
+  const featureStreaks = useFeatureStreaks();
   const fasting = useFastingPreferences();
   const water = useWaterPreferences();
   const weight = useWeightPreferences();
   const meal = useMealPreferences();
   const workoutPrefs = useWorkoutPreferences();
   const workoutTypes = useWorkoutTypes();
+  // Lifetime workout count for the quick-stats strip. Live so HK
+  // sync drops + manual logs both refresh the readout.
+  const { data: workoutCountRows } = useLiveQuery(
+    db.select({ n: sql<number>`count(*)`.as('n') }).from(workoutEntries),
+  );
+  const totalSessions = workoutCountRows?.[0]?.n ?? 0;
 
   // ── Fasting row ─────────────────────────────────────────────────
   const fastingRow = useMemo(() => {
@@ -131,6 +157,83 @@ export default function MeScreen() {
     return { sub, value };
   }, [weight]);
 
+  // ── Profile sub line ───────────────────────────────────────────
+  const profileSub = useMemo(() => {
+    // Prefer goal context when a target is set; fall back to the
+    // 7-day MA delta which we already compute on /trends.
+    if (weight?.targetKg !== undefined && weight?.targetKg !== null) {
+      const remainingKg =
+        weightHistory.latestKg !== null
+          ? weight.targetKg - weightHistory.latestKg
+          : null;
+      if (
+        weight.targetDate &&
+        weight.targetDate.getTime() > Date.now()
+      ) {
+        const daysToGoal = Math.max(
+          0,
+          Math.round(
+            (weight.targetDate.getTime() - Date.now()) / 86_400_000,
+          ),
+        );
+        return remainingKg !== null
+          ? `goal ${formatOne(weight.targetKg)} kg · ${formatOne(Math.abs(remainingKg))} kg to go · ${daysToGoal}d`
+          : `goal ${formatOne(weight.targetKg)} kg · in ${daysToGoal}d`;
+      }
+      return `goal ${formatOne(weight.targetKg)} kg`;
+    }
+    if (weightHistory.sevenDayDelta !== null) {
+      const v = weightHistory.sevenDayDelta;
+      const arrow = v < 0 ? '▼' : v > 0 ? '▲' : '·';
+      return `${arrow} ${formatOne(Math.abs(v))} kg / 7d`;
+    }
+    return 'no weigh-ins yet';
+  }, [weight, weightHistory]);
+
+  const profileSubColor = useMemo(() => {
+    if (weight?.targetKg !== undefined && weight?.targetKg !== null) {
+      return tokens.ink3;
+    }
+    if (weightHistory.sevenDayDelta === null) return tokens.ink4;
+    // Without goal direction we can't tell if down is good. Neutral.
+    return tokens.ink3;
+  }, [weight, weightHistory]);
+
+  // ── Quick-stats strip ──────────────────────────────────────────
+  const goalStat = useMemo(() => {
+    if (weight?.targetKg === undefined || weight?.targetKg === null) {
+      return { value: '—', sub: 'no goal' };
+    }
+    const value = `${formatOne(weight.targetKg)}kg`;
+    const sub = weight.targetDate
+      ? MONTH_DAY_FMT.format(weight.targetDate).toLowerCase()
+      : '—';
+    return { value, sub };
+  }, [weight]);
+
+  const promptName = () => {
+    Alert.prompt(
+      'Your name',
+      'Shown on the home greeting and here on the profile.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Save',
+          onPress: (text: string | undefined) => {
+            const next = (text ?? '').trim();
+            updateUserPreferences({
+              displayName: next === '' ? null : next,
+            }).catch((err) => {
+              console.warn('Failed to save display name:', err);
+            });
+          },
+        },
+      ],
+      'plain-text',
+      userPrefs.displayName ?? '',
+    );
+  };
+
   // ── Meals row ──────────────────────────────────────────────────
   const mealsRow = useMemo(() => {
     if (meal.prefs === null) return { sub: '—', value: '—' };
@@ -156,6 +259,67 @@ export default function MeScreen() {
         <View style={styles.header}>
           <Text style={[styles.kicker, textStyles.cap]}>account</Text>
           <Text style={styles.title}>Me</Text>
+        </View>
+
+        {/* ── Profile card ─────────────────────────────────────── */}
+        <View style={styles.profileOuter}>
+          <View style={styles.profileCard}>
+            <View style={styles.avatar}>
+              <Text style={styles.avatarText}>
+                {initialsFor(userPrefs.displayName)}
+              </Text>
+            </View>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text numberOfLines={1} style={styles.profileName}>
+                {userPrefs.displayName ?? 'Tap to set name'}
+              </Text>
+              <Text
+                numberOfLines={1}
+                style={[styles.profileSub, { color: profileSubColor }]}>
+                {profileSub}
+              </Text>
+            </View>
+            <Pressable
+              onPress={promptName}
+              hitSlop={6}
+              accessibilityRole="button"
+              accessibilityLabel="Edit name"
+              style={({ pressed }) => [
+                styles.pencilBtn,
+                pressed && { opacity: 0.65 },
+              ]}>
+              <Svg width={12} height={12} viewBox="0 0 14 14">
+                <Path
+                  d="M9.5 2.5l2 2-7 7H2.5v-2z"
+                  stroke={tokens.ink}
+                  strokeWidth={1.4}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  fill="none"
+                />
+              </Svg>
+            </Pressable>
+          </View>
+
+          {/* Quick stats strip — 3 columns split by left borders. */}
+          <View style={styles.statsStrip}>
+            <StatColumn
+              label="streak"
+              value={`${featureStreaks.fasting.current}d`}
+              sub="fasting"
+              isFirst
+            />
+            <StatColumn
+              label="goal"
+              value={goalStat.value}
+              sub={goalStat.sub}
+            />
+            <StatColumn
+              label="sessions"
+              value={`${totalSessions}`}
+              sub="lifetime"
+            />
+          </View>
         </View>
 
         {/* ── Goals & settings card ────────────────────────────── */}
@@ -258,7 +422,38 @@ function LinkRow({
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// StatColumn — one cell of the quick-stats strip below the profile.
+// ─────────────────────────────────────────────────────────────────────────────
+function StatColumn({
+  label,
+  value,
+  sub,
+  isFirst = false,
+}: {
+  label: string;
+  value: string;
+  sub: string;
+  isFirst?: boolean;
+}) {
+  return (
+    <View style={[styles.statCol, !isFirst && styles.statColBorder]}>
+      <Text style={[styles.statLabel, textStyles.cap]}>{label}</Text>
+      <Text style={[styles.statValue, textStyles.tnum]}>{value}</Text>
+      <Text style={styles.statSub}>{sub}</Text>
+    </View>
+  );
+}
+
 // ─── Helpers ────────────────────────────────────────────────────────────────
+function initialsFor(name: string | null): string {
+  if (name === null) return '?';
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return '?';
+  if (parts.length === 1) return parts[0][0].toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
 function popcount(n: number): number {
   let count = 0;
   let v = n;
@@ -296,6 +491,106 @@ const styles = StyleSheet.create({
     fontSize: 24,
     color: tokens.ink,
     letterSpacing: -0.6,
+  },
+
+  // Profile card
+  profileOuter: {
+    paddingTop: 14,
+    paddingHorizontal: 22,
+  },
+  profileCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    backgroundColor: tokens.card,
+    borderWidth: 1,
+    borderColor: tokens.line,
+    borderRadius: 18,
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowRadius: 18,
+    shadowOpacity: 0.03,
+  },
+  avatar: {
+    width: 52,
+    height: 52,
+    borderRadius: 999,
+    backgroundColor: tokens.ink,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 10,
+    shadowOpacity: 0.1,
+  },
+  avatarText: {
+    fontFamily: fonts.sansSemibold,
+    fontSize: 18,
+    color: tokens.bg,
+    letterSpacing: -0.18,
+  },
+  profileName: {
+    fontFamily: fonts.sansSemibold,
+    fontSize: 16,
+    color: tokens.ink,
+    letterSpacing: -0.16,
+  },
+  profileSub: {
+    marginTop: 3,
+    fontFamily: fonts.mono,
+    fontSize: 11,
+    color: tokens.ink3,
+    letterSpacing: 0.4,
+  },
+  pencilBtn: {
+    width: 30,
+    height: 30,
+    borderRadius: 999,
+    backgroundColor: tokens.bg2,
+    borderWidth: 1,
+    borderColor: tokens.line,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  // Quick-stats strip
+  statsStrip: {
+    marginTop: 10,
+    flexDirection: 'row',
+  },
+  statCol: {
+    flex: 1,
+    alignItems: 'center',
+    gap: 2,
+    paddingVertical: 4,
+  },
+  statColBorder: {
+    borderLeftWidth: 1,
+    borderLeftColor: tokens.line,
+  },
+  statLabel: {
+    fontFamily: fonts.mono,
+    fontSize: 8,
+    color: tokens.ink4,
+    letterSpacing: 1.76,
+  },
+  statValue: {
+    marginTop: 3,
+    fontFamily: fonts.monoSemibold,
+    fontSize: 16,
+    color: tokens.ink,
+    letterSpacing: -0.32,
+    lineHeight: 20,
+  },
+  statSub: {
+    marginTop: 1,
+    fontFamily: fonts.mono,
+    fontSize: 8.5,
+    color: tokens.ink4,
+    fontStyle: 'italic',
+    letterSpacing: 0.4,
   },
 
   sectionOuter: {
