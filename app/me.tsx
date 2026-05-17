@@ -543,7 +543,7 @@ function IntegrationRow({
           styles.iconTile,
           tinted && styles.iconTileLive,
         ]}>
-        <Svg width={14} height={14} viewBox="0 0 14 14">
+        <Svg width={18} height={18} viewBox="0 0 14 14">
           <Path
             d="M7 12s-5-3-5-7a2.8 2.8 0 0 1 5-1.8A2.8 2.8 0 0 1 12 5c0 4-5 7-5 7z"
             fill={tinted ? '#D63D52' : tokens.ink4}
@@ -883,20 +883,20 @@ const styles = StyleSheet.create({
   },
   sectionSub: {
     fontFamily: fonts.mono,
-    fontSize: 11,
+    fontSize: 12,
     color: tokens.ink3,
     fontStyle: 'italic',
     letterSpacing: 0.4,
   },
   statusPill: {
-    paddingVertical: 3,
-    paddingHorizontal: 9,
+    paddingVertical: 4,
+    paddingHorizontal: 10,
     borderRadius: 999,
     borderWidth: 1,
   },
   statusPillText: {
     fontFamily: fonts.monoSemibold,
-    fontSize: 9,
+    fontSize: 10,
     letterSpacing: 1.8,
   },
 });
