@@ -250,6 +250,9 @@ export default function MealsPlanScreen() {
                 key={slot}
                 slot={slot}
                 entry={dayEntries[slot]}
+                targetKcal={
+                  mealPrefs.budgetKcal * mealPrefs.slotShares[slot]
+                }
                 onPlan={() =>
                   setPicker({ kind: 'open', dow: selectedDow, slot })
                 }
@@ -300,14 +303,37 @@ export default function MealsPlanScreen() {
 // ─────────────────────────────────────────────────────────────────────────────
 // PlanSlotCard — empty (dashed CTA) vs populated (meal name + kcal + ×).
 // ─────────────────────────────────────────────────────────────────────────────
+type SlotPlanStatus =
+  | { readonly kind: 'on_target' }
+  | { readonly kind: 'below'; readonly diff: number }
+  | { readonly kind: 'above'; readonly diff: number };
+
+/** ±5% of the slot's planned share counts as on-target. Zero share
+ *  (e.g. 0 % breakfast) returns null — no comparison possible. */
+function statusFor(
+  mealKcal: number | null,
+  targetKcal: number,
+): SlotPlanStatus | null {
+  if (mealKcal === null || targetKcal <= 0) return null;
+  const diff = mealKcal - targetKcal;
+  const tolerance = targetKcal * 0.05;
+  if (Math.abs(diff) <= tolerance) return { kind: 'on_target' };
+  if (diff > 0) return { kind: 'above', diff };
+  return { kind: 'below', diff };
+}
+
 function PlanSlotCard({
   slot,
   entry,
+  targetKcal,
   onPlan,
   onClear,
 }: {
   slot: MealSlot;
   entry: WeekPlanEntry | undefined;
+  /** Slot's planned share × budget. Drives the on/above/below pill.
+   *  Pass 0 to hide the pill (e.g. when slot share is intentionally 0). */
+  targetKcal: number;
   onPlan: () => void;
   onClear: () => void;
 }) {
@@ -332,6 +358,8 @@ function PlanSlotCard({
     );
   }
 
+  const status = statusFor(entry.meal.kcal ?? null, targetKcal);
+
   return (
     <Pressable
       onPress={onPlan}
@@ -344,9 +372,12 @@ function PlanSlotCard({
       ]}>
       <View style={styles.slotInner}>
         <View style={styles.slotBody}>
-          <Text style={[styles.slotKicker, textStyles.cap]}>
-            {SLOT_LABEL[slot]}
-          </Text>
+          <View style={styles.slotKickerRow}>
+            <Text style={[styles.slotKicker, textStyles.cap]}>
+              {SLOT_LABEL[slot]}
+            </Text>
+            {status && <PlanStatusPill status={status} />}
+          </View>
           <Text numberOfLines={1} style={styles.slotMealName}>
             {entry.meal.name ?? 'Meal'}
           </Text>
@@ -568,6 +599,72 @@ function LibraryPickerSheet({
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// PlanStatusPill — small chip next to the slot kicker on a planned-
+// slot card. Colour + label communicate whether the meal's kcal is
+// above / below / on the slot's planned share of the budget.
+// ─────────────────────────────────────────────────────────────────────────────
+function PlanStatusPill({ status }: { status: SlotPlanStatus }) {
+  if (status.kind === 'on_target') {
+    return (
+      <View
+        style={[
+          statusStyles.pill,
+          { backgroundColor: tokens.bg2 },
+        ]}>
+        <View
+          style={[statusStyles.dot, { backgroundColor: tokens.ink3 }]}
+        />
+        <Text
+          style={[
+            statusStyles.text,
+            textStyles.cap,
+            { color: tokens.ink2 },
+          ]}>
+          on target
+        </Text>
+      </View>
+    );
+  }
+  const isAbove = status.kind === 'above';
+  const fg = isAbove ? tokens.warn : '#3A8F4F';
+  const bg = isAbove
+    ? 'rgba(180,90,30,0.10)'
+    : 'rgba(58,143,79,0.10)';
+  const sign = isAbove ? '+' : '−';
+  return (
+    <View style={[statusStyles.pill, { backgroundColor: bg }]}>
+      <View style={[statusStyles.dot, { backgroundColor: fg }]} />
+      <Text
+        style={[statusStyles.text, textStyles.cap, { color: fg }]}>
+        {sign}
+        {Math.round(Math.abs(status.diff))}
+      </Text>
+    </View>
+  );
+}
+
+const statusStyles = StyleSheet.create({
+  pill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 2,
+    paddingHorizontal: 6,
+    borderRadius: 999,
+  },
+  dot: {
+    width: 5,
+    height: 5,
+    borderRadius: 999,
+  },
+  text: {
+    fontFamily: fonts.monoSemibold,
+    fontSize: 8.5,
+    letterSpacing: 1.36,
+  },
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // SlotSplitEditor — bottom-of-page editor for meal_preferences's
 // slotPct* columns. The plan grid on /plan reads these to compute
@@ -1005,6 +1102,11 @@ const styles = StyleSheet.create({
   slotBody: {
     flex: 1,
     minWidth: 0,
+  },
+  slotKickerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   slotKicker: {
     fontFamily: fonts.mono,
