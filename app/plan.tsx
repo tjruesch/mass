@@ -381,7 +381,7 @@ function MealsHeadline({
         </Text>
         <View style={styles.headlineBigRow}>
           <Text style={styles.headlineBig}>{todayPlannedKcal}</Text>
-          <Text style={styles.headlineNext}> kcal today</Text>
+          <Text style={styles.headlineNext}> kcal planned</Text>
           <View
             style={[
               styles.headlinePill,
