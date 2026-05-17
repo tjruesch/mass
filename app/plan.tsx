@@ -166,10 +166,19 @@ export default function PlanScreen() {
     [mealsWeek.days, mealPlan.bySlot, todayDow, mealPrefs.budgetKcal],
   );
 
-  // Today's consumed kcal — the plan page surfaces actual intake in
-  // the headline; the week grid below still reflects plan vs log
-  // per cell.
+  // Today's consumed kcal drives the big number; today's planned
+  // kcal sits underneath for context. The week grid below still
+  // reflects plan vs log per cell.
   const todayConsumedKcal = mealsWeek.days[todayDow]?.totalKcal ?? 0;
+  const todayPlannedKcal = useMemo(() => {
+    const slots = mealPlan.bySlot[todayDow] ?? {};
+    let total = 0;
+    for (const slot of MEAL_SLOTS) {
+      const entry = slots[slot];
+      if (entry) total += entry.meal.kcal ?? 0;
+    }
+    return total;
+  }, [mealPlan.bySlot, todayDow]);
 
   const pantryStats = useMemo(() => {
     let out = 0;
@@ -269,6 +278,7 @@ export default function PlanScreen() {
         <View style={styles.sectionOuter}>
           <MealsHeadline
             todayKcal={todayConsumedKcal}
+            plannedKcal={todayPlannedKcal}
             budgetKcal={mealPrefs.budgetKcal}
             onSeeAll={() => router.push('/meals' as never)}
           />
@@ -357,10 +367,12 @@ function computeSlotState({
 
 function MealsHeadline({
   todayKcal,
+  plannedKcal,
   budgetKcal,
   onSeeAll,
 }: {
   todayKcal: number;
+  plannedKcal: number;
   budgetKcal: number;
   onSeeAll: () => void;
 }) {
@@ -395,8 +407,8 @@ function MealsHeadline({
           </View>
         </View>
         <Text style={[styles.headlineMeta, textStyles.tnum]}>
-          <Text>budget </Text>
-          <Text style={styles.headlineMetaStrong}>{budgetKcal}</Text>
+          <Text>planned </Text>
+          <Text style={styles.headlineMetaStrong}>{plannedKcal}</Text>
           <Text> kcal</Text>
         </Text>
       </View>
