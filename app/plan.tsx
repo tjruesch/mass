@@ -377,7 +377,7 @@ function MealsHeadline({
   onSeeAll: () => void;
 }) {
   const overBudget = todayKcal > budgetKcal;
-  const underBy = Math.max(0, budgetKcal - todayKcal);
+  const underBy = Math.max(0, Math.round(budgetKcal - todayKcal));
   const pillFg = overBudget ? tokens.warn : '#1F7A3A';
   return (
     <View style={styles.headlineRow}>
@@ -408,7 +408,9 @@ function MealsHeadline({
         </View>
         <Text style={[styles.headlineMeta, textStyles.tnum]}>
           <Text>planned </Text>
-          <Text style={styles.headlineMetaStrong}>{plannedKcal}</Text>
+          <Text style={styles.headlineMetaStrong}>
+            {Math.round(plannedKcal)}
+          </Text>
           <Text> kcal</Text>
         </Text>
       </View>
