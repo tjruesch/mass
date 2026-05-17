@@ -201,7 +201,7 @@ export default function MeScreen() {
             (weight.targetDate.getTime() - Date.now()) / 86_400_000,
           ),
         );
-        return `goal ${formatOne(weight.targetKg)} kg · ${daysToGoal} days to go`;
+        return `goal ${formatOne(weight.targetKg)} kg · ${daysToGoal} days`;
       }
       return `goal ${formatOne(weight.targetKg)} kg`;
     }
@@ -743,14 +743,15 @@ const styles = StyleSheet.create({
   },
   profileName: {
     fontFamily: fonts.sansSemibold,
-    fontSize: 16,
+    fontSize: 20,
     color: tokens.ink,
-    letterSpacing: -0.16,
+    letterSpacing: -0.3,
+    lineHeight: 24,
   },
   profileSub: {
-    marginTop: 3,
+    marginTop: 4,
     fontFamily: fonts.mono,
-    fontSize: 11,
+    fontSize: 13,
     color: tokens.ink3,
     letterSpacing: 0.4,
   },
