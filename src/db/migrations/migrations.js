@@ -22,6 +22,7 @@ import m0017 from './0017_orange_nightcrawler.sql';
 import m0018 from './0018_many_wolf_cub.sql';
 import m0019 from './0019_overconfident_silver_surfer.sql';
 import m0020 from './0020_round_omega_sentinel.sql';
+import m0021 from './0021_fair_rick_jones.sql';
 
   export default {
     journal,
@@ -46,7 +47,8 @@ m0016,
 m0017,
 m0018,
 m0019,
-m0020
+m0020,
+m0021
     }
   }
   

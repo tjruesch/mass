@@ -19,6 +19,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import 'react-native-reanimated';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { ThemeProvider as PaletteProvider } from '@/theme/theme-provider';
 import { db, migrations, useMigrations } from '@/src/db';
 import { getPreferences as getFastingPreferences } from '@/src/db/queries/fasting-preferences';
 import { getPreferences as getMealPreferences } from '@/src/db/queries/meal-preferences';
@@ -108,6 +109,7 @@ export default function RootLayout() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
+      <PaletteProvider>
       <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
         <Stack screenOptions={{ headerShown: false }}>
           {/* Top-level tab destinations get `animation: none` so the
@@ -139,6 +141,7 @@ export default function RootLayout() {
         </Stack>
         <StatusBar style="auto" />
       </ThemeProvider>
+      </PaletteProvider>
     </GestureHandlerRootView>
   );
 }

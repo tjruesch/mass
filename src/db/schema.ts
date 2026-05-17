@@ -443,6 +443,13 @@ export const userPreferences = sqliteTable('user_preferences', {
     .notNull()
     .default('monday')
     .$type<WeekStartsOn>(),
+  /** Active palette id (#22). Theme provider reads this and routes
+   *  the resolved Palette through React context. */
+  activePaletteId: text('active_palette_id', {
+    enum: ['mist', 'editorial', 'lab', 'hardware'],
+  })
+    .notNull()
+    .default('mist'),
 });
 
 // ─── Fasting preferences (singleton, always id=1) ─────────────────────────────
