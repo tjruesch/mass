@@ -423,10 +423,26 @@ export const mealPreferences = sqliteTable('meal_preferences', {
  * just `displayName` for the home greeting (#13); future fields
  * (height/age/sex for real Mifflin-St Jeor TDEE, etc.) land here.
  */
+export type TimeFormat = '24h' | '12h';
+export type WeekStartsOn = 'monday' | 'sunday';
+
 export const userPreferences = sqliteTable('user_preferences', {
   id: integer('id').primaryKey(),
   /** Greeting name. Null until set; UI shows a placeholder when missing. */
   displayName: text('display_name'),
+  /** 24h clock vs 12h with am/pm. Affects formatMinutes + everywhere
+   *  we render HH:MM. Wiring follow-up: pass through to the formatter. */
+  timeFormat: text('time_format', { enum: ['24h', '12h'] })
+    .notNull()
+    .default('24h')
+    .$type<TimeFormat>(),
+  /** First day of the week. App-wide convention is monday-first; this
+   *  pref lets the user switch to sunday-first. Wiring follow-up:
+   *  read in dowMondayFirst + the week strips on /meals + /plan etc. */
+  weekStartsOn: text('week_starts_on', { enum: ['monday', 'sunday'] })
+    .notNull()
+    .default('monday')
+    .$type<WeekStartsOn>(),
 });
 
 // ─── Fasting preferences (singleton, always id=1) ─────────────────────────────

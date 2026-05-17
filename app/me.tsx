@@ -27,6 +27,7 @@ import { Glyph, TabBar } from '@/components/design';
 import { db } from '@/src/db';
 import { updatePreferences as updateUserPreferences } from '@/src/db/queries/user-preferences';
 import { workoutEntries } from '@/src/db/schema';
+import type { TimeFormat, WeekStartsOn } from '@/src/db/schema';
 import {
   BODY_MASS_PERMISSIONS,
   WORKOUT_PERMISSIONS,
@@ -392,6 +393,38 @@ export default function MeScreen() {
           </View>
         </View>
 
+        {/* ── Appearance ──────────────────────────────────────── */}
+        <View style={styles.sectionOuter}>
+          <View style={styles.sectionHeaderRow}>
+            <Text style={[styles.kicker, textStyles.cap]}>appearance</Text>
+          </View>
+          <PaletteCard />
+          <View style={[styles.card, styles.appearanceListCard]}>
+            <UnitsRow />
+            <ToggleRow
+              label="time format"
+              value={userPrefs.prefs?.timeFormat ?? '24h'}
+              onToggle={(v) =>
+                updateUserPreferences({ timeFormat: v }).catch((err) =>
+                  console.warn('Failed to save time format:', err),
+                )
+              }
+              options={['24h', '12h']}
+            />
+            <ToggleRow
+              label="first day of week"
+              value={userPrefs.prefs?.weekStartsOn ?? 'monday'}
+              onToggle={(v) =>
+                updateUserPreferences({ weekStartsOn: v }).catch((err) =>
+                  console.warn('Failed to save week start:', err),
+                )
+              }
+              options={['monday', 'sunday']}
+              isLast
+            />
+          </View>
+        </View>
+
         {/* ── Integrations card ───────────────────────────────── */}
         <View style={styles.sectionOuter}>
           <View style={styles.sectionHeaderRow}>
@@ -503,6 +536,147 @@ function LinkRow({
         {value}
       </Text>
       <Glyph name="chev" color={tokens.ink3} />
+    </Pressable>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PaletteCard — non-functional preview for now (#22 owns the actual
+// theme switching). 6 tiles: lane 1 ('Mist · Petrol') is the active
+// one and the rest preview alt palettes from the design source.
+// Tapping anywhere on the card surfaces a 'coming soon' alert.
+// ─────────────────────────────────────────────────────────────────────────────
+type PaletteTile = {
+  readonly id: string;
+  readonly name: string;
+  readonly ring: string;
+  readonly dot: string;
+};
+
+const PALETTE_TILES: ReadonlyArray<PaletteTile> = [
+  { id: 'mist', name: 'Mist · Petrol', ring: '#1B3A3D', dot: '#D88A52' },
+  { id: 'editorial', name: 'Editorial', ring: '#3A2A1A', dot: '#D4953F' },
+  { id: 'lab', name: 'Lab', ring: '#1E2A4A', dot: '#C8973A' },
+  { id: 'forest', name: 'Forest', ring: '#1F3826', dot: '#9DB84A' },
+  { id: 'plum', name: 'Plum', ring: '#3A1F38', dot: '#D17A85' },
+  { id: 'hardware', name: 'Hardware', ring: '#4A2418', dot: '#D8AB52' },
+];
+const ACTIVE_PALETTE_ID = 'mist';
+
+function PaletteCard() {
+  const active = PALETTE_TILES.find((t) => t.id === ACTIVE_PALETTE_ID)!;
+  const onChange = () => {
+    Alert.alert(
+      'Palette switching',
+      'The alt palettes are designed but not wired yet — tracked in #22 (dark mode / lane variants).',
+    );
+  };
+  return (
+    <Pressable
+      onPress={onChange}
+      accessibilityRole="button"
+      accessibilityLabel="Change palette"
+      style={({ pressed }) => [
+        styles.card,
+        styles.paletteCard,
+        pressed && { opacity: 0.85 },
+      ]}>
+      <View style={styles.paletteHeader}>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text style={[styles.kicker, textStyles.cap]}>palette</Text>
+          <Text style={styles.paletteName} numberOfLines={1}>
+            {active.name}
+          </Text>
+        </View>
+        <View style={styles.changeLink}>
+          <Text style={[styles.changeLinkText, textStyles.cap]}>change</Text>
+          <Glyph name="chev" color={tokens.accentInk} />
+        </View>
+      </View>
+      <View style={styles.paletteRow}>
+        {PALETTE_TILES.map((tile) => (
+          <View
+            key={tile.id}
+            style={[
+              styles.paletteTile,
+              { backgroundColor: tile.ring },
+              tile.id === ACTIVE_PALETTE_ID && styles.paletteTileActive,
+            ]}>
+            <View
+              style={[
+                styles.paletteDot,
+                { backgroundColor: tile.dot },
+              ]}
+            />
+          </View>
+        ))}
+      </View>
+    </Pressable>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// UnitsRow — surfaces the per-tracker unit picker locations. Tap →
+// alert pointing the user at the right settings screens until the
+// global unit toggle (#45 + #63) lands.
+// ─────────────────────────────────────────────────────────────────────────────
+function UnitsRow() {
+  return (
+    <Pressable
+      onPress={() =>
+        Alert.alert(
+          'Units',
+          'Per-tracker units live on each settings screen: water unit on /water-settings, weight unit on /weight-settings. A global toggle is tracked in #45 + #63.',
+        )
+      }
+      accessibilityRole="button"
+      accessibilityLabel="Units"
+      style={({ pressed }) => [
+        styles.appearanceRow,
+        styles.rowBorder,
+        pressed && { opacity: 0.65 },
+      ]}>
+      <Text style={styles.appearanceLabel}>units</Text>
+      <View style={styles.appearanceValueRow}>
+        <Text style={styles.appearanceValue}>metric · kg / L</Text>
+        <Glyph name="chev" color={tokens.ink3} />
+      </View>
+    </Pressable>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ToggleRow — tap cycles through the 2-value options inline. No
+// sheet; the saved value displays on the right.
+// ─────────────────────────────────────────────────────────────────────────────
+function ToggleRow<T extends string>({
+  label,
+  value,
+  options,
+  onToggle,
+  isLast = false,
+}: {
+  label: string;
+  value: T;
+  options: readonly [T, T];
+  onToggle: (next: T) => void;
+  isLast?: boolean;
+}) {
+  return (
+    <Pressable
+      onPress={() => onToggle(value === options[0] ? options[1] : options[0])}
+      accessibilityRole="button"
+      accessibilityLabel={`${label} · ${value}`}
+      style={({ pressed }) => [
+        styles.appearanceRow,
+        !isLast && styles.rowBorder,
+        pressed && { opacity: 0.65 },
+      ]}>
+      <Text style={styles.appearanceLabel}>{label}</Text>
+      <View style={styles.appearanceValueRow}>
+        <Text style={styles.appearanceValue}>{value}</Text>
+        <Glyph name="chev" color={tokens.ink3} />
+      </View>
     </Pressable>
   );
 }
@@ -868,6 +1042,89 @@ const styles = StyleSheet.create({
     fontFamily: fonts.monoMedium,
     fontSize: 13,
     color: tokens.ink3,
+  },
+
+  // Appearance — palette card
+  paletteCard: {
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+  },
+  paletteHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 12,
+    gap: 12,
+  },
+  paletteName: {
+    marginTop: 4,
+    fontFamily: fonts.sansSemibold,
+    fontSize: 15,
+    color: tokens.ink,
+    letterSpacing: -0.15,
+  },
+  changeLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 4,
+  },
+  changeLinkText: {
+    fontFamily: fonts.monoSemibold,
+    fontSize: 10,
+    color: tokens.accentInk,
+    letterSpacing: 1.98,
+  },
+  paletteRow: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  paletteTile: {
+    flex: 1,
+    height: 34,
+    borderRadius: 8,
+    position: 'relative',
+  },
+  paletteTileActive: {
+    borderWidth: 2,
+    borderColor: tokens.ink,
+  },
+  paletteDot: {
+    position: 'absolute',
+    right: 5,
+    bottom: 5,
+    width: 8,
+    height: 8,
+    borderRadius: 999,
+  },
+
+  // Appearance — list card (units / time / week)
+  appearanceListCard: {
+    marginTop: 8,
+  },
+  appearanceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    gap: 12,
+  },
+  appearanceLabel: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 15,
+    color: tokens.ink,
+    letterSpacing: -0.07,
+  },
+  appearanceValueRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  appearanceValue: {
+    fontFamily: fonts.mono,
+    fontSize: 12,
+    color: tokens.ink3,
+    letterSpacing: 0.4,
   },
 
   // Integrations row variants
