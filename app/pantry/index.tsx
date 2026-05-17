@@ -18,11 +18,12 @@
  */
 
 import { useRouter } from 'expo-router';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { SubHeader, TabBar } from '@/components/design';
-import type { PantryCategory, PantryItem } from '@/src/db/schema';
+import { Glyph, SubHeader, TabBar } from '@/components/design';
+import type { Meal, PantryCategory, PantryItem } from '@/src/db/schema';
+import { useLibraryMeals } from '@/src/hooks/use-meals';
 import { usePantryItems } from '@/src/hooks/use-pantry';
 import { useWeekStockNeed } from '@/src/hooks/use-week-stock-need';
 import {
@@ -47,9 +48,13 @@ const STATUS_COLORS: Record<
   ok: { fg: '#1F7A3A', bg: 'rgba(31,122,58,0.10)' },
 };
 
+type TabId = 'pantry' | 'library';
+
 export default function PantryScreen() {
   const router = useRouter();
+  const [tab, setTab] = useState<TabId>('pantry');
   const items = usePantryItems();
+  const library = useLibraryMeals();
   const { needByPantryId, statusByPantryId } = useWeekStockNeed();
 
   const statusFor = (id: number): StockStatus =>
@@ -122,34 +127,79 @@ export default function PantryScreen() {
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}>
         <SubHeader
-          title="Pantry"
-          back="Home"
+          title={tab === 'pantry' ? 'Pantry' : 'Library'}
+          back="Meals"
           onBack={() => router.back()}
           trailing={
             <Pressable
-              onPress={() => router.push('/pantry/new' as never)}
+              onPress={() =>
+                router.push(
+                  (tab === 'pantry'
+                    ? '/pantry/new'
+                    : '/meals/new') as never,
+                )
+              }
               hitSlop={8}
               accessibilityRole="button"
-              accessibilityLabel="Add pantry item"
+              accessibilityLabel={
+                tab === 'pantry' ? 'Add pantry item' : 'New meal'
+              }
               style={({ pressed }) => pressed && { opacity: 0.55 }}>
               <Text style={[styles.addLink, textStyles.cap]}>+ add</Text>
             </Pressable>
           }
         />
 
-        {/* ── Stock summary ──────────────────────────────────────── */}
-        <View style={styles.summaryOuter}>
-          <Text style={[styles.kicker, textStyles.cap]}>
-            stock · this week's plan
-          </Text>
-          <View style={styles.summaryGrid}>
-            <SummaryChip kind="out" count={summary.out} />
-            <SummaryChip kind="short" count={summary.short} />
-            <SummaryChip kind="low" count={summary.low} />
-            <SummaryChip kind="ok" count={summary.ok} />
+        {/* ── Tab segmented control ───────────────────────────────── */}
+        <View style={styles.tabsOuter}>
+          <View style={styles.tabsBar}>
+            <Pressable
+              onPress={() => setTab('pantry')}
+              accessibilityRole="button"
+              accessibilityState={{ selected: tab === 'pantry' }}
+              style={[
+                styles.tabPill,
+                tab === 'pantry' && styles.tabPillActive,
+              ]}>
+              <Text
+                style={[
+                  styles.tabLabel,
+                  textStyles.cap,
+                  tab === 'pantry' && styles.tabLabelActive,
+                ]}>
+                pantry · {items.length}
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={() => setTab('library')}
+              accessibilityRole="button"
+              accessibilityState={{ selected: tab === 'library' }}
+              style={[
+                styles.tabPill,
+                tab === 'library' && styles.tabPillActive,
+              ]}>
+              <Text
+                style={[
+                  styles.tabLabel,
+                  textStyles.cap,
+                  tab === 'library' && styles.tabLabelActive,
+                ]}>
+                library · {library.length}
+              </Text>
+            </Pressable>
           </View>
         </View>
 
+        {tab === 'library' && (
+          <LibraryList
+            meals={library}
+            onTap={(id) => router.push(`/meals/${id}` as never)}
+            onCreate={() => router.push('/meals/new' as never)}
+          />
+        )}
+
+        {tab === 'pantry' && (
+          <>
         {/* ── Shopping list ──────────────────────────────────────── */}
         {shoppingList.length > 0 && (
           <View style={styles.sectionOuter}>
@@ -259,11 +309,105 @@ export default function PantryScreen() {
             </View>
           );
         })}
+          </>
+        )}
       </ScrollView>
 
       <TabBar active="home" />
     </View>
   );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LibraryList — flat list of library meals. Tap → /meals/<id>;
+// dashed CTA at the bottom → /meals/new.
+// ─────────────────────────────────────────────────────────────────────────────
+function LibraryList({
+  meals,
+  onTap,
+  onCreate,
+}: {
+  meals: ReadonlyArray<Meal>;
+  onTap: (id: number) => void;
+  onCreate: () => void;
+}) {
+  if (meals.length === 0) {
+    return (
+      <View style={styles.emptyOuter}>
+        <Text style={styles.emptyTitle}>No saved meals</Text>
+        <Text style={styles.emptyHint}>
+          Build reusable meals to plan + log faster.
+        </Text>
+        <Pressable
+          onPress={onCreate}
+          accessibilityRole="button"
+          style={({ pressed }) => [
+            styles.emptyCta,
+            pressed && { opacity: 0.7 },
+          ]}>
+          <Text style={[styles.emptyCtaText, textStyles.cap]}>
+            + new meal
+          </Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.sectionOuter}>
+      <View style={styles.card}>
+        {meals.map((m, i) => {
+          const isLast = i === meals.length - 1;
+          return (
+            <Pressable
+              key={m.id}
+              onPress={() => onTap(m.id)}
+              accessibilityRole="button"
+              accessibilityLabel={`Edit ${m.name ?? 'meal'}`}
+              style={({ pressed }) => [
+                styles.libraryRow,
+                !isLast && styles.rowBorder,
+                pressed && { opacity: 0.7 },
+              ]}>
+              <View style={styles.libraryBody}>
+                <Text numberOfLines={1} style={styles.libraryName}>
+                  {m.name ?? 'Meal'}
+                </Text>
+                <Text style={styles.libraryMacros} numberOfLines={1}>
+                  {Math.round(m.kcal ?? 0)} kcal
+                  {m.proteinG !== null && m.proteinG > 0 && (
+                    <> · P {formatMacroG(m.proteinG)}</>
+                  )}
+                  {m.carbsG !== null && m.carbsG > 0 && (
+                    <> · C {formatMacroG(m.carbsG)}</>
+                  )}
+                  {m.fatG !== null && m.fatG > 0 && (
+                    <> · F {formatMacroG(m.fatG)}</>
+                  )}
+                </Text>
+              </View>
+              <Glyph name="chev" color={tokens.ink3} />
+            </Pressable>
+          );
+        })}
+      </View>
+      <Pressable
+        onPress={onCreate}
+        accessibilityRole="button"
+        style={({ pressed }) => [
+          styles.newMealBtn,
+          pressed && { opacity: 0.55 },
+        ]}>
+        <Glyph name="plus" color={tokens.ink3} size={11} />
+        <Text style={[styles.newMealBtnText, textStyles.cap]}>new meal</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+function formatMacroG(g: number): string {
+  if (Number.isInteger(g)) return `${g}g`;
+  return `${Math.round(g * 10) / 10}g`;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -407,6 +551,89 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: tokens.accentInk,
     letterSpacing: 2.2,
+  },
+
+  // Tab bar (pantry / library segmented control)
+  tabsOuter: {
+    paddingTop: 12,
+    paddingHorizontal: 22,
+    marginBottom: 6,
+  },
+  tabsBar: {
+    flexDirection: 'row',
+    backgroundColor: tokens.bg2,
+    borderRadius: 10,
+    padding: 3,
+    gap: 3,
+  },
+  tabPill: {
+    flex: 1,
+    paddingVertical: 9,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tabPillActive: {
+    backgroundColor: tokens.card,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowRadius: 2,
+    shadowOpacity: 0.06,
+  },
+  tabLabel: {
+    fontFamily: fonts.monoSemibold,
+    fontSize: 11,
+    color: tokens.ink3,
+    letterSpacing: 1.76,
+  },
+  tabLabelActive: {
+    color: tokens.ink,
+  },
+
+  // Library tab rows
+  libraryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    gap: 10,
+  },
+  libraryBody: {
+    flex: 1,
+    minWidth: 0,
+  },
+  libraryName: {
+    fontFamily: fonts.sansMedium,
+    fontSize: 14,
+    color: tokens.ink,
+    letterSpacing: -0.07,
+  },
+  libraryMacros: {
+    marginTop: 2,
+    fontFamily: fonts.mono,
+    fontSize: 10,
+    color: tokens.ink4,
+    letterSpacing: 0.4,
+  },
+  newMealBtn: {
+    marginTop: 10,
+    paddingVertical: 11,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: tokens.line2,
+    borderStyle: 'dashed',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+  },
+  newMealBtnText: {
+    fontFamily: fonts.monoSemibold,
+    fontSize: 12,
+    color: tokens.ink3,
+    letterSpacing: 1.92,
   },
   kicker: {
     fontFamily: fonts.mono,
