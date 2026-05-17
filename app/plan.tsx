@@ -27,7 +27,9 @@ import {
   type WorkoutTypeDef,
 } from '@/src/db/queries/workout-types';
 import type { WorkoutPreferences } from '@/src/db/schema';
+import { useMealPreferences } from '@/src/hooks/use-meal-preferences';
 import { useWeekPlan } from '@/src/hooks/use-meal-plan';
+import { MEAL_SLOTS, useThisWeekMeals, type MealSlot } from '@/src/hooks/use-meals';
 import { useWeekStockNeed } from '@/src/hooks/use-week-stock-need';
 import { useWorkoutPreferences } from '@/src/hooks/use-workout-preferences';
 import { useWorkoutTypes } from '@/src/hooks/use-workout-types';
@@ -74,6 +76,8 @@ export default function PlanScreen() {
   const workoutsThisWeek = useWorkoutsThisWeek();
   const workoutTypes = useWorkoutTypes();
   const mealPlan = useWeekPlan();
+  const mealsWeek = useThisWeekMeals();
+  const mealPrefs = useMealPreferences();
   const stockNeed = useWeekStockNeed();
 
   const todayDow = dowMondayFirst(now);
@@ -136,6 +140,42 @@ export default function PlanScreen() {
     const toGo = Math.max(0, planned - done);
     return { done, planned, toGo };
   }, [templateByDow]);
+
+  // Per-day per-slot meal cell state for the meals card grid.
+  const mealDays = useMemo<ReadonlyArray<MealDayCell>>(
+    () =>
+      mealsWeek.days.map((d, dow) => ({
+        dow,
+        date: d.date,
+        totalKcal: d.totalKcal,
+        states: MEAL_SLOTS.map((slot) =>
+          computeSlotState({
+            slot,
+            dow,
+            todayDow,
+            loggedKcal: d.bySlot[slot].reduce(
+              (sum, m) => sum + (m.kcal ?? 0),
+              0,
+            ),
+            hasLog: d.bySlot[slot].length > 0,
+            hasPlan: mealPlan.bySlot[dow]?.[slot] !== undefined,
+            budgetKcal: mealPrefs.budgetKcal,
+          }),
+        ),
+      })),
+    [mealsWeek.days, mealPlan.bySlot, todayDow, mealPrefs.budgetKcal],
+  );
+
+  // Today's planned-kcal sum drives the meals headline.
+  const todayPlannedKcal = useMemo(() => {
+    const slots = mealPlan.bySlot[todayDow] ?? {};
+    let total = 0;
+    for (const slot of MEAL_SLOTS) {
+      const entry = slots[slot];
+      if (entry) total += entry.meal.kcal ?? 0;
+    }
+    return total;
+  }, [mealPlan.bySlot, todayDow]);
 
   const pantryStats = useMemo(() => {
     let out = 0;
@@ -231,16 +271,274 @@ export default function PlanScreen() {
           </View>
         </View>
 
-        {/* Placeholder until #104 fills the meals week card. */}
-        <View style={styles.placeholderOuter}>
-          <Text style={[styles.kicker, textStyles.cap]}>coming next</Text>
-          <Text style={styles.placeholder}>meals week card</Text>
+        {/* ── Meals week card ─────────────────────────────────────── */}
+        <View style={styles.sectionOuter}>
+          <MealsHeadline
+            todayPlannedKcal={todayPlannedKcal}
+            budgetKcal={mealPrefs.budgetKcal}
+            onSeeAll={() => router.push('/meals' as never)}
+          />
+          <View style={styles.weekCard}>
+            <View style={styles.weekRow}>
+              {mealDays.map((day) => (
+                <MealDayColumn
+                  key={day.dow}
+                  day={day}
+                  isToday={day.dow === todayDow}
+                  isFuture={day.dow > todayDow}
+                />
+              ))}
+            </View>
+            <View style={styles.mealsLegend}>
+              <View style={styles.mealsLegendChips}>
+                <MealsLegendChip
+                  color={tokens.ink}
+                  label="on target"
+                />
+                <MealsLegendChip color="#3A8F4F" label="below" />
+                <MealsLegendChip color={tokens.warn} label="above" />
+              </View>
+              <Text style={styles.mealsLegendUnit}>kcal / day</Text>
+            </View>
+          </View>
         </View>
       </ScrollView>
 
       <TabBar active="plan" />
     </View>
   );
+}
+
+// ─── Meals — helpers + sub-components ──────────────────────────────────────
+type MealSlotState =
+  | 'on_target'
+  | 'below'
+  | 'above'
+  | 'upcoming'
+  | 'skipped'
+  | 'not_planned';
+
+type MealDayCell = {
+  readonly dow: number;
+  readonly date: Date;
+  readonly totalKcal: number;
+  readonly states: ReadonlyArray<MealSlotState>;
+};
+
+const SLOT_TOLERANCE = 0.05; // ±5 % of slot kcal share
+const SLOT_SHARE_OF_BUDGET = 1 / 4; // 4 slots, flat share for v1
+
+function computeSlotState({
+  loggedKcal,
+  hasLog,
+  hasPlan,
+  dow,
+  todayDow,
+  budgetKcal,
+}: {
+  slot: MealSlot;
+  dow: number;
+  todayDow: number;
+  loggedKcal: number;
+  hasLog: boolean;
+  hasPlan: boolean;
+  budgetKcal: number;
+}): MealSlotState {
+  const slotTargetKcal = budgetKcal * SLOT_SHARE_OF_BUDGET;
+  const low = slotTargetKcal * (1 - SLOT_TOLERANCE);
+  const high = slotTargetKcal * (1 + SLOT_TOLERANCE);
+
+  if (hasLog) {
+    if (loggedKcal > high) return 'above';
+    if (loggedKcal < low) return 'below';
+    return 'on_target';
+  }
+  // No log:
+  const isPast = dow < todayDow;
+  if (hasPlan) {
+    return isPast ? 'skipped' : 'upcoming';
+  }
+  return 'not_planned';
+}
+
+function MealsHeadline({
+  todayPlannedKcal,
+  budgetKcal,
+  onSeeAll,
+}: {
+  todayPlannedKcal: number;
+  budgetKcal: number;
+  onSeeAll: () => void;
+}) {
+  const overBudget = todayPlannedKcal > budgetKcal;
+  const underBy = Math.max(0, budgetKcal - todayPlannedKcal);
+  const pillFg = overBudget ? tokens.warn : '#1F7A3A';
+  return (
+    <View style={styles.headlineRow}>
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <Text style={[styles.kicker, textStyles.cap, styles.headlineKicker]}>
+          meals
+        </Text>
+        <View style={styles.headlineBigRow}>
+          <Text style={styles.headlineBig}>{todayPlannedKcal}</Text>
+          <Text style={styles.headlineNext}> kcal today</Text>
+          <View
+            style={[
+              styles.headlinePill,
+              { backgroundColor: hexAt(pillFg, 0.1) },
+            ]}>
+            <View
+              style={[styles.headlinePillDot, { backgroundColor: pillFg }]}
+            />
+            <Text
+              style={[
+                styles.headlinePillText,
+                textStyles.cap,
+                { color: pillFg },
+              ]}>
+              {overBudget ? 'over' : `${underBy} under`}
+            </Text>
+          </View>
+        </View>
+        <Text style={[styles.headlineMeta, textStyles.tnum]}>
+          <Text>budget </Text>
+          <Text style={styles.headlineMetaStrong}>{budgetKcal}</Text>
+          <Text> kcal</Text>
+        </Text>
+      </View>
+      <Pressable
+        onPress={onSeeAll}
+        hitSlop={6}
+        accessibilityRole="button"
+        accessibilityLabel="See meal log"
+        style={({ pressed }) => [
+          styles.seeAll,
+          pressed && { opacity: 0.55 },
+        ]}>
+        <Text style={[styles.seeAllText, textStyles.cap]}>see all</Text>
+        <Glyph name="chev" color={tokens.accentInk} />
+      </Pressable>
+    </View>
+  );
+}
+
+function MealDayColumn({
+  day,
+  isToday,
+  isFuture,
+}: {
+  day: MealDayCell;
+  isToday: boolean;
+  isFuture: boolean;
+}) {
+  return (
+    <View style={styles.mealDayCell}>
+      <Text
+        style={[
+          styles.dayDow,
+          textStyles.cap,
+          isToday && styles.dayDowToday,
+        ]}>
+        {DOW_LABELS[day.dow]}
+      </Text>
+      <View
+        style={[
+          styles.mealStack,
+          isToday && styles.mealStackToday,
+        ]}>
+        {day.states.map((state, i) => (
+          <MealSlotRect key={i} state={state} />
+        ))}
+      </View>
+      <Text
+        style={[
+          styles.mealKcal,
+          textStyles.tnum,
+          isToday && styles.mealKcalToday,
+          isFuture && { fontStyle: 'italic' },
+        ]}>
+        {day.totalKcal > 0 ? Math.round(day.totalKcal) : '—'}
+      </Text>
+    </View>
+  );
+}
+
+function MealSlotRect({ state }: { state: MealSlotState }) {
+  switch (state) {
+    case 'on_target':
+      return <View style={[styles.mealSlot, { backgroundColor: tokens.ink }]} />;
+    case 'below':
+      return <View style={[styles.mealSlot, { backgroundColor: '#3A8F4F' }]} />;
+    case 'above':
+      return <View style={[styles.mealSlot, { backgroundColor: tokens.warn }]} />;
+    case 'upcoming':
+      return (
+        <View
+          style={[
+            styles.mealSlot,
+            {
+              backgroundColor: tokens.bg2,
+              borderWidth: 1,
+              borderColor: tokens.line,
+            },
+          ]}
+        />
+      );
+    case 'skipped':
+      // Diagonal-stripe pattern isn't free in RN — use a faded warn
+      // tint with a dashed-feeling line border instead. Same intent
+      // ("planned but missed") without an SVG pattern fill.
+      return (
+        <View
+          style={[
+            styles.mealSlot,
+            {
+              backgroundColor: 'rgba(180,90,30,0.10)',
+              borderWidth: 1,
+              borderColor: tokens.line,
+              borderStyle: 'dashed',
+            },
+          ]}
+        />
+      );
+    case 'not_planned':
+    default:
+      // Thin mid-line stroke — same treatment as the trends weight-
+      // bar empty placeholder.
+      return (
+        <View style={[styles.mealSlot, styles.mealSlotEmpty]}>
+          <View style={styles.mealSlotEmptyTick} />
+        </View>
+      );
+  }
+}
+
+function MealsLegendChip({
+  color,
+  label,
+}: {
+  color: string;
+  label: string;
+}) {
+  return (
+    <View style={styles.mealsLegendChip}>
+      <View
+        style={[styles.mealsLegendSwatch, { backgroundColor: color }]}
+      />
+      <Text style={[styles.mealsLegendLabel, textStyles.cap]}>{label}</Text>
+    </View>
+  );
+}
+
+// Cheap "color + alpha" — used for pill backgrounds. Accepts a hex
+// string; alpha applied via rgba().
+function hexAt(hex: string, alpha: number): string {
+  const h = hex.replace('#', '');
+  const v = parseInt(h, 16);
+  const r = (v >> 16) & 0xff;
+  const g = (v >> 8) & 0xff;
+  const b = v & 0xff;
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
 // ─── Workouts — helpers ────────────────────────────────────────────────────
@@ -685,5 +983,111 @@ const styles = StyleSheet.create({
     letterSpacing: 0.4,
     maxWidth: 50,
     textAlign: 'center',
+  },
+
+  // Meals headline pill
+  headlinePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingVertical: 2,
+    paddingHorizontal: 7,
+    borderRadius: 999,
+    marginLeft: 8,
+  },
+  headlinePillDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 999,
+  },
+  headlinePillText: {
+    fontFamily: fonts.monoSemibold,
+    fontSize: 9,
+    letterSpacing: 1.62,
+  },
+
+  // Meals day cell + stack
+  mealDayCell: {
+    flex: 1,
+    alignItems: 'center',
+    gap: 6,
+  },
+  mealStack: {
+    width: 16,
+    height: 64,
+    flexDirection: 'column',
+    gap: 2,
+    padding: 0,
+  },
+  mealStackToday: {
+    // 1.5 px ink outline via shadow-less border; padding is 0 so
+    // child rects still meet the edges.
+    borderWidth: 1.5,
+    borderColor: tokens.ink,
+    borderRadius: 4,
+    padding: 2,
+    height: 68,
+  },
+  mealSlot: {
+    flex: 1,
+    borderRadius: 1.5,
+  },
+  mealSlotEmpty: {
+    backgroundColor: 'transparent',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  mealSlotEmptyTick: {
+    width: '55%',
+    height: 1,
+    backgroundColor: tokens.line2,
+  },
+  mealKcal: {
+    fontFamily: fonts.mono,
+    fontSize: 9,
+    color: tokens.ink4,
+    letterSpacing: 0.4,
+  },
+  mealKcalToday: {
+    fontFamily: fonts.monoSemibold,
+    color: tokens.ink,
+  },
+
+  // Meals legend
+  mealsLegend: {
+    marginTop: 14,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: tokens.line,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  mealsLegendChips: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  mealsLegendChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  mealsLegendSwatch: {
+    width: 9,
+    height: 9,
+    borderRadius: 2,
+  },
+  mealsLegendLabel: {
+    fontFamily: fonts.mono,
+    fontSize: 9,
+    color: tokens.ink4,
+    letterSpacing: 1.62,
+  },
+  mealsLegendUnit: {
+    fontFamily: fonts.mono,
+    fontSize: 9,
+    color: tokens.ink3,
+    fontStyle: 'italic',
+    letterSpacing: 0.4,
   },
 });
