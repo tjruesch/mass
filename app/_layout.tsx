@@ -22,6 +22,7 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import { db, migrations, useMigrations } from '@/src/db';
 import { getPreferences as getFastingPreferences } from '@/src/db/queries/fasting-preferences';
 import { getPreferences as getMealPreferences } from '@/src/db/queries/meal-preferences';
+import { getPreferences as getUserPreferences } from '@/src/db/queries/user-preferences';
 import { getPreferences as getWaterPreferences } from '@/src/db/queries/water-preferences';
 import { getPreferences as getWeightPreferences } from '@/src/db/queries/weight-preferences';
 import { getPreferences as getWorkoutPreferences } from '@/src/db/queries/workout-preferences';
@@ -62,6 +63,9 @@ export default function RootLayout() {
     });
     getMealPreferences().catch((err) => {
       console.warn('Failed to seed meal preferences:', err);
+    });
+    getUserPreferences().catch((err) => {
+      console.warn('Failed to seed user preferences:', err);
     });
     getWaterPreferences().catch((err) => {
       console.warn('Failed to seed water preferences:', err);

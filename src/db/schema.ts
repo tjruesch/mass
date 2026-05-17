@@ -417,6 +417,18 @@ export const mealPreferences = sqliteTable('meal_preferences', {
     .default(true),
 });
 
+// ─── User preferences (singleton, always id=1) ───────────────────────────────
+/**
+ * Per-user profile bits the rest of the app reads from. Right now
+ * just `displayName` for the home greeting (#13); future fields
+ * (height/age/sex for real Mifflin-St Jeor TDEE, etc.) land here.
+ */
+export const userPreferences = sqliteTable('user_preferences', {
+  id: integer('id').primaryKey(),
+  /** Greeting name. Null until set; UI shows a placeholder when missing. */
+  displayName: text('display_name'),
+});
+
 // ─── Fasting preferences (singleton, always id=1) ─────────────────────────────
 export const fastingPreferences = sqliteTable('fasting_preferences', {
   /** Always 1. Enforced via INSERT OR IGNORE / upsert at app startup. */
@@ -534,6 +546,9 @@ export type NewMealPreferences = typeof mealPreferences.$inferInsert;
 
 export type MealPlanEntry = typeof mealPlan.$inferSelect;
 export type NewMealPlanEntry = typeof mealPlan.$inferInsert;
+
+export type UserPreferences = typeof userPreferences.$inferSelect;
+export type NewUserPreferences = typeof userPreferences.$inferInsert;
 
 export type WaterPreferences = typeof waterPreferences.$inferSelect;
 export type NewWaterPreferences = typeof waterPreferences.$inferInsert;

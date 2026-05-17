@@ -1,6 +1,13 @@
 import { useRouter } from 'expo-router';
-import { useEffect, useRef } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useRef } from 'react';
+import {
+  Alert,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import Animated, {
   Easing,
   useAnimatedProps,
@@ -88,6 +95,8 @@ import { useFasting, type FastingState } from '@/src/hooks/use-fasting';
 import { useFastingPreferences } from '@/src/hooks/use-fasting-preferences';
 import { useMealPreferences } from '@/src/hooks/use-meal-preferences';
 import { useTodayMeals } from '@/src/hooks/use-meals';
+import { useUserPreferences } from '@/src/hooks/use-user-preferences';
+import { updatePreferences as updateUserPreferences } from '@/src/db/queries/user-preferences';
 import { useWaterToday } from '@/src/hooks/use-water';
 import { useWaterPreferences } from '@/src/hooks/use-water-preferences';
 import { useNow } from '@/src/lib/use-now';
@@ -460,6 +469,29 @@ function IdleFastingCardBody() {
 export default function HomeScreen() {
   const router = useRouter();
   const fasting = useFasting(1000);
+  const userPrefs = useUserPreferences();
+  const promptName = useCallback(() => {
+    Alert.prompt(
+      'Your name',
+      'Shown on the home greeting.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Save',
+          onPress: (text: string | undefined) => {
+            const next = (text ?? '').trim();
+            updateUserPreferences({
+              displayName: next === '' ? null : next,
+            }).catch((err) => {
+              console.warn('Failed to save display name:', err);
+            });
+          },
+        },
+      ],
+      'plain-text',
+      userPrefs.displayName ?? '',
+    );
+  }, [userPrefs.displayName]);
   // Live water — 60s tick is plenty; live query also re-runs on every sip.
   const waterToday = useWaterToday();
   const waterPrefs = useWaterPreferences();
@@ -535,7 +567,14 @@ export default function HomeScreen() {
             </View>
           </View>
           <Text style={styles.greetingHeading}>
-            {greetingFor(now)}, <Text style={styles.greetingHeadingName}>Tom.</Text>
+            {greetingFor(now)},{' '}
+            <Text
+              suppressHighlighting
+              style={styles.greetingHeadingName}
+              onPress={promptName}>
+              {userPrefs.displayName ?? 'tap to set name'}
+              {userPrefs.displayName !== null ? '.' : ''}
+            </Text>
           </Text>
           <Text style={styles.greetingSub}>
             {fasting.status === 'active' && fasting.msToNextPhase !== null && fasting.msToNextPhase > 0 ? (
@@ -609,32 +648,6 @@ export default function HomeScreen() {
               </Pressable>
             </View>
           </View>
-        </View>
-
-        {/* Temporary entries — real navigation comes via Trends (weight)
-            and Plan (workouts) when those slices ship. */}
-        <View style={styles.tempWeightLinkOuter}>
-          <Pressable
-            onPress={() => router.push('/weight')}
-            style={({ pressed }) => pressed && { opacity: 0.6 }}>
-            <Text style={[styles.tempWeightLinkText, textStyles.cap]}>
-              → weight (temp)
-            </Text>
-          </Pressable>
-          <Pressable
-            onPress={() => router.push('/workouts')}
-            style={({ pressed }) => pressed && { opacity: 0.6 }}>
-            <Text style={[styles.tempWeightLinkText, textStyles.cap]}>
-              → workouts (temp)
-            </Text>
-          </Pressable>
-          <Pressable
-            onPress={() => router.push('/pantry' as never)}
-            style={({ pressed }) => pressed && { opacity: 0.6 }}>
-            <Text style={[styles.tempWeightLinkText, textStyles.cap]}>
-              → pantry (temp)
-            </Text>
-          </Pressable>
         </View>
 
         {/* ── 3. Fasting card ───────────────────────────────────── */}
@@ -836,18 +849,6 @@ const styles = StyleSheet.create({
   },
   greetingSubMute: {
     color: tokens.ink4,
-  },
-
-  // Temp — replaced by #56's proper home weight surface.
-  tempWeightLinkOuter: {
-    paddingTop: 12,
-    paddingHorizontal: 22,
-  },
-  tempWeightLinkText: {
-    fontFamily: fonts.mono,
-    fontSize: 12,
-    color: tokens.ink4,
-    letterSpacing: 2.16,
   },
 
   // Cards
