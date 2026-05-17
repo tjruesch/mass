@@ -27,6 +27,14 @@ import { Glyph, TabBar } from '@/components/design';
 import { db } from '@/src/db';
 import { updatePreferences as updateUserPreferences } from '@/src/db/queries/user-preferences';
 import { workoutEntries } from '@/src/db/schema';
+import {
+  BODY_MASS_PERMISSIONS,
+  WORKOUT_PERMISSIONS,
+  ensureHkAuthorization,
+  useHkAuthState,
+  type HkPermissionRequest,
+} from '@/src/lib/healthkit';
+import { MOVE_PERMISSIONS } from '@/src/lib/healthkit/move';
 import { useFastingPreferences } from '@/src/hooks/use-fasting-preferences';
 import { useFeatureStreaks } from '@/src/hooks/use-feature-streaks';
 import { useMealPreferences } from '@/src/hooks/use-meal-preferences';
@@ -43,6 +51,26 @@ const MONTH_DAY_FMT = new Intl.DateTimeFormat('en', {
   month: 'short',
   day: '2-digit',
 });
+
+// Union of every HK permission the app touches today. The integrations
+// row reads as "live" when this union is granted; flips to "off" when
+// any side is denied or the user hasn't prompted yet. Constant
+// reference so useHkAuthState doesn't re-subscribe on render.
+const ALL_HK_PERMISSIONS: HkPermissionRequest = {
+  toRead: Array.from(
+    new Set([
+      ...MOVE_PERMISSIONS.toRead,
+      ...BODY_MASS_PERMISSIONS.toRead,
+      ...WORKOUT_PERMISSIONS.toRead,
+    ]),
+  ),
+  toShare: Array.from(
+    new Set([
+      ...(BODY_MASS_PERMISSIONS.toShare ?? []),
+      ...(WORKOUT_PERMISSIONS.toShare ?? []),
+    ]),
+  ),
+};
 
 export default function MeScreen() {
   const router = useRouter();
@@ -61,6 +89,7 @@ export default function MeScreen() {
     db.select({ n: sql<number>`count(*)`.as('n') }).from(workoutEntries),
   );
   const totalSessions = workoutCountRows?.[0]?.n ?? 0;
+  const hkAuth = useHkAuthState(ALL_HK_PERMISSIONS);
 
   // ── Fasting row ─────────────────────────────────────────────────
   const fastingRow = useMemo(() => {
@@ -162,10 +191,6 @@ export default function MeScreen() {
     // Prefer goal context when a target is set; fall back to the
     // 7-day MA delta which we already compute on /trends.
     if (weight?.targetKg !== undefined && weight?.targetKg !== null) {
-      const remainingKg =
-        weightHistory.latestKg !== null
-          ? weight.targetKg - weightHistory.latestKg
-          : null;
       if (
         weight.targetDate &&
         weight.targetDate.getTime() > Date.now()
@@ -176,9 +201,7 @@ export default function MeScreen() {
             (weight.targetDate.getTime() - Date.now()) / 86_400_000,
           ),
         );
-        return remainingKg !== null
-          ? `goal ${formatOne(weight.targetKg)} kg · ${formatOne(Math.abs(remainingKg))} kg to go · ${daysToGoal}d`
-          : `goal ${formatOne(weight.targetKg)} kg · in ${daysToGoal}d`;
+        return `goal ${formatOne(weight.targetKg)} kg · ${daysToGoal} days to go`;
       }
       return `goal ${formatOne(weight.targetKg)} kg`;
     }
@@ -368,6 +391,68 @@ export default function MeScreen() {
             />
           </View>
         </View>
+
+        {/* ── Integrations card ───────────────────────────────── */}
+        <View style={styles.sectionOuter}>
+          <View style={styles.sectionHeaderRow}>
+            <Text style={[styles.kicker, textStyles.cap]}>integrations</Text>
+            <Text style={styles.sectionSub}>data sources</Text>
+          </View>
+          <View style={styles.card}>
+            <IntegrationRow
+              name="Apple Health"
+              sub="workouts · steps · weight"
+              status={hkStatusFor(hkAuth)}
+              live={hkAuth === 'granted'}
+              onPress={() => {
+                if (hkAuth === 'granted') {
+                  Alert.alert(
+                    'Apple Health',
+                    'Sync is live. To toggle individual data types, open Settings.app → Health → Data Access & Devices → Maß.',
+                  );
+                  return;
+                }
+                ensureHkAuthorization(ALL_HK_PERMISSIONS).catch((err) => {
+                  console.warn('HK auth request failed:', err);
+                });
+              }}
+            />
+            <IntegrationRow
+              name="Withings Body+"
+              sub="weight scale"
+              status="off"
+              onPress={() =>
+                Alert.alert(
+                  'Coming soon',
+                  'Withings sync is tracked in #58 (Auto-import from Withings / Renpho / BLE).',
+                )
+              }
+            />
+            <IntegrationRow
+              name="Renpho · BLE"
+              sub="not paired"
+              status="off"
+              onPress={() =>
+                Alert.alert(
+                  'Coming soon',
+                  'Renpho BLE pairing is tracked in #58.',
+                )
+              }
+            />
+            <IntegrationRow
+              name="Calendar"
+              sub="plan as iOS events"
+              status="off"
+              isLast
+              onPress={() =>
+                Alert.alert(
+                  'Coming soon',
+                  'Plan-to-Calendar export hasn’t been scheduled yet.',
+                )
+              }
+            />
+          </View>
+        </View>
       </ScrollView>
 
       <TabBar active="me" />
@@ -420,6 +505,131 @@ function LinkRow({
       <Glyph name="chev" color={tokens.ink3} />
     </Pressable>
   );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// IntegrationRow — variant of LinkRow with a status pill instead of
+// a metric value. Heart-tinted icon when 'live', muted otherwise.
+// ─────────────────────────────────────────────────────────────────────────────
+function IntegrationRow({
+  name,
+  sub,
+  status,
+  live = false,
+  onPress,
+  isLast = false,
+}: {
+  name: string;
+  sub: string;
+  /** Pill label — 'live' / 'off' / 'unknown' / 'denied'. */
+  status: 'live' | 'off' | 'unknown' | 'denied';
+  live?: boolean;
+  onPress: () => void;
+  isLast?: boolean;
+}) {
+  const tinted = live;
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`${name} · ${sub} · ${status}`}
+      style={({ pressed }) => [
+        styles.row,
+        !isLast && styles.rowBorder,
+        pressed && { opacity: 0.65 },
+      ]}>
+      <View
+        style={[
+          styles.iconTile,
+          tinted && styles.iconTileLive,
+        ]}>
+        <Svg width={14} height={14} viewBox="0 0 14 14">
+          <Path
+            d="M7 12s-5-3-5-7a2.8 2.8 0 0 1 5-1.8A2.8 2.8 0 0 1 12 5c0 4-5 7-5 7z"
+            fill={tinted ? '#D63D52' : tokens.ink4}
+          />
+        </Svg>
+      </View>
+      <View style={styles.rowBody}>
+        <Text style={styles.rowLabel}>{name}</Text>
+        <Text style={[styles.rowSub, { fontStyle: 'italic' }]} numberOfLines={1}>
+          {sub}
+        </Text>
+      </View>
+      <StatusPill status={status} />
+      <Glyph name="chev" color={tokens.ink3} />
+    </Pressable>
+  );
+}
+
+function StatusPill({
+  status,
+}: {
+  status: 'live' | 'off' | 'unknown' | 'denied';
+}) {
+  // Same green tone used elsewhere for 'on plan'; warn-tint for denied
+  // so the user notices they need to revisit Settings.
+  const palette =
+    status === 'live'
+      ? {
+          fg: '#1F7A3A',
+          bg: 'rgba(31,122,58,0.10)',
+          border: 'rgba(31,122,58,0.20)',
+          label: 'live',
+        }
+      : status === 'denied'
+      ? {
+          fg: tokens.warn,
+          bg: 'rgba(180,90,30,0.10)',
+          border: 'rgba(180,90,30,0.22)',
+          label: 'denied',
+        }
+      : status === 'unknown'
+      ? {
+          fg: tokens.ink3,
+          bg: tokens.bg2,
+          border: tokens.line,
+          label: 'connect',
+        }
+      : {
+          fg: tokens.ink3,
+          bg: tokens.bg2,
+          border: tokens.line,
+          label: 'off',
+        };
+  return (
+    <View
+      style={[
+        styles.statusPill,
+        { backgroundColor: palette.bg, borderColor: palette.border },
+      ]}>
+      <Text
+        style={[
+          styles.statusPillText,
+          textStyles.cap,
+          { color: palette.fg },
+        ]}>
+        {palette.label}
+      </Text>
+    </View>
+  );
+}
+
+function hkStatusFor(
+  auth: ReturnType<typeof useHkAuthState>,
+): 'live' | 'off' | 'unknown' | 'denied' {
+  switch (auth) {
+    case 'granted':
+      return 'live';
+    case 'denied':
+      return 'denied';
+    case 'unknown':
+      return 'unknown';
+    case 'unavailable':
+    case 'checking':
+    default:
+      return 'off';
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -555,16 +765,18 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  // Quick-stats strip
+  // Quick-stats strip — sized to match /plan's this-week strip so
+  // numbers read at the same scale as the rest of the app's stat
+  // surfaces.
   statsStrip: {
-    marginTop: 10,
+    marginTop: 14,
     flexDirection: 'row',
   },
   statCol: {
     flex: 1,
     alignItems: 'center',
     gap: 2,
-    paddingVertical: 4,
+    paddingVertical: 6,
   },
   statColBorder: {
     borderLeftWidth: 1,
@@ -572,22 +784,22 @@ const styles = StyleSheet.create({
   },
   statLabel: {
     fontFamily: fonts.mono,
-    fontSize: 8,
+    fontSize: 9,
     color: tokens.ink4,
-    letterSpacing: 1.76,
+    letterSpacing: 1.98,
   },
   statValue: {
-    marginTop: 3,
+    marginTop: 4,
     fontFamily: fonts.monoSemibold,
-    fontSize: 16,
+    fontSize: 22,
     color: tokens.ink,
-    letterSpacing: -0.32,
-    lineHeight: 20,
+    letterSpacing: -0.77,
+    lineHeight: 28,
   },
   statSub: {
-    marginTop: 1,
+    marginTop: 2,
     fontFamily: fonts.mono,
-    fontSize: 8.5,
+    fontSize: 10,
     color: tokens.ink4,
     fontStyle: 'italic',
     letterSpacing: 0.4,
@@ -655,5 +867,36 @@ const styles = StyleSheet.create({
     fontFamily: fonts.monoMedium,
     fontSize: 13,
     color: tokens.ink3,
+  },
+
+  // Integrations row variants
+  iconTileLive: {
+    backgroundColor: 'rgba(214,61,82,0.08)',
+    borderColor: 'rgba(214,61,82,0.18)',
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
+    marginBottom: 8,
+    gap: 12,
+  },
+  sectionSub: {
+    fontFamily: fonts.mono,
+    fontSize: 11,
+    color: tokens.ink3,
+    fontStyle: 'italic',
+    letterSpacing: 0.4,
+  },
+  statusPill: {
+    paddingVertical: 3,
+    paddingHorizontal: 9,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  statusPillText: {
+    fontFamily: fonts.monoSemibold,
+    fontSize: 9,
+    letterSpacing: 1.8,
   },
 });
