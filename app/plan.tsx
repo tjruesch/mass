@@ -166,16 +166,10 @@ export default function PlanScreen() {
     [mealsWeek.days, mealPlan.bySlot, todayDow, mealPrefs.budgetKcal],
   );
 
-  // Today's planned-kcal sum drives the meals headline.
-  const todayPlannedKcal = useMemo(() => {
-    const slots = mealPlan.bySlot[todayDow] ?? {};
-    let total = 0;
-    for (const slot of MEAL_SLOTS) {
-      const entry = slots[slot];
-      if (entry) total += entry.meal.kcal ?? 0;
-    }
-    return total;
-  }, [mealPlan.bySlot, todayDow]);
+  // Today's consumed kcal — the plan page surfaces actual intake in
+  // the headline; the week grid below still reflects plan vs log
+  // per cell.
+  const todayConsumedKcal = mealsWeek.days[todayDow]?.totalKcal ?? 0;
 
   const pantryStats = useMemo(() => {
     let out = 0;
@@ -274,7 +268,7 @@ export default function PlanScreen() {
         {/* ── Meals week card ─────────────────────────────────────── */}
         <View style={styles.sectionOuter}>
           <MealsHeadline
-            todayPlannedKcal={todayPlannedKcal}
+            todayKcal={todayConsumedKcal}
             budgetKcal={mealPrefs.budgetKcal}
             onSeeAll={() => router.push('/meals' as never)}
           />
@@ -362,16 +356,16 @@ function computeSlotState({
 }
 
 function MealsHeadline({
-  todayPlannedKcal,
+  todayKcal,
   budgetKcal,
   onSeeAll,
 }: {
-  todayPlannedKcal: number;
+  todayKcal: number;
   budgetKcal: number;
   onSeeAll: () => void;
 }) {
-  const overBudget = todayPlannedKcal > budgetKcal;
-  const underBy = Math.max(0, budgetKcal - todayPlannedKcal);
+  const overBudget = todayKcal > budgetKcal;
+  const underBy = Math.max(0, budgetKcal - todayKcal);
   const pillFg = overBudget ? tokens.warn : '#1F7A3A';
   return (
     <View style={styles.headlineRow}>
@@ -380,8 +374,8 @@ function MealsHeadline({
           meals
         </Text>
         <View style={styles.headlineBigRow}>
-          <Text style={styles.headlineBig}>{todayPlannedKcal}</Text>
-          <Text style={styles.headlineNext}> kcal planned</Text>
+          <Text style={styles.headlineBig}>{Math.round(todayKcal)}</Text>
+          <Text style={styles.headlineNext}> kcal today</Text>
           <View
             style={[
               styles.headlinePill,
