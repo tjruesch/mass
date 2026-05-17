@@ -1,6 +1,6 @@
 import { View } from 'react-native';
 
-import { tokens } from '@/theme/tokens';
+import { useTheme } from '@/theme/use-theme';
 
 type Props = {
   color?: string;
@@ -12,13 +12,15 @@ type Props = {
  * 1px rule. Defaults to the horizontal `.hair` from designs/tokens.css;
  * pass `vertical` for the `.vhair` variant.
  */
-export function Hair({ color = tokens.line, vertical = false }: Props) {
+export function Hair({ color, vertical = false }: Props) {
+  const theme = useTheme();
+  const stroke = color ?? theme.line;
   return (
     <View
       style={
         vertical
-          ? { width: 1, alignSelf: 'stretch', backgroundColor: color }
-          : { height: 1, alignSelf: 'stretch', backgroundColor: color }
+          ? { width: 1, alignSelf: 'stretch', backgroundColor: stroke }
+          : { height: 1, alignSelf: 'stretch', backgroundColor: stroke }
       }
     />
   );

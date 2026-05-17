@@ -1,6 +1,6 @@
 import Svg, { Circle, Line, Path, Rect } from 'react-native-svg';
 
-import { tokens } from '@/theme/tokens';
+import { useTheme } from '@/theme/use-theme';
 
 /**
  * Single source-of-truth icon set, ported from designs/shared.jsx (the `G`
@@ -36,7 +36,17 @@ type Props = {
   color?: string;
 };
 
-export function Glyph({ name, size, color = tokens.ink }: Props) {
+export function Glyph({ name, size, color }: Props) {
+  const theme = useTheme();
+  const stroke = color ?? theme.ink;
+  return <GlyphInner name={name} size={size} color={stroke} />;
+}
+
+function GlyphInner({
+  name,
+  size,
+  color,
+}: Required<Pick<Props, 'name' | 'color'>> & Pick<Props, 'size'>) {
   switch (name) {
     case 'fast':
       return (
