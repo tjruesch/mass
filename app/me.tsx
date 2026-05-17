@@ -242,7 +242,7 @@ function LinkRow({
         pressed && { opacity: 0.65 },
       ]}>
       <View style={styles.iconTile}>
-        <Glyph name={icon} color={tokens.ink2} size={14} />
+        <Glyph name={icon} color={tokens.ink2} size={18} />
       </View>
       <View style={styles.rowBody}>
         <Text style={styles.rowLabel}>{label}</Text>
@@ -321,18 +321,18 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    gap: 12,
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    gap: 14,
   },
   rowBorder: {
     borderBottomWidth: 1,
     borderBottomColor: tokens.line,
   },
   iconTile: {
-    width: 26,
-    height: 26,
-    borderRadius: 8,
+    width: 34,
+    height: 34,
+    borderRadius: 9,
     backgroundColor: tokens.bg2,
     borderWidth: 1,
     borderColor: tokens.line,
@@ -345,20 +345,20 @@ const styles = StyleSheet.create({
   },
   rowLabel: {
     fontFamily: fonts.sansMedium,
-    fontSize: 13,
+    fontSize: 16,
     color: tokens.ink,
-    letterSpacing: -0.07,
+    letterSpacing: -0.16,
   },
   rowSub: {
-    marginTop: 1,
+    marginTop: 3,
     fontFamily: fonts.mono,
-    fontSize: 9.5,
+    fontSize: 11,
     color: tokens.ink4,
-    letterSpacing: 0.38,
+    letterSpacing: 0.4,
   },
   rowValue: {
     fontFamily: fonts.monoMedium,
-    fontSize: 11,
+    fontSize: 13,
     color: tokens.ink3,
   },
 });
